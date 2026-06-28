@@ -34,7 +34,7 @@ describe("runScan", () => {
 
     const result = await runScan(client, store, { now: NOW });
 
-    expect(result).toEqual({ messageCount: 3, senderCount: 3, domainCount: 2 });
+    expect(result).toEqual({ messageCount: 3, senderCount: 3, domainCount: 2, promptCount: 3 });
     expect(client.listQueries).toEqual(["in:inbox newer_than:30d"]);
 
     const senders = await store.senders.query({});
@@ -117,5 +117,50 @@ describe("runScan", () => {
 
     const profile = await store.profile.get();
     expect(profile?.googleEmail).toBe("fromclient@gmail.com");
+  });
+
+  it("generates and persists a prompt per undecided sender", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "jane@acme.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    const result = await runScan(client, store, { now: NOW });
+
+    expect(result.promptCount).toBe(2);
+    const prompts = await store.prompts.query({});
+    expect(prompts).toHaveLength(2);
+    const jane = await store.prompts.get(keyFor("jane@acme.com"));
+    expect(jane).toMatchObject({
+      senderId: keyFor("jane@acme.com"),
+      createdAt: NOW,
+      expiresAt: NOW + 30 * 24 * 60 * 60 * 1000,
+      resolvedAt: null,
+    });
+  });
+
+  it("preserves prior decisions and skips prompts for decided senders on rescan", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "jane@acme.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+
+    // The user blocks one sender; a later rescan must not re-prompt it.
+    const blocked = await store.senders.get(keyFor("news@promo.com"));
+    await store.senders.put({ ...blocked!, trustStatus: "blocked" });
+    await store.prompts.delete(keyFor("news@promo.com"));
+
+    const result = await runScan(client, store, { now: NOW + 1000 });
+
+    expect(await store.senders.get(keyFor("news@promo.com"))).toMatchObject({
+      trustStatus: "blocked",
+    });
+    expect(result.promptCount).toBe(1);
+    expect(await store.prompts.get(keyFor("news@promo.com"))).toBeUndefined();
+    expect(await store.prompts.get(keyFor("jane@acme.com"))).toBeDefined();
   });
 });

@@ -12,7 +12,43 @@
 
 import { keyFor } from "../keys";
 import type { MessageMeta } from "../ports/GmailClient";
-import type { Domain, Sender, SenderCategory } from "../store/types";
+import type {
+  AuthSignals,
+  Domain,
+  Frequency,
+  RecencyBuckets,
+  Sender,
+  SenderCategory,
+} from "../store/types";
+import { ageInDays, bucketForAgeDays, emptyBuckets } from "./recency";
+
+/** 30-day counts at/above these treat a sender as the given cadence band. */
+const FREQUENCY_DAILY = 20;
+const FREQUENCY_WEEKLY = 4;
+const FREQUENCY_MONTHLY = 1;
+
+/** Derive a cadence band from the 30-day message count. */
+export function frequencyFor(emails30d: number): Frequency {
+  if (emails30d >= FREQUENCY_DAILY) return "daily";
+  if (emails30d >= FREQUENCY_WEEKLY) return "weekly";
+  if (emails30d >= FREQUENCY_MONTHLY) return "monthly";
+  return "rare";
+}
+
+/**
+ * Parse an `Authentication-Results` header into pass/fail booleans and a spoofing
+ * verdict. `spoofed` when DMARC fails, or when both SPF and DKIM fail.
+ */
+export function parseAuthResults(header: string | undefined): AuthSignals {
+  if (header === undefined) return { spf: false, dkim: false, dmarc: false, spoofed: false };
+  const spf = /spf=pass/i.test(header);
+  const dkim = /dkim=pass/i.test(header);
+  const dmarc = /dmarc=pass/i.test(header);
+  const dmarcFail = /dmarc=fail/i.test(header);
+  const spfFail = /spf=fail/i.test(header);
+  const dkimFail = /dkim=fail/i.test(header);
+  return { spf, dkim, dmarc, spoofed: dmarcFail || (spfFail && dkimFail) };
+}
 
 /** A parsed `From` header. */
 export interface ParsedAddress {
@@ -107,6 +143,28 @@ interface SenderAccumulator {
   totalEmails: number;
   firstSeenAt: number;
   lastSeenAt: number;
+  unreadCount: number;
+  starredCount: number;
+  spamMarkedCount: number;
+  buckets: RecencyBuckets;
+  /** Auth posture of the most recent message that carried the header. */
+  auth: AuthSignals;
+  latestAuthDate: number;
+}
+
+/** Apply one message's metadata signals to a sender accumulator. */
+function applyMessageSignals(acc: SenderAccumulator, meta: MessageMeta, now: number): void {
+  if (meta.labelIds.includes("UNREAD")) acc.unreadCount += 1;
+  if (meta.labelIds.includes("STARRED")) acc.starredCount += 1;
+  if (meta.labelIds.includes("SPAM")) acc.spamMarkedCount += 1;
+
+  acc.buckets[bucketForAgeDays(ageInDays(now, meta.internalDate))] += 1;
+
+  const authHeader = meta.headers.authenticationResults;
+  if (authHeader !== undefined && meta.internalDate >= acc.latestAuthDate) {
+    acc.auth = parseAuthResults(authHeader);
+    acc.latestAuthDate = meta.internalDate;
+  }
 }
 
 export interface ExtractResult {
@@ -127,12 +185,12 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
     const parsed = parseFromHeader(meta.headers.from);
     if (parsed === null) continue;
 
-    const acc = accumulators.get(parsed.email);
+    let acc = accumulators.get(parsed.email);
     const hasUnsub = meta.headers.listUnsubscribe !== undefined;
     const hasListId = meta.headers.listId !== undefined;
 
     if (acc === undefined) {
-      accumulators.set(parsed.email, {
+      acc = {
         email: parsed.email,
         domain: parsed.domain,
         displayName: parsed.displayName,
@@ -142,7 +200,15 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
         totalEmails: 1,
         firstSeenAt: meta.internalDate,
         lastSeenAt: meta.internalDate,
-      });
+        unreadCount: 0,
+        starredCount: 0,
+        spamMarkedCount: 0,
+        buckets: emptyBuckets(),
+        auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
+        latestAuthDate: -1,
+      };
+      accumulators.set(parsed.email, acc);
+      applyMessageSignals(acc, meta, now);
       continue;
     }
 
@@ -154,12 +220,14 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
       acc.displayName = parsed.displayName;
     if (meta.internalDate < acc.firstSeenAt) acc.firstSeenAt = meta.internalDate;
     if (meta.internalDate > acc.lastSeenAt) acc.lastSeenAt = meta.internalDate;
+    applyMessageSignals(acc, meta, now);
   }
 
   const senders: Sender[] = [];
   const domainAcc = new Map<string, { totalEmails: number; senderCount: number }>();
 
   for (const acc of accumulators.values()) {
+    const emails30d = acc.buckets.d30;
     senders.push({
       id: keyFor(acc.email),
       email: acc.email,
@@ -178,6 +246,14 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
       firstSeenAt: acc.firstSeenAt,
       lastSeenAt: acc.lastSeenAt,
       updatedAt: now,
+      readRate: acc.totalEmails > 0 ? 1 - acc.unreadCount / acc.totalEmails : null,
+      starredCount: acc.starredCount,
+      spamMarkedCount: acc.spamMarkedCount,
+      replyCount: 0,
+      inContacts: false,
+      frequency: frequencyFor(emails30d),
+      recencyBuckets: acc.buckets,
+      auth: acc.auth,
     });
 
     const d = domainAcc.get(acc.domain) ?? { totalEmails: 0, senderCount: 0 };

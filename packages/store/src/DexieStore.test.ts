@@ -30,6 +30,14 @@ function senderFixture(email: string, overrides: Partial<Sender> = {}): Sender {
     firstSeenAt: 1,
     lastSeenAt: 1,
     updatedAt: 1,
+    readRate: 1,
+    starredCount: 0,
+    spamMarkedCount: 0,
+    replyCount: 0,
+    inContacts: false,
+    frequency: "rare",
+    recencyBuckets: { d30: 0, d90: 0, d180: 0, older: 1 },
+    auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
     ...overrides,
   };
 }
@@ -156,7 +164,10 @@ describe("DexieStore prompts (priority-ordered)", () => {
       id,
       senderId: keyFor(`${id}@acme.com`),
       priorityScore,
+      components: { impact: 0, confidence: 0, batch: 0, alignment: 0 },
       batchGroupId: null,
+      batchSize: 1,
+      createdAt: 0,
       expiresAt: 0,
       resolvedAt: null,
     };

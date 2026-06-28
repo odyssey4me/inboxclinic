@@ -13,6 +13,29 @@
 /** A trust decision state for a sender or domain. */
 export type TrustStatus = "trusted" | "blocked" | "pending";
 
+/** Email cadence band for a sender (design-trust-decisions.md, frequency signal). */
+export type Frequency = "daily" | "weekly" | "monthly" | "rare";
+
+/**
+ * Non-overlapping recency buckets (counts of emails by age at scan time). The
+ * boundaries match the recency weights in design-trust-decisions.md: ≤30d, 30–90d,
+ * 90–180d, >180d.
+ */
+export interface RecencyBuckets {
+  d30: number;
+  d90: number;
+  d180: number;
+  older: number;
+}
+
+/** Delivery-authentication signals parsed from `Authentication-Results`. */
+export interface AuthSignals {
+  spf: boolean;
+  dkim: boolean;
+  dmarc: boolean;
+  spoofed: boolean;
+}
+
 /**
  * M1 sender category. A deterministic bucket derived from Gmail category labels,
  * list headers, and frequency — see senders/extract.ts. (The richer trust-decisions
@@ -54,6 +77,24 @@ export interface Sender {
   firstSeenAt: number;
   lastSeenAt: number;
   updatedAt: number;
+
+  // --- Trust signals (metadata-derived; M2) --------------------------------
+  /** Fraction of messages read: `1 − UNREAD/total`. `null` only if `total` is 0. */
+  readRate: number | null;
+  /** Messages carrying the Gmail `STARRED` label. */
+  starredCount: number;
+  /** Messages carrying the Gmail `SPAM` label. */
+  spamMarkedCount: number;
+  /** Replies the user sent to this sender. Deferred (SENT scan) — `0` for now. */
+  replyCount: number;
+  /** Whether the sender is in the user's contacts. Deferred (People API) — `false`. */
+  inContacts: boolean;
+  /** Email cadence band derived from the 30-day count. */
+  frequency: Frequency;
+  /** Email counts bucketed by recency at scan time. */
+  recencyBuckets: RecencyBuckets;
+  /** Delivery-authentication posture from the most recent authenticated message. */
+  auth: AuthSignals;
 }
 
 /** Per-domain aggregate. Primary key `id = keyFor(domain)`. */
@@ -68,16 +109,33 @@ export interface Domain {
   updatedAt: number;
 }
 
-// --- Deferred entities (typed minimally so the Store port is complete) ---------
+/** The four weighted components behind a prompt's priority (design-trust-decisions.md). */
+export interface PriorityComponents {
+  impact: number;
+  confidence: number;
+  batch: number;
+  alignment: number;
+}
 
+/**
+ * A pending trust prompt for an undecided sender. Primary key `id`. 30-day TTL.
+ * See design-trust-decisions.md (prompt priority) and design-local-store-schema.md.
+ */
 export interface Prompt {
   id: string;
   senderId: string;
   priorityScore: number;
+  components: PriorityComponents;
+  /** e.g. `"domain:company.com"`, or `null` when not batchable. */
   batchGroupId: string | null;
+  /** Number of same-batch candidates (≥1). */
+  batchSize: number;
+  createdAt: number;
   expiresAt: number;
   resolvedAt: number | null;
 }
+
+// --- Deferred entities (typed minimally so the Store port is complete) ---------
 
 export interface DailyAnalytics {
   date: string; // YYYY-MM-DD

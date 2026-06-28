@@ -10,13 +10,17 @@ export type {
 } from "./Store";
 
 export type {
+  AuthSignals,
   DailyAnalytics,
   Domain,
   FilterSyncState,
+  Frequency,
   MonthlyAnalytics,
+  PriorityComponents,
   Profile,
   ProfilePrivacy,
   Prompt,
+  RecencyBuckets,
   Sender,
   SenderCategory,
   Setting,

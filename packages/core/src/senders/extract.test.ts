@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
 import { messageMetaBuilder } from "../testing/builders";
-import { categorise, extractSenders, HIGH_VOLUME_THRESHOLD, parseFromHeader } from "./extract";
+import {
+  categorise,
+  extractSenders,
+  frequencyFor,
+  HIGH_VOLUME_THRESHOLD,
+  parseAuthResults,
+  parseFromHeader,
+} from "./extract";
 
 describe("parseFromHeader", () => {
   it("parses a quoted display name with an angle-addr address", () => {
@@ -172,5 +179,96 @@ describe("extractSenders", () => {
 
     const [sender] = extractSenders(metas).senders;
     expect(sender?.displayName).toBe("Brand Team");
+  });
+});
+
+describe("frequencyFor", () => {
+  it("bands the 30-day count into a cadence", () => {
+    expect(frequencyFor(25)).toBe("daily");
+    expect(frequencyFor(20)).toBe("daily");
+    expect(frequencyFor(4)).toBe("weekly");
+    expect(frequencyFor(3)).toBe("monthly");
+    expect(frequencyFor(1)).toBe("monthly");
+    expect(frequencyFor(0)).toBe("rare");
+  });
+});
+
+describe("parseAuthResults", () => {
+  it("reads SPF/DKIM/DMARC pass results", () => {
+    expect(parseAuthResults("mx.google.com; spf=pass; dkim=pass; dmarc=pass")).toEqual({
+      spf: true,
+      dkim: true,
+      dmarc: true,
+      spoofed: false,
+    });
+  });
+
+  it("flags spoofing when DMARC fails", () => {
+    expect(parseAuthResults("spf=pass; dkim=pass; dmarc=fail").spoofed).toBe(true);
+  });
+
+  it("flags spoofing when both SPF and DKIM fail", () => {
+    expect(parseAuthResults("spf=fail; dkim=fail").spoofed).toBe(true);
+  });
+
+  it("returns all-false for a missing header", () => {
+    expect(parseAuthResults(undefined)).toEqual({
+      spf: false,
+      dkim: false,
+      dmarc: false,
+      spoofed: false,
+    });
+  });
+});
+
+describe("extractSenders — trust signals", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const NOW = Date.UTC(2026, 0, 31);
+
+  it("derives readRate, starred/spam counts, recency buckets and frequency", () => {
+    const metas = [
+      messageMetaBuilder({
+        headers: { from: "s@x.com" },
+        labelIds: ["INBOX", "UNREAD"],
+        internalDate: NOW - 5 * DAY,
+      }),
+      messageMetaBuilder({
+        headers: { from: "s@x.com" },
+        labelIds: ["INBOX", "STARRED"],
+        internalDate: NOW - 40 * DAY,
+      }),
+      messageMetaBuilder({
+        headers: { from: "s@x.com" },
+        labelIds: ["INBOX", "SPAM"],
+        internalDate: NOW - 200 * DAY,
+      }),
+    ];
+
+    const [sender] = extractSenders(metas, NOW).senders;
+    expect(sender?.totalEmails).toBe(3);
+    expect(sender?.readRate).toBeCloseTo(2 / 3, 5); // 1 of 3 unread
+    expect(sender?.starredCount).toBe(1);
+    expect(sender?.spamMarkedCount).toBe(1);
+    expect(sender?.recencyBuckets).toEqual({ d30: 1, d90: 1, d180: 0, older: 1 });
+    expect(sender?.frequency).toBe("monthly"); // 1 email in 30d
+    expect(sender?.replyCount).toBe(0);
+    expect(sender?.inContacts).toBe(false);
+  });
+
+  it("uses the most recent authenticated message's auth posture", () => {
+    const metas = [
+      messageMetaBuilder({
+        headers: { from: "a@y.com", authenticationResults: "spf=pass; dkim=pass; dmarc=pass" },
+        internalDate: NOW - 10 * DAY,
+      }),
+      messageMetaBuilder({
+        headers: { from: "a@y.com", authenticationResults: "dmarc=fail" },
+        internalDate: NOW - 1 * DAY,
+      }),
+    ];
+
+    const [sender] = extractSenders(metas, NOW).senders;
+    expect(sender?.auth.spoofed).toBe(true);
+    expect(sender?.auth.dmarc).toBe(false);
   });
 });

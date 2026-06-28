@@ -7,13 +7,15 @@
  * and in the app with the browser adapters.
  *
  * Flow: build a bounded Gmail query → list ids → fetch each message's metadata →
- * extract senders/domains → upsert them → update the profile counts. The History-API
+ * extract senders/domains → upsert them (preserving prior trust decisions) →
+ * generate prompts for the undecided → update the profile counts. The History-API
  * marker (`lastHistoryId`) is a placeholder in M1; incremental sync arrives in M5.
  */
 
+import { generatePrompts } from "../prompts/generatePrompts";
 import { extractSenders } from "../senders/extract";
 import type { GmailClient } from "../ports/GmailClient";
-import type { Profile, Store } from "../store";
+import type { Profile, Sender, Store } from "../store";
 
 export interface RunScanOptions {
   /** Bounded scan window in days (design default 30). */
@@ -32,6 +34,7 @@ export interface ScanResult {
   messageCount: number;
   senderCount: number;
   domainCount: number;
+  promptCount: number;
 }
 
 const DEFAULT_WINDOW_DAYS = 30;
@@ -70,8 +73,20 @@ export async function runScan(
   const metas = await Promise.all(ids.map((id) => client.getMessageMeta(id)));
 
   const { senders, domains } = extractSenders(metas, now);
+
+  // Preserve prior trust decisions across rescans; only undecided senders prompt.
+  const priorStatus = new Map<string, Sender["trustStatus"]>();
+  for (const prior of await store.senders.query({})) priorStatus.set(prior.id, prior.trustStatus);
+  for (const sender of senders) {
+    const prev = priorStatus.get(sender.id);
+    if (prev !== undefined) sender.trustStatus = prev;
+  }
+
   await store.senders.bulkPut(senders);
   await store.domains.bulkPut(domains);
+
+  const prompts = generatePrompts(senders, { now });
+  await store.prompts.bulkPut(prompts);
 
   const existing = await store.profile.get();
   const accountEmail =
@@ -93,5 +108,6 @@ export async function runScan(
     messageCount: metas.length,
     senderCount: senders.length,
     domainCount: domains.length,
+    promptCount: prompts.length,
   };
 }
