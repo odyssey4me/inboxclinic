@@ -14,12 +14,14 @@ import type {
   AccessToken,
   FilterSpec,
   GmailClient,
+  HistoryList,
+  HistoryRecord,
   MessageLabelEdit,
   MessageMeta,
   NativeFilter,
   ScopeTier,
 } from "../ports/GmailClient";
-import { SCOPES_BY_TIER } from "../ports/GmailClient";
+import { SCOPES_BY_TIER, StaleHistoryError } from "../ports/GmailClient";
 
 /** A recorded `batchModifyMessages` call. */
 export interface BatchModifyCall {
@@ -32,6 +34,14 @@ export class MockGmailClient implements GmailClient {
   private accountEmail: string;
   private filters: NativeFilter[] = [];
   private filterSeq = 0;
+  /** History records served by `listHistory`, keyed by the `startHistoryId` queried. */
+  private history: HistoryRecord[] = [];
+  /** The mailbox's current historyId (advanced as deltas are seeded). */
+  private currentHistoryId = "1";
+  /** When set, `listHistory` rejects with {@link StaleHistoryError} (simulates 404). */
+  private historyStale = false;
+  /** Records the `startHistoryId` values passed to `listHistory`, for assertions. */
+  readonly historyQueries: string[] = [];
   /** Records the queries passed to `listMessageIds`, for assertions. */
   readonly listQueries: string[] = [];
   /** Records the `from` clauses passed to `listMessageIdsForSender`, for assertions. */
@@ -56,6 +66,31 @@ export class MockGmailClient implements GmailClient {
   /** Seed pre-existing native filters (e.g. to test reconciliation/idempotency). */
   seedFilters(filters: NativeFilter[]): void {
     this.filters = filters.map((f) => ({ ...f }));
+  }
+
+  /** Append messages to the seeded inbox (so `getMessageMeta` can serve history adds). */
+  addInboxMessages(messages: MessageMeta[]): void {
+    this.messages.push(...messages);
+  }
+
+  /**
+   * Seed the history deltas served by `listHistory` and advance the mailbox's current
+   * historyId. Pair this with `addInboxMessages` so the metadata for added/label-changed
+   * messages is fetchable.
+   */
+  seedHistory(records: HistoryRecord[], currentHistoryId: string): void {
+    this.history = records.map((r) => ({ ...r }));
+    this.currentHistoryId = currentHistoryId;
+  }
+
+  /** Set the mailbox's current historyId (returned by `getLatestHistoryId`). */
+  setLatestHistoryId(historyId: string): void {
+    this.currentHistoryId = historyId;
+  }
+
+  /** Make `listHistory` simulate a stale marker (Gmail 404 → {@link StaleHistoryError}). */
+  setStaleHistory(stale = true): void {
+    this.historyStale = stale;
   }
 
   authenticate(tiers: ScopeTier[] = [1]): Promise<AccessToken> {
@@ -86,6 +121,21 @@ export class MockGmailClient implements GmailClient {
       return Promise.reject(new Error(`MockGmailClient: no message with id ${id}`));
     }
     return Promise.resolve(found);
+  }
+
+  listHistory(startHistoryId: string): Promise<HistoryList> {
+    this.historyQueries.push(startHistoryId);
+    if (this.historyStale) {
+      return Promise.reject(new StaleHistoryError());
+    }
+    return Promise.resolve({
+      records: this.history.map((r) => ({ ...r })),
+      historyId: this.currentHistoryId,
+    });
+  }
+
+  getLatestHistoryId(): Promise<string> {
+    return Promise.resolve(this.currentHistoryId);
   }
 
   listFilters(): Promise<NativeFilter[]> {

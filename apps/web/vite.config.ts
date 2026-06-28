@@ -10,6 +10,14 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
+      // Custom SW (src/sw.ts) so we can add a Periodic Background Sync handler while
+      // still precaching the app shell via Workbox (design-frontend.md Decision 4).
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg}"],
+      },
       includeAssets: ["icon.svg"],
       manifest: {
         name: "Inbox Clinic",

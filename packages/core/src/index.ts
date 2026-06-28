@@ -7,9 +7,14 @@ export {
   GMAIL_MODIFY_SCOPE,
   GMAIL_SETTINGS_BASIC_SCOPE,
   SCOPES_BY_TIER,
+  StaleHistoryError,
   type AccessToken,
   type FilterSpec,
   type GmailClient,
+  type HistoryList,
+  type HistoryMessage,
+  type HistoryRecord,
+  type ListHistoryOptions,
   type MessageHeaders,
   type MessageLabelEdit,
   type MessageMeta,
@@ -106,6 +111,13 @@ export { defaultBlockActions } from "./decisions/blockActions";
 // Bounded metadata scan orchestration (pure over the ports).
 export { buildScanQuery, runScan, type RunScanOptions, type ScanResult } from "./scan/runScan";
 
+// Incremental History-API sync (pure over the ports; M5).
+export {
+  incrementalSync,
+  type IncrementalSyncOptions,
+  type IncrementalSyncResult,
+} from "./scan/incrementalSync";
+
 // Native-filter compilation + reconciliation (pure).
 export {
   compileFilters,
@@ -126,8 +138,10 @@ export { planActions, type ActionPlan, type PlanActionsInput } from "./enforceme
 // Enforcement orchestration (over the GmailClient + Store ports).
 export {
   enforce,
+  reconcileNativeFilters,
   FILTER_SYNC_KEY,
   type EnforceOptions,
   type EnforceResult,
   type EnforceFailure,
+  type FilterReconcileOutcome,
 } from "./enforcement/enforce";

@@ -101,6 +101,56 @@ export interface MessageLabelEdit {
 }
 
 /**
+ * A message reference inside a Gmail history record (metadata-light: id + labels).
+ * The History API does not carry headers, so attributing a record to a sender still
+ * needs a metadata fetch (design-gmail-integration.md Decision 4).
+ */
+export interface HistoryMessage {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+}
+
+/**
+ * One Gmail history record — a change set at a given `id` (historyId). The arrays
+ * mirror `users.history.list`: messages added/deleted from the mailbox, and labels
+ * added/removed on existing messages.
+ */
+export interface HistoryRecord {
+  id: string;
+  messagesAdded?: { message: HistoryMessage }[];
+  messagesDeleted?: { message: HistoryMessage }[];
+  labelsAdded?: { message: HistoryMessage; labelIds: string[] }[];
+  labelsRemoved?: { message: HistoryMessage; labelIds: string[] }[];
+}
+
+/** The paged-through result of `listHistory` since a stored historyId. */
+export interface HistoryList {
+  records: HistoryRecord[];
+  /** The mailbox's current historyId — advance the stored marker to this. */
+  historyId: string;
+}
+
+/** Options for {@link GmailClient.listHistory}. */
+export interface ListHistoryOptions {
+  /** Restrict history to changes touching this label (e.g. `INBOX`). */
+  labelId?: string;
+}
+
+/**
+ * Thrown when Gmail rejects a `startHistoryId` as too old (HTTP 404). The caller must
+ * fall back to a bounded rescan and reset the marker (design-gmail-integration.md
+ * Decision 4 / `GmailHistoryStale`). Carrying it as a typed error keeps the recovery
+ * branch explicit instead of string-matching on a generic failure.
+ */
+export class StaleHistoryError extends Error {
+  constructor(message = "Gmail historyId is stale; a bounded rescan is required") {
+    super(message);
+    this.name = "StaleHistoryError";
+  }
+}
+
+/**
  * The provider-client port. Implementations are adapters (browser fetch + GIS in
  * `apps/web`; an in-memory fixture mock in `../testing`).
  */
@@ -115,6 +165,16 @@ export interface GmailClient {
   listMessageIds(query: string, max: number): Promise<string[]>;
   /** Fetch a single message's metadata (headers + labels only). */
   getMessageMeta(id: string): Promise<MessageMeta>;
+
+  // --- Incremental sync (Tier 1; M5) --------------------------------------
+  /**
+   * Page through `users.history.list` since `startHistoryId`, returning the change
+   * records and the mailbox's current historyId. Throws {@link StaleHistoryError}
+   * when Gmail rejects the marker as too old (404) — the caller then rescans.
+   */
+  listHistory(startHistoryId: string, options?: ListHistoryOptions): Promise<HistoryList>;
+  /** The mailbox's current historyId (`users.getProfile`), used to (re)seed the marker. */
+  getLatestHistoryId(): Promise<string>;
 
   // --- Enforcement (Tier 2; M4) -------------------------------------------
   /** List the account's native Gmail filters (`users.settings.filters.list`). */

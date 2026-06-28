@@ -7,11 +7,14 @@
  * Implements the `GmailClient` port from `@inboxclinic/core`.
  */
 
-import { SCOPES_BY_TIER } from "@inboxclinic/core";
+import { SCOPES_BY_TIER, StaleHistoryError } from "@inboxclinic/core";
 import type {
   AccessToken,
   FilterSpec,
   GmailClient,
+  HistoryList,
+  HistoryRecord,
+  ListHistoryOptions,
   MessageHeaders,
   MessageLabelEdit,
   MessageMeta,
@@ -71,6 +74,13 @@ interface GmailMessageResponse {
 
 interface GmailProfileResponse {
   emailAddress: string;
+  historyId?: string;
+}
+
+interface GmailHistoryListResponse {
+  history?: HistoryRecord[];
+  nextPageToken?: string;
+  historyId?: string;
 }
 
 interface GmailFilterResource {
@@ -216,6 +226,49 @@ export class BrowserGmailClient implements GmailClient {
       internalDate: message.internalDate !== undefined ? Number(message.internalDate) : 0,
       headers: parseHeaders(message.payload?.headers ?? []),
     };
+  }
+
+  // --- Incremental sync (Tier 1) --------------------------------------------
+
+  async getLatestHistoryId(): Promise<string> {
+    const profile = await this.apiGet<GmailProfileResponse>("/profile");
+    return profile.historyId ?? "";
+  }
+
+  /**
+   * Page through `users.history.list` since `startHistoryId`. A 404 means Gmail no
+   * longer retains history that far back; surface it as {@link StaleHistoryError} so the
+   * caller runs a bounded rescan (design-gmail-integration.md Decision 4).
+   */
+  async listHistory(
+    startHistoryId: string,
+    options: ListHistoryOptions = {},
+  ): Promise<HistoryList> {
+    const records: HistoryRecord[] = [];
+    let latestHistoryId = startHistoryId;
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({ startHistoryId });
+      if (options.labelId !== undefined) params.set("labelId", options.labelId);
+      if (pageToken !== undefined) params.set("pageToken", pageToken);
+
+      const token = await this.getAccessToken();
+      const response = await fetch(`${GMAIL_API}/history?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token.value}` },
+      });
+      if (response.status === 404) {
+        throw new StaleHistoryError();
+      }
+      if (!response.ok) {
+        throw new Error(`Gmail API responded ${response.status} for /history`);
+      }
+      const page = (await response.json()) as GmailHistoryListResponse;
+      records.push(...(page.history ?? []));
+      if (page.historyId !== undefined) latestHistoryId = page.historyId;
+      pageToken = page.nextPageToken;
+    } while (pageToken !== undefined);
+
+    return { records, historyId: latestHistoryId };
   }
 
   // --- Enforcement (Tier 2) -------------------------------------------------

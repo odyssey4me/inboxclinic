@@ -40,6 +40,21 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: /request access/i })).toBeInTheDocument();
   });
 
+  it("syncs on open: populates senders right after sign-in, no scan click (mock only)", async () => {
+    const { gmail, store } = setup();
+    render(<App gmail={gmail} store={store} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
+
+    // sync-on-open runs incrementalSync (full scan on first run) without a manual click.
+    expect((await screen.findAllByText("jane@acme.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("news@promo.com")).length).toBeGreaterThan(0);
+
+    // The History-API marker is seeded so subsequent syncs are incremental.
+    const profile = await store.profile.get();
+    expect(profile?.lastHistoryId).not.toBeNull();
+  });
+
   it("lists scanned senders after sign-in and scan (no real Google)", async () => {
     const { gmail, store } = setup();
     render(<App gmail={gmail} store={store} />);

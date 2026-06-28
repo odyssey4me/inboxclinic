@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "WebWorker"],
+    "types": ["vite/client"]
+  },
+  "include": ["src/sw.ts", "src/pwa/syncTag.ts"]
+}

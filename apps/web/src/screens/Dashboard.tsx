@@ -8,8 +8,11 @@ import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 export interface DashboardProps {
   store: Store;
   email: string;
+  online: boolean;
   scanning: boolean;
+  syncing: boolean;
   onScan: () => void;
+  onSync: () => void;
   onStartWorkflow: () => void;
 }
 
@@ -23,7 +26,16 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 /** Dashboard shell: counts, top pending prompts, the sender list, scan + workflow entry. */
-export function Dashboard({ store, email, scanning, onScan, onStartWorkflow }: DashboardProps) {
+export function Dashboard({
+  store,
+  email,
+  online,
+  scanning,
+  syncing,
+  onScan,
+  onSync,
+  onStartWorkflow,
+}: DashboardProps) {
   const { data } = useStoreSnapshot(store);
 
   const senders = data?.senders ?? [];
@@ -46,9 +58,14 @@ export function Dashboard({ store, email, scanning, onScan, onStartWorkflow }: D
             Signed in as <span className="font-medium text-slate-700">{email}</span>
           </p>
         </div>
-        <Button variant="secondary" onClick={onScan} disabled={scanning}>
-          {scanning ? "Scanning…" : "Scan inbox"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
+            {syncing ? "Syncing…" : "Sync"}
+          </Button>
+          <Button variant="secondary" onClick={onScan} disabled={scanning || !online}>
+            {scanning ? "Scanning…" : "Scan inbox"}
+          </Button>
+        </div>
       </header>
 
       <section className="grid grid-cols-3 gap-3" aria-label="Summary">

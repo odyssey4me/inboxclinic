@@ -72,7 +72,7 @@ export type SenderCategory = "promotional" | "transactional" | "personal" | "oth
 export interface Profile {
   googleEmail: string;
   onboardingComplete: boolean;
-  /** History-API marker; a placeholder (`null`) until incremental sync (M5). */
+  /** History-API marker for incremental sync; `null` until the first scan seeds it. */
   lastHistoryId: string | null;
   senderCount: number;
   domainCount: number;

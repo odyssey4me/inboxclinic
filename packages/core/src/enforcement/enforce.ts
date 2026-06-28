@@ -64,30 +64,35 @@ function errMsg(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-interface MessageSubject {
-  from: string;
-  pendingActions: BlockAction[];
-  hasListUnsubscribe: boolean;
-  clear: () => Promise<void>;
+/** Outcome of reconciling the durable blocked set against the account's native filters. */
+export interface FilterReconcileOutcome {
+  filtersCreated: number;
+  filtersDeleted: number;
+  /** Filter count after reconciliation, for the soft-cap headroom view. */
+  totalFilters: number;
+  /** True when the desired filter set hit the ~450 soft cap. */
+  capReached: boolean;
+  /** Filters not created because the cap was reached. */
+  skippedAtCap: number;
+  failures: EnforceFailure[];
 }
 
 /**
- * Reconcile native filters, apply staged message actions, rescue trusted senders, and
- * record sync state. Returns a summary of what changed. Idempotent and best-effort.
+ * Reconcile native Gmail filters from the *durable* blocked set (every blocked
+ * sender/domain), not from `pendingActions`. Idempotent: re-running yields no ops once
+ * Gmail already matches the desired set, so it is safe to call on every sync (M5) as
+ * well as during enforcement (M4). Best-effort: per-filter failures are collected.
  */
-export async function enforce(
+export async function reconcileNativeFilters(
   client: GmailClient,
   store: Store,
-  options: EnforceOptions = {},
-): Promise<EnforceResult> {
-  const now = options.now ?? Date.now();
+  options: CompileFiltersOptions = {},
+): Promise<FilterReconcileOutcome> {
   const failures: EnforceFailure[] = [];
-
   const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
   const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
+  const compiled = compileFilters(blockedSenders, blockedDomains, options);
 
-  // 1. Native filters — reconcile the durable block set against Gmail.
-  const compiled = compileFilters(blockedSenders, blockedDomains, options.compile);
   let filtersCreated = 0;
   let filtersDeleted = 0;
   let totalFilters = 0;
@@ -114,6 +119,43 @@ export async function enforce(
   } catch (error) {
     failures.push({ subject: "filters", error: errMsg(error) });
   }
+
+  return {
+    filtersCreated,
+    filtersDeleted,
+    totalFilters,
+    capReached: compiled.capReached,
+    skippedAtCap: compiled.skippedAtCap,
+    failures,
+  };
+}
+
+interface MessageSubject {
+  from: string;
+  pendingActions: BlockAction[];
+  hasListUnsubscribe: boolean;
+  clear: () => Promise<void>;
+}
+
+/**
+ * Reconcile native filters, apply staged message actions, rescue trusted senders, and
+ * record sync state. Returns a summary of what changed. Idempotent and best-effort.
+ */
+export async function enforce(
+  client: GmailClient,
+  store: Store,
+  options: EnforceOptions = {},
+): Promise<EnforceResult> {
+  const now = options.now ?? Date.now();
+  const failures: EnforceFailure[] = [];
+
+  const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
+  const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
+
+  // 1. Native filters — reconcile the durable block set against Gmail.
+  const filters = await reconcileNativeFilters(client, store, options.compile);
+  const { filtersCreated, filtersDeleted, totalFilters } = filters;
+  failures.push(...filters.failures);
 
   // 2. One-time message actions for blocked subjects with staged pendingActions.
   const subjects: MessageSubject[] = [];
@@ -191,8 +233,8 @@ export async function enforce(
     messagesRescued,
     unsubscribeRequested,
     totalFilters,
-    capReached: compiled.capReached,
-    skippedAtCap: compiled.skippedAtCap,
+    capReached: filters.capReached,
+    skippedAtCap: filters.skippedAtCap,
     failures,
   };
 }

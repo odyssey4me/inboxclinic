@@ -8,8 +8,9 @@
  *
  * Flow: build a bounded Gmail query → list ids → fetch each message's metadata →
  * extract senders/domains → upsert them (preserving prior trust decisions) →
- * generate prompts for the undecided → update the profile counts. The History-API
- * marker (`lastHistoryId`) is a placeholder in M1; incremental sync arrives in M5.
+ * generate prompts for the undecided → update the profile counts. `runScan` is also the
+ * first-run / stale-recovery path for `incrementalSync` (scan/incrementalSync.ts), which
+ * seeds the History-API marker (`lastHistoryId`) from `getLatestHistoryId` afterwards.
  */
 
 import { generatePrompts } from "../prompts/generatePrompts";
