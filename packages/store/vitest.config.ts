@@ -2,11 +2,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    name: "core",
+    name: "store",
     environment: "node",
     globals: false,
+    setupFiles: ["./src/testing/setup.ts"],
     include: ["src/**/*.test.ts"],
-    // Coverage (incl. the ≥80% gate) is configured globally in the root
-    // vitest.config.ts so the workspace run enforces it once across all suites.
   },
 });

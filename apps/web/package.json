@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@inboxclinic/core": "*",
+    "@inboxclinic/store": "*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

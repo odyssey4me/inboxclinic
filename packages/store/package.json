@@ -1,5 +1,5 @@
 {
-  "name": "@inboxclinic/core",
+  "name": "@inboxclinic/store",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
@@ -8,15 +8,18 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
-    },
-    "./testing": {
-      "types": "./src/testing/index.ts",
-      "default": "./src/testing/index.ts"
     }
   },
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@inboxclinic/core": "*",
+    "dexie": "4.4.4"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.5"
   }
 }

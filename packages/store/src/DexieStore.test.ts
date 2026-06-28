@@ -1,0 +1,213 @@
+import {
+  keyFor,
+  type DailyAnalytics,
+  type Domain,
+  type FilterSyncState,
+  type MonthlyAnalytics,
+  type Profile,
+  type Prompt,
+  type Sender,
+  type Setting,
+} from "@inboxclinic/core";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { createDexieStore, DexieStore } from "./DexieStore";
+
+let dbSeq = 0;
+let store: DexieStore;
+
+function senderFixture(email: string, overrides: Partial<Sender> = {}): Sender {
+  return {
+    id: keyFor(email),
+    email,
+    domain: email.slice(email.indexOf("@") + 1),
+    displayName: null,
+    category: "personal",
+    trustStatus: "pending",
+    totalEmails: 1,
+    hasListUnsubscribe: false,
+    hasListId: false,
+    firstSeenAt: 1,
+    lastSeenAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  dbSeq += 1;
+  store = new DexieStore(`test-db-${dbSeq}`);
+});
+
+afterEach(() => {
+  store.close();
+});
+
+describe("DexieStore senders/domains repos", () => {
+  it("round-trips a sender by its keyFor id", async () => {
+    const sender = senderFixture("jane@acme.com");
+    await store.senders.put(sender);
+
+    expect(await store.senders.get(keyFor("jane@acme.com"))).toEqual(sender);
+  });
+
+  it("bulkPuts and queries senders by an indexed field", async () => {
+    await store.senders.bulkPut([
+      senderFixture("a@acme.com", { domain: "acme.com" }),
+      senderFixture("b@acme.com", { domain: "acme.com" }),
+      senderFixture("c@other.com", { domain: "other.com" }),
+    ]);
+
+    const acme = await store.senders.query({ domain: "acme.com" });
+    expect(acme.map((s) => s.email).sort()).toEqual(["a@acme.com", "b@acme.com"]);
+
+    const all = await store.senders.query({});
+    expect(all).toHaveLength(3);
+  });
+
+  it("deletes a sender", async () => {
+    const sender = senderFixture("gone@acme.com");
+    await store.senders.put(sender);
+    await store.senders.delete(sender.id);
+
+    expect(await store.senders.get(sender.id)).toBeUndefined();
+  });
+
+  it("round-trips a domain", async () => {
+    const domain: Domain = {
+      id: keyFor("acme.com"),
+      domain: "acme.com",
+      trustStatus: "pending",
+      senderCount: 2,
+      totalEmails: 5,
+      exceptionAddresses: [],
+      updatedAt: 1,
+    };
+    await store.domains.put(domain);
+
+    expect(await store.domains.get(keyFor("acme.com"))).toEqual(domain);
+  });
+});
+
+describe("DexieStore profile (singleton)", () => {
+  const profile: Profile = {
+    googleEmail: "owner@gmail.com",
+    onboardingComplete: false,
+    lastHistoryId: null,
+    senderCount: 0,
+    domainCount: 0,
+    messageCount: 0,
+    lastScanAt: null,
+    privacy: { contributeToAggregate: true },
+  };
+
+  it("stores and reads back the single profile record", async () => {
+    await store.profile.put(profile);
+    expect(await store.profile.get()).toEqual(profile);
+  });
+
+  it("keeps only one profile record even if the account email changes", async () => {
+    await store.profile.put(profile);
+    await store.profile.put({ ...profile, googleEmail: "renamed@gmail.com" });
+
+    const current = await store.profile.get();
+    expect(current?.googleEmail).toBe("renamed@gmail.com");
+  });
+});
+
+describe("DexieStore export / wipe", () => {
+  it("exports every store as a JSON blob and wipeAll clears them", async () => {
+    await store.senders.put(senderFixture("jane@acme.com"));
+    await store.profile.put({
+      googleEmail: "owner@gmail.com",
+      onboardingComplete: true,
+      lastHistoryId: null,
+      senderCount: 1,
+      domainCount: 1,
+      messageCount: 1,
+      lastScanAt: 1,
+      privacy: { contributeToAggregate: true },
+    });
+
+    const blob = await store.exportAll();
+    const dump = JSON.parse(new TextDecoder().decode(blob)) as Record<string, unknown[]>;
+    expect(dump.senders).toHaveLength(1);
+    expect(dump.profile).toHaveLength(1);
+
+    await store.wipeAll();
+    expect(await store.senders.query({})).toHaveLength(0);
+    expect(await store.profile.get()).toBeUndefined();
+  });
+
+  it("restores state from an exported blob via importAll", async () => {
+    await store.senders.bulkPut([senderFixture("a@acme.com"), senderFixture("b@acme.com")]);
+    const blob = await store.exportAll();
+
+    await store.wipeAll();
+    await store.importAll(blob);
+
+    expect(await store.senders.query({})).toHaveLength(2);
+  });
+});
+
+describe("DexieStore prompts (priority-ordered)", () => {
+  function promptFixture(id: string, priorityScore: number): Prompt {
+    return {
+      id,
+      senderId: keyFor(`${id}@acme.com`),
+      priorityScore,
+      batchGroupId: null,
+      expiresAt: 0,
+      resolvedAt: null,
+    };
+  }
+
+  it("returns prompts highest-priority first, bounded by the limit", async () => {
+    await store.prompts.bulkPut([
+      promptFixture("low", 10),
+      promptFixture("high", 90),
+      promptFixture("mid", 50),
+    ]);
+
+    const top = await store.prompts.byPriority(2);
+    expect(top.map((p) => p.id)).toEqual(["high", "mid"]);
+  });
+});
+
+describe("DexieStore analytics", () => {
+  it("round-trips daily and monthly analytics by their date keys", async () => {
+    const day: DailyAnalytics = { date: "2026-06-28" };
+    const month: MonthlyAnalytics = { month: "2026-06" };
+    await store.analytics.putDay(day);
+    await store.analytics.putMonth(month);
+
+    expect(await store.analytics.day("2026-06-28")).toEqual(day);
+    expect(await store.analytics.month("2026-06")).toEqual(month);
+    expect(await store.analytics.day("2000-01-01")).toBeUndefined();
+  });
+});
+
+describe("DexieStore filterSync (singleton) and settings", () => {
+  it("stores and reads back the singleton filter-sync state", async () => {
+    const state: FilterSyncState = { key: "singleton", lastSyncAt: 123, totalFilters: 7 };
+    await store.filterSync.put(state);
+
+    expect(await store.filterSync.get()).toEqual(state);
+  });
+
+  it("round-trips a setting keyed by its key", async () => {
+    const setting: Setting = { key: "theme", value: "dark" };
+    await store.settings.put(setting);
+
+    expect(await store.settings.get("theme")).toEqual(setting);
+  });
+});
+
+describe("createDexieStore", () => {
+  it("returns a working Store backed by Dexie", async () => {
+    const built = createDexieStore(`factory-db-${dbSeq}`);
+    await built.senders.put(senderFixture("factory@acme.com"));
+
+    expect(await built.senders.get(keyFor("factory@acme.com"))).toBeDefined();
+  });
+});
