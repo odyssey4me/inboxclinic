@@ -1,0 +1,194 @@
+import { describe, expect, it } from "vitest";
+
+import { enforce, FILTER_SYNC_KEY } from "./enforce";
+import { messageMetaBuilder, senderBuilder, domainBuilder } from "../testing/builders";
+import { createInMemoryStore } from "../testing/inMemoryStore";
+import { MockGmailClient } from "../testing/MockGmailClient";
+import type { FilterSpec, MessageMeta } from "../ports/GmailClient";
+
+const NOW = 1_700_000_000_000;
+
+/** A message from a given sender, so `listMessageIdsForSender` can match it. */
+const msgFrom = (from: string): MessageMeta => messageMetaBuilder({ headers: { from } });
+
+describe("enforce", () => {
+  it("reconciles a block into a native filter and archives existing mail", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("spam@a.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "archive"],
+      }),
+    );
+    const gmail = new MockGmailClient([msgFrom("spam@a.com"), msgFrom("spam@a.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      { from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    expect(gmail.batchModifyCalls).toHaveLength(1);
+    expect(gmail.batchModifyCalls[0]?.edit).toEqual({ addLabelIds: [], removeLabelIds: ["INBOX"] });
+    expect(result.filtersCreated).toBe(1);
+    expect(result.messagesArchived).toBe(2);
+    expect(result.failures).toEqual([]);
+
+    // pendingActions are cleared and sync state recorded.
+    const sender = await store.senders.get(senderBuilder("spam@a.com").id);
+    expect(sender?.pendingActions).toEqual([]);
+    const sync = await store.filterSync.get();
+    expect(sync).toEqual({ key: FILTER_SYNC_KEY, lastSyncAt: NOW, totalFilters: 1 });
+  });
+
+  it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("spam@a.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    const gmail = new MockGmailClient([msgFrom("spam@a.com")]);
+
+    await enforce(gmail, store, { now: NOW });
+    const afterFirst = {
+      created: gmail.createdFilters.length,
+      modified: gmail.batchModifyCalls.length,
+    };
+    const second = await enforce(gmail, store, { now: NOW + 1000 });
+
+    expect(gmail.createdFilters.length).toBe(afterFirst.created);
+    expect(gmail.deletedFilterIds).toEqual([]);
+    expect(gmail.batchModifyCalls.length).toBe(afterFirst.modified);
+    expect(second.filtersCreated).toBe(0);
+    expect(second.messagesTrashed).toBe(0);
+  });
+
+  it("delete staged → sends existing mail to Trash", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("junk@b.com", { trustStatus: "blocked", pendingActions: ["delete"] }),
+    );
+    const gmail = new MockGmailClient([msgFrom("junk@b.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.batchModifyCalls[0]?.edit).toEqual({
+      addLabelIds: ["TRASH"],
+      removeLabelIds: ["INBOX"],
+    });
+    expect(result.messagesTrashed).toBe(1);
+  });
+
+  it("aggregates 3+ blocked senders of a domain into one *@domain filter", async () => {
+    const store = createInMemoryStore();
+    for (const email of ["a@x.com", "b@x.com", "c@x.com"]) {
+      await store.senders.put(senderBuilder(email, { trustStatus: "blocked" }));
+    }
+    const gmail = new MockGmailClient();
+
+    await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      { from: "*@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+  });
+
+  it("applies domain-scope pending actions against *@domain mail", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("ads.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    const gmail = new MockGmailClient([msgFrom("promo@ads.com"), msgFrom("sale@ads.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.senderQueries).toContain("*@ads.com");
+    expect(result.messagesTrashed).toBe(2);
+    const domain = await store.domains.get(domainBuilder("ads.com").id);
+    expect(domain?.pendingActions).toEqual([]);
+  });
+
+  it("rescues a spam-marked trusted sender and zeroes the marker", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("friend@good.com", { trustStatus: "trusted", spamMarkedCount: 3 }),
+    );
+    const gmail = new MockGmailClient([msgFrom("friend@good.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.batchModifyCalls[0]?.edit).toEqual({ removeLabelIds: ["SPAM", "TRASH"] });
+    expect(result.messagesRescued).toBe(1);
+    const sender = await store.senders.get(senderBuilder("friend@good.com").id);
+    expect(sender?.spamMarkedCount).toBe(0);
+
+    // Idempotent: a second run does not re-rescue.
+    const second = await enforce(gmail, store, { now: NOW });
+    expect(second.messagesRescued).toBe(0);
+  });
+
+  it("deletes a managed filter when its sender is no longer blocked", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      { id: "stale", from: "gone@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.deletedFilterIds).toEqual(["stale"]);
+    expect(result.filtersDeleted).toBe(1);
+    expect(result.totalFilters).toBe(0);
+  });
+
+  it("counts an unsubscribe request without an unsubscribe transport", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("news@promo.com", {
+        trustStatus: "blocked",
+        hasListUnsubscribe: true,
+        pendingActions: ["unsubscribe", "create_filter"],
+      }),
+    );
+    const gmail = new MockGmailClient([msgFrom("news@promo.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(result.unsubscribeRequested).toBe(1);
+  });
+
+  it("surfaces the soft cap without crashing", async () => {
+    const store = createInMemoryStore();
+    for (const email of ["a@a.com", "b@b.com", "c@c.com"]) {
+      await store.senders.put(senderBuilder(email, { trustStatus: "blocked" }));
+    }
+    const gmail = new MockGmailClient();
+
+    const result = await enforce(gmail, store, { now: NOW, compile: { softCap: 1 } });
+
+    expect(result.capReached).toBe(true);
+    expect(result.skippedAtCap).toBe(2);
+    expect(gmail.createdFilters).toHaveLength(1);
+  });
+
+  it("is best-effort — a failing filter create is recorded, not thrown", async () => {
+    class FlakyClient extends MockGmailClient {
+      override createFilter(): never {
+        throw new Error("boom");
+      }
+    }
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("x@y.com", { trustStatus: "blocked" }));
+    const gmail = new FlakyClient();
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(result.filtersCreated).toBe(0);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]?.error).toBe("boom");
+  });
+});

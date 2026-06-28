@@ -6,6 +6,12 @@
  * this from production code.
  */
 
-export { messageMetaBuilder, inboxFromSender, type MessageMetaOverrides } from "./builders";
-export { MockGmailClient } from "./MockGmailClient";
+export {
+  messageMetaBuilder,
+  inboxFromSender,
+  senderBuilder,
+  domainBuilder,
+  type MessageMetaOverrides,
+} from "./builders";
+export { MockGmailClient, type BatchModifyCall } from "./MockGmailClient";
 export { InMemoryStore, createInMemoryStore } from "./inMemoryStore";

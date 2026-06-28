@@ -1,9 +1,12 @@
 import {
   applyDecision,
+  enforce,
   keyFor,
   type BlockAction,
   type Decision,
   type DecisionScope,
+  type EnforceResult,
+  type GmailClient,
   type Sender,
   type Store,
 } from "@inboxclinic/core";
@@ -34,11 +37,12 @@ interface ExecResult {
 
 export interface TrustWorkflowProps {
   store: Store;
+  gmail: GmailClient;
   onDone: () => void;
 }
 
 /** The four-phase trust-decision workflow (Discovery → Decision → Review → Execution). */
-export function TrustWorkflow({ store, onDone }: TrustWorkflowProps) {
+export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
   const { data, reload } = useStoreSnapshot(store);
 
   const [queue, setQueue] = useState<Sender[] | null>(null);
@@ -224,7 +228,13 @@ export function TrustWorkflow({ store, onDone }: TrustWorkflowProps) {
       )}
 
       {phase === "execution" && (
-        <ExecutionPhase store={store} pending={pending} onReload={reload} onDone={onDone} />
+        <ExecutionPhase
+          store={store}
+          gmail={gmail}
+          pending={pending}
+          onReload={reload}
+          onDone={onDone}
+        />
       )}
     </main>
   );
@@ -291,14 +301,17 @@ function ReviewPhase({
 
 interface ExecutionPhaseProps {
   store: Store;
+  gmail: GmailClient;
   pending: PendingDecision[];
   onReload: () => void;
   onDone: () => void;
 }
 
-function ExecutionPhase({ store, pending, onReload, onDone }: ExecutionPhaseProps) {
+function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPhaseProps) {
   const [results, setResults] = useState<ExecResult[]>([]);
   const [finished, setFinished] = useState(false);
+  const [enforcement, setEnforcement] = useState<EnforceResult | null>(null);
+  const [enforceError, setEnforceError] = useState<string | null>(null);
   const started = useRef(false);
 
   useEffect(() => {
@@ -321,10 +334,16 @@ function ExecutionPhase({ store, pending, onReload, onDone }: ExecutionPhaseProp
         }
         setResults([...collected]);
       }
+      // Record done first, then enforce against Gmail (filters + message actions).
+      try {
+        setEnforcement(await enforce(gmail, store, { now: Date.now() }));
+      } catch (caught) {
+        setEnforceError(caught instanceof Error ? caught.message : String(caught));
+      }
       setFinished(true);
       onReload();
     })();
-  }, [store, pending, onReload]);
+  }, [store, gmail, pending, onReload]);
 
   const applied = results.filter((r) => r.status === "applied").length;
   const failed = results.filter((r) => r.status === "failed").length;
@@ -340,12 +359,56 @@ function ExecutionPhase({ store, pending, onReload, onDone }: ExecutionPhaseProp
 
       {finished && (
         <>
+          {enforcement !== null && <EnforcementSummary result={enforcement} />}
+          {enforceError !== null && (
+            <p role="alert" className="text-sm text-red-600">
+              Gmail enforcement failed: {enforceError}
+            </p>
+          )}
           <p className="text-xs text-slate-400">
-            Persisted locally. Undo in Settings → Past decisions. Gmail enforcement runs later.
+            Decisions are stored on-device; Gmail filters keep enforcing while the app is closed.
+            Undo in Settings → Past decisions.
           </p>
           <Button onClick={onDone}>Done</Button>
         </>
       )}
     </section>
+  );
+}
+
+/** The Gmail enforcement result summary shown after Execution. */
+function EnforcementSummary({ result }: { result: EnforceResult }) {
+  const lines: string[] = [];
+  if (result.filtersCreated > 0) lines.push(`${result.filtersCreated} filter(s) created`);
+  if (result.filtersDeleted > 0) lines.push(`${result.filtersDeleted} filter(s) removed`);
+  if (result.messagesArchived > 0) lines.push(`${result.messagesArchived} archived`);
+  if (result.messagesTrashed > 0) lines.push(`${result.messagesTrashed} trashed`);
+  if (result.messagesRescued > 0) lines.push(`${result.messagesRescued} rescued from spam`);
+  if (result.unsubscribeRequested > 0) {
+    lines.push(`${result.unsubscribeRequested} unsubscribe(s) requested`);
+  }
+
+  return (
+    <div
+      className="space-y-1 rounded-md border border-slate-200 p-3 text-sm"
+      aria-label="Enforcement"
+    >
+      <p className="font-medium text-slate-700">Gmail enforcement</p>
+      {lines.length > 0 ? (
+        <p className="text-slate-600">{lines.join(" · ")}.</p>
+      ) : (
+        <p className="text-slate-500">No Gmail changes were needed.</p>
+      )}
+      {result.capReached && (
+        <p className="text-amber-600">
+          Filter limit reached — {result.skippedAtCap} block(s) not yet filtered.
+        </p>
+      )}
+      {result.failures.length > 0 && (
+        <p className="text-red-600">
+          {result.failures.length} action(s) failed; will retry on sync.
+        </p>
+      )}
+    </div>
   );
 }

@@ -5,7 +5,9 @@
  * fixtures for the metadata scan; they never touch the network or a real store.
  */
 
+import { keyFor } from "../keys";
 import type { MessageHeaders, MessageMeta } from "../ports/GmailClient";
+import type { Domain, Sender } from "../store/types";
 
 let seq = 0;
 
@@ -53,4 +55,58 @@ export function inboxFromSender(
       headers: { ...overrides.headers, from },
     }),
   );
+}
+
+/**
+ * Build a fully-populated `Sender` with sensible defaults (used by enforcement tests
+ * that need stored entities directly rather than via a scan). `email` derives the id,
+ * domain, and display defaults; pass overrides to set trust status / pending actions.
+ */
+export function senderBuilder(email: string, overrides: Partial<Sender> = {}): Sender {
+  const domain = email.split("@")[1] ?? "example.com";
+  return {
+    id: keyFor(email),
+    email,
+    domain,
+    displayName: null,
+    category: "other",
+    trustStatus: "pending",
+    totalEmails: 1,
+    hasListUnsubscribe: false,
+    hasListId: false,
+    firstSeenAt: 0,
+    lastSeenAt: 0,
+    updatedAt: 0,
+    readRate: null,
+    starredCount: 0,
+    spamMarkedCount: 0,
+    replyCount: 0,
+    inContacts: false,
+    frequency: "rare",
+    recencyBuckets: { d30: 0, d90: 0, d180: 0, older: 0 },
+    auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
+    trustDecidedAt: null,
+    decisionScope: null,
+    decisionContext: null,
+    pendingActions: [],
+    ...overrides,
+  };
+}
+
+/** Build a fully-populated `Domain` with sensible defaults. */
+export function domainBuilder(domain: string, overrides: Partial<Domain> = {}): Domain {
+  return {
+    id: keyFor(domain),
+    domain,
+    trustStatus: "pending",
+    senderCount: 1,
+    totalEmails: 1,
+    exceptionAddresses: [],
+    updatedAt: 0,
+    trustDecidedAt: null,
+    decisionScope: null,
+    decisionContext: null,
+    pendingActions: [],
+    ...overrides,
+  };
 }

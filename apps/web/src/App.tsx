@@ -70,6 +70,7 @@ export function App({ gmail, store }: AppProps) {
     return (
       <TrustWorkflow
         store={store}
+        gmail={gmail}
         onDone={() => {
           setReloadKey((k) => k + 1);
           setView("dashboard");

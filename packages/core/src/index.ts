@@ -4,10 +4,16 @@ export { trustTier, type TrustTier, type TrustTierName, type TrustTierColour } f
 // Provider-client port (Gmail).
 export {
   GMAIL_READONLY_SCOPE,
+  GMAIL_MODIFY_SCOPE,
+  GMAIL_SETTINGS_BASIC_SCOPE,
+  SCOPES_BY_TIER,
   type AccessToken,
+  type FilterSpec,
   type GmailClient,
   type MessageHeaders,
+  type MessageLabelEdit,
   type MessageMeta,
+  type NativeFilter,
   type ScopeTier,
 } from "./ports/GmailClient";
 
@@ -99,3 +105,29 @@ export { defaultBlockActions } from "./decisions/blockActions";
 
 // Bounded metadata scan orchestration (pure over the ports).
 export { buildScanQuery, runScan, type RunScanOptions, type ScanResult } from "./scan/runScan";
+
+// Native-filter compilation + reconciliation (pure).
+export {
+  compileFilters,
+  reconcileFilters,
+  BLOCK_FILTER_ADD_LABEL_IDS,
+  BLOCK_FILTER_REMOVE_LABEL_IDS,
+  DEFAULT_DOMAIN_BLOCK_THRESHOLD,
+  DEFAULT_MAX_DOMAINS_PER_FILTER,
+  DEFAULT_FILTER_SOFT_CAP,
+  type CompileFiltersOptions,
+  type CompiledFilters,
+  type FilterReconcilePlan,
+} from "./enforcement/compileFilters";
+
+// Action planning (pure).
+export { planActions, type ActionPlan, type PlanActionsInput } from "./enforcement/planActions";
+
+// Enforcement orchestration (over the GmailClient + Store ports).
+export {
+  enforce,
+  FILTER_SYNC_KEY,
+  type EnforceOptions,
+  type EnforceResult,
+  type EnforceFailure,
+} from "./enforcement/enforce";

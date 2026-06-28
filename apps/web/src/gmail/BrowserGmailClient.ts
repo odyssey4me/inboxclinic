@@ -7,13 +7,24 @@
  * Implements the `GmailClient` port from `@inboxclinic/core`.
  */
 
-import { GMAIL_READONLY_SCOPE } from "@inboxclinic/core";
-import type { AccessToken, GmailClient, MessageHeaders, MessageMeta } from "@inboxclinic/core";
+import { SCOPES_BY_TIER } from "@inboxclinic/core";
+import type {
+  AccessToken,
+  FilterSpec,
+  GmailClient,
+  MessageHeaders,
+  MessageLabelEdit,
+  MessageMeta,
+  NativeFilter,
+  ScopeTier,
+} from "@inboxclinic/core";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const GIS_POLL_MS = 50;
 const GIS_TIMEOUT_MS = 10_000;
 const PAGE_SIZE = 500;
+/** Gmail caps `batchModify` at 1000 ids per call. */
+const BATCH_MODIFY_LIMIT = 1000;
 
 /** Metadata headers requested per message (design Decision 3). */
 const METADATA_HEADERS = [
@@ -62,6 +73,26 @@ interface GmailProfileResponse {
   emailAddress: string;
 }
 
+interface GmailFilterResource {
+  id: string;
+  criteria?: { from?: string };
+  action?: { addLabelIds?: string[]; removeLabelIds?: string[] };
+}
+
+interface GmailFilterListResponse {
+  filter?: GmailFilterResource[];
+}
+
+/** Map a Gmail filter resource into the port's `NativeFilter` shape. */
+function toNativeFilter(resource: GmailFilterResource): NativeFilter {
+  return {
+    id: resource.id,
+    from: resource.criteria?.from ?? "",
+    addLabelIds: resource.action?.addLabelIds ?? [],
+    removeLabelIds: resource.action?.removeLabelIds ?? [],
+  };
+}
+
 function waitForGis(): Promise<typeof google.accounts.oauth2> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
@@ -93,15 +124,21 @@ export class BrowserGmailClient implements GmailClient {
 
   constructor(private readonly clientId: string) {}
 
-  async authenticate(): Promise<AccessToken> {
+  /**
+   * Acquire a token for the requested scope tiers (design-gmail-integration.md
+   * Decision 2, incremental authorisation). Tier 1 (read-only) is always included so
+   * escalating to Tier 2 (enforcement) never drops scan access.
+   */
+  async authenticate(tiers: ScopeTier[] = [1]): Promise<AccessToken> {
     if (this.clientId === "") {
       throw new Error("VITE_OAUTH_CLIENT_ID is not configured");
     }
+    const scopes = scopesForTiers(tiers);
     const oauth2 = await waitForGis();
     const response = await new Promise<google.accounts.oauth2.TokenResponse>((resolve, reject) => {
       const client = oauth2.initTokenClient({
         client_id: this.clientId,
-        scope: GMAIL_READONLY_SCOPE,
+        scope: scopes.join(" "),
         callback: (resp) => {
           if (resp.error !== undefined) {
             reject(new Error(resp.error_description ?? resp.error));
@@ -127,6 +164,21 @@ export class BrowserGmailClient implements GmailClient {
       return this.authenticate();
     }
     return this.token;
+  }
+
+  /**
+   * Return a token that covers the given tiers, escalating via incremental
+   * authorisation if the current token is missing the scopes (e.g. the first time an
+   * enforcement action runs). Tier 1 is always re-requested alongside so read access
+   * is retained.
+   */
+  private async ensureScopes(tiers: ScopeTier[]): Promise<AccessToken> {
+    const required = scopesForTiers(tiers);
+    const token = await this.getAccessToken();
+    if (required.every((scope) => token.grantedScopes.includes(scope))) {
+      return token;
+    }
+    return this.authenticate([1, ...tiers]);
   }
 
   async getAccountEmail(): Promise<string> {
@@ -166,6 +218,46 @@ export class BrowserGmailClient implements GmailClient {
     };
   }
 
+  // --- Enforcement (Tier 2) -------------------------------------------------
+
+  async listFilters(): Promise<NativeFilter[]> {
+    await this.ensureScopes([2]);
+    const response = await this.apiGet<GmailFilterListResponse>("/settings/filters");
+    return (response.filter ?? []).map(toNativeFilter);
+  }
+
+  async createFilter(spec: FilterSpec): Promise<NativeFilter> {
+    await this.ensureScopes([2]);
+    const body = {
+      criteria: { from: spec.from },
+      action: { addLabelIds: spec.addLabelIds, removeLabelIds: spec.removeLabelIds },
+    };
+    const created = await this.apiSend<GmailFilterResource>("POST", "/settings/filters", body);
+    return toNativeFilter(created);
+  }
+
+  async deleteFilter(id: string): Promise<void> {
+    await this.ensureScopes([2]);
+    await this.apiSend("DELETE", `/settings/filters/${id}`);
+  }
+
+  async batchModifyMessages(ids: string[], edit: MessageLabelEdit): Promise<void> {
+    if (ids.length === 0) return;
+    await this.ensureScopes([2]);
+    for (let i = 0; i < ids.length; i += BATCH_MODIFY_LIMIT) {
+      const batch = ids.slice(i, i + BATCH_MODIFY_LIMIT);
+      await this.apiSend("POST", "/messages/batchModify", {
+        ids: batch,
+        addLabelIds: edit.addLabelIds ?? [],
+        removeLabelIds: edit.removeLabelIds ?? [],
+      });
+    }
+  }
+
+  async listMessageIdsForSender(from: string, max = PAGE_SIZE): Promise<string[]> {
+    return this.listMessageIds(`from:${from}`, max);
+  }
+
   private async apiGet<T>(path: string): Promise<T> {
     const token = await this.getAccessToken();
     const response = await fetch(`${GMAIL_API}${path}`, {
@@ -176,4 +268,27 @@ export class BrowserGmailClient implements GmailClient {
     }
     return (await response.json()) as T;
   }
+
+  /** POST/DELETE helper; returns the parsed body (or `undefined` for empty responses). */
+  private async apiSend<T>(method: "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
+    const token = await this.getAccessToken();
+    const response = await fetch(`${GMAIL_API}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token.value}`,
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Gmail API responded ${response.status} for ${method} ${path}`);
+    }
+    const text = await response.text();
+    return (text === "" ? undefined : JSON.parse(text)) as T;
+  }
+}
+
+/** Union of the least-permission scopes for the requested tiers (deduplicated). */
+function scopesForTiers(tiers: ScopeTier[]): string[] {
+  return [...new Set(tiers.flatMap((tier) => SCOPES_BY_TIER[tier]))];
 }
