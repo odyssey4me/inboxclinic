@@ -51,8 +51,9 @@ describe("App", () => {
 
     fireEvent.click(scanButton);
 
-    expect(await screen.findByText("jane@acme.com")).toBeInTheDocument();
-    expect(await screen.findByText("news@promo.com")).toBeInTheDocument();
+    // Senders surface both in the pending list and the senders table.
+    expect((await screen.findAllByText("jane@acme.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("news@promo.com")).length).toBeGreaterThan(0);
     // The promotional sender is categorised from its CATEGORY_PROMOTIONS label.
     expect(screen.getByText("promotional")).toBeInTheDocument();
   });

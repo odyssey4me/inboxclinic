@@ -13,6 +13,18 @@
 /** A trust decision state for a sender or domain. */
 export type TrustStatus = "trusted" | "blocked" | "pending";
 
+/** Whether a decision applies to an address or a whole domain (domain overrides). */
+export type DecisionScope = "address" | "domain";
+
+/** Where in the UI a decision was made (design-trust-decisions.md). */
+export type DecidedVia = "workflow" | "dashboard" | "settings";
+
+/** A user trust decision. */
+export type Decision = "trust" | "block" | "defer";
+
+/** An enforcement action a Block can compile into (executed in M4, not here). */
+export type BlockAction = "unsubscribe" | "create_filter" | "archive" | "delete";
+
 /** Email cadence band for a sender (design-trust-decisions.md, frequency signal). */
 export type Frequency = "daily" | "weekly" | "monthly" | "rare";
 
@@ -34,6 +46,19 @@ export interface AuthSignals {
   dkim: boolean;
   dmarc: boolean;
   spoofed: boolean;
+}
+
+/**
+ * What was true about a subject at decision time (design-trust-decisions.md,
+ * Decision 5). Captured on each decision for audit / undo and future alignment.
+ */
+export interface DecisionContext {
+  readRate: number | null;
+  totalEmails: number;
+  frequency: Frequency;
+  trustScore: number;
+  category: SenderCategory;
+  decidedVia: DecidedVia;
 }
 
 /**
@@ -95,6 +120,16 @@ export interface Sender {
   recencyBuckets: RecencyBuckets;
   /** Delivery-authentication posture from the most recent authenticated message. */
   auth: AuthSignals;
+
+  // --- Decision record (M3) ------------------------------------------------
+  /** Epoch ms the current decision was made, or `null` while undecided. */
+  trustDecidedAt: number | null;
+  /** Scope of the recorded decision, or `null` while undecided. */
+  decisionScope: DecisionScope | null;
+  /** Snapshot of evidence at decision time, or `null` while undecided. */
+  decisionContext: DecisionContext | null;
+  /** Block actions awaiting Gmail enforcement (applied in M4). */
+  pendingActions: BlockAction[];
 }
 
 /** Per-domain aggregate. Primary key `id = keyFor(domain)`. */
@@ -107,6 +142,12 @@ export interface Domain {
   /** Address-level exceptions to a domain decision (design-trust-decisions.md). */
   exceptionAddresses: string[];
   updatedAt: number;
+
+  // --- Decision record (M3) ------------------------------------------------
+  trustDecidedAt: number | null;
+  decisionScope: DecisionScope | null;
+  decisionContext: DecisionContext | null;
+  pendingActions: BlockAction[];
 }
 
 /** The four weighted components behind a prompt's priority (design-trust-decisions.md). */
@@ -132,7 +173,10 @@ export interface Prompt {
   batchSize: number;
   createdAt: number;
   expiresAt: number;
+  /** Epoch ms when a Trust/Block resolved this prompt, or `null` while open. */
   resolvedAt: number | null;
+  /** Epoch ms of the most recent Defer (priority decayed), or `null`. */
+  deferredAt: number | null;
 }
 
 // --- Deferred entities (typed minimally so the Store port is complete) ---------

@@ -38,6 +38,10 @@ function senderFixture(email: string, overrides: Partial<Sender> = {}): Sender {
     frequency: "rare",
     recencyBuckets: { d30: 0, d90: 0, d180: 0, older: 1 },
     auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
+    trustDecidedAt: null,
+    decisionScope: null,
+    decisionContext: null,
+    pendingActions: [],
     ...overrides,
   };
 }
@@ -90,6 +94,10 @@ describe("DexieStore senders/domains repos", () => {
       totalEmails: 5,
       exceptionAddresses: [],
       updatedAt: 1,
+      trustDecidedAt: null,
+      decisionScope: null,
+      decisionContext: null,
+      pendingActions: [],
     };
     await store.domains.put(domain);
 
@@ -170,6 +178,7 @@ describe("DexieStore prompts (priority-ordered)", () => {
       createdAt: 0,
       expiresAt: 0,
       resolvedAt: null,
+      deferredAt: null,
     };
   }
 

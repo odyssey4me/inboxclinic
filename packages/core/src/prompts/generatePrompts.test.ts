@@ -32,6 +32,10 @@ function senderFixture(
     frequency: "weekly",
     recencyBuckets: { d30: 5, d90: 0, d180: 0, older: 0 },
     auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
+    trustDecidedAt: null,
+    decisionScope: null,
+    decisionContext: null,
+    pendingActions: [],
     ...overrides,
   };
 }

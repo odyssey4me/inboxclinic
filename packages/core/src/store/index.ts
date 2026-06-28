@@ -11,7 +11,12 @@ export type {
 
 export type {
   AuthSignals,
+  BlockAction,
   DailyAnalytics,
+  DecidedVia,
+  Decision,
+  DecisionContext,
+  DecisionScope,
   Domain,
   FilterSyncState,
   Frequency,

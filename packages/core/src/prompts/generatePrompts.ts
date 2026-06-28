@@ -43,5 +43,6 @@ export function generatePrompts(senders: Sender[], options: GeneratePromptsOptio
     createdAt: now,
     expiresAt: now + PROMPT_TTL_MS,
     resolvedAt: null,
+    deferredAt: null,
   }));
 }

@@ -254,6 +254,10 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
       frequency: frequencyFor(emails30d),
       recencyBuckets: acc.buckets,
       auth: acc.auth,
+      trustDecidedAt: null,
+      decisionScope: null,
+      decisionContext: null,
+      pendingActions: [],
     });
 
     const d = domainAcc.get(acc.domain) ?? { totalEmails: 0, senderCount: 0 };
@@ -270,6 +274,10 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
     totalEmails: d.totalEmails,
     exceptionAddresses: [],
     updatedAt: now,
+    trustDecidedAt: null,
+    decisionScope: null,
+    decisionContext: null,
+    pendingActions: [],
   }));
 
   return { senders, domains };

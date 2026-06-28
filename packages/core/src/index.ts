@@ -15,7 +15,12 @@ export {
 export type {
   AnalyticsStore,
   AuthSignals,
+  BlockAction,
   DailyAnalytics,
+  DecidedVia,
+  Decision,
+  DecisionContext,
+  DecisionScope,
   Domain,
   FilterSyncState,
   Frequency,
@@ -77,6 +82,20 @@ export {
   PROMPT_TTL_MS,
   type GeneratePromptsOptions,
 } from "./prompts/generatePrompts";
+
+// Trust-decision application + precedence (depends only on the Store port).
+export {
+  applyDecision,
+  DEFER_DECAY,
+  type ApplyDecisionInput,
+  type ApplyDecisionResult,
+} from "./decisions/applyDecision";
+export {
+  resolveEffectiveDecision,
+  type EffectiveDecision,
+  type EffectiveDecisionInput,
+} from "./decisions/resolveEffectiveDecision";
+export { defaultBlockActions } from "./decisions/blockActions";
 
 // Bounded metadata scan orchestration (pure over the ports).
 export { buildScanQuery, runScan, type RunScanOptions, type ScanResult } from "./scan/runScan";
