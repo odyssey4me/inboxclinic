@@ -4,13 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "./components/ui/Button";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { registerPeriodicSync, SW_SYNC_MESSAGE } from "./pwa/periodicSync";
+import { Analytics } from "./screens/Analytics";
 import { Dashboard } from "./screens/Dashboard";
 import { TrustWorkflow } from "./workflow/TrustWorkflow";
 
 const TAGLINE = "Take back control of your inbox — on-device, local-first email triage.";
 const OFFLINE_NOTICE = "Offline — Gmail sync paused; local data is available.";
 
-type View = "dashboard" | "workflow";
+type View = "dashboard" | "workflow" | "analytics";
 
 export interface AppProps {
   gmail: GmailClient;
@@ -132,6 +133,10 @@ export function App({ gmail, store }: AppProps) {
     );
   }
 
+  if (view === "analytics") {
+    return <Analytics store={store} onBack={() => setView("dashboard")} />;
+  }
+
   return (
     <>
       {!online && (
@@ -149,6 +154,7 @@ export function App({ gmail, store }: AppProps) {
         onScan={() => void scan()}
         onSync={() => void sync()}
         onStartWorkflow={() => setView("workflow")}
+        onOpenAnalytics={() => setView("analytics")}
       />
       {error !== null && (
         <p role="alert" className="px-4 pb-4 text-center text-sm text-red-600">

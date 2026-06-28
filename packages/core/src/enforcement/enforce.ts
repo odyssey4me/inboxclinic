@@ -22,6 +22,7 @@
 
 import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
 import { planActions } from "./planActions";
+import { recordDailyAnalytics } from "../analytics/record";
 import type { GmailClient } from "../ports/GmailClient";
 import type { BlockAction, Store } from "../store";
 
@@ -222,8 +223,12 @@ export async function enforce(
     }
   }
 
-  // 4. Record sync state.
+  // 4. Record sync state and the day's blocked/rescued email volume (analytics, M6).
   await store.filterSync.put({ key: FILTER_SYNC_KEY, lastSyncAt: now, totalFilters });
+  await recordDailyAnalytics(store, now, {
+    emailsBlocked: messagesArchived + messagesTrashed,
+    emailsRescued: messagesRescued,
+  });
 
   return {
     filtersCreated,

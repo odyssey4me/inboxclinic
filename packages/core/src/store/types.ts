@@ -179,15 +179,54 @@ export interface Prompt {
   deferredAt: number | null;
 }
 
-// --- Deferred entities (typed minimally so the Store port is complete) ---------
+// --- Analytics entities (M6) ----------------------------------------------------
 
+/**
+ * Reconstruction-proof daily counters accumulated at scan/sync/decision/enforce
+ * events. These record *what happened on a given day* — they cannot be recomputed
+ * from current state (a re-decided sender or a changed count erases the history), so
+ * they are the only analytics data that must be persisted incrementally. Derived
+ * metrics (health, time-saved, breakdowns) are computed on demand from current state.
+ * See docs/design-analytics.md.
+ */
 export interface DailyAnalytics {
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (UTC)
+  /** Senders newly discovered this day (scan / incremental sync). */
+  newSenders: number;
+  /** Trust/block/defer decisions recorded this day. */
+  decisionsMade: number;
+  /** Subjects blocked this day (a sender, or each covered domain member). */
+  sendersBlocked: number;
+  /** Subjects trusted this day. */
+  sendersTrusted: number;
+  /** Existing messages removed from the inbox this day (archive + trash, enforce). */
+  emailsBlocked: number;
+  /** Messages pulled back out of Spam/Trash this day (Trust rescue, enforce). */
+  emailsRescued: number;
 }
 
+/**
+ * Monthly rollup of the daily counters plus the on-demand derived metrics. Persisted
+ * by the analytics summary so the schema's `analyticsMonthly` store stays meaningful;
+ * the values are always recomputable from `analyticsDaily` + current state.
+ */
 export interface MonthlyAnalytics {
-  month: string; // YYYY-MM
+  month: string; // YYYY-MM (UTC)
+  newSenders: number;
+  decisionsMade: number;
+  sendersBlocked: number;
+  sendersTrusted: number;
+  emailsBlocked: number;
+  emailsRescued: number;
+  /** Inbox health score (0–100) at rollup time. */
+  inboxHealthScore: number;
+  /** Estimated time saved, in seconds. */
+  estimatedTimeSaved: number;
+  /** Ids of the achievements earned (see docs/design-analytics.md). */
+  achievements: string[];
 }
+
+// --- Deferred entities (typed minimally so the Store port is complete) ---------
 
 export interface FilterSyncState {
   key: string; // singleton key

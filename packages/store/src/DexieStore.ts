@@ -111,6 +111,10 @@ class DexieAnalyticsStore implements AnalyticsStore {
     await this.db.analyticsDaily.put(value);
   }
 
+  recentDays(limit: number): Promise<DailyAnalytics[]> {
+    return this.db.analyticsDaily.orderBy("date").reverse().limit(Math.max(0, limit)).toArray();
+  }
+
   month(month: string): Promise<MonthlyAnalytics | undefined> {
     return this.db.analyticsMonthly.get(month);
   }

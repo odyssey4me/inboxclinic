@@ -195,15 +195,44 @@ describe("DexieStore prompts (priority-ordered)", () => {
 });
 
 describe("DexieStore analytics", () => {
+  const day: DailyAnalytics = {
+    date: "2026-06-28",
+    newSenders: 3,
+    decisionsMade: 2,
+    sendersBlocked: 1,
+    sendersTrusted: 1,
+    emailsBlocked: 40,
+    emailsRescued: 0,
+  };
+  const month: MonthlyAnalytics = {
+    month: "2026-06",
+    newSenders: 3,
+    decisionsMade: 2,
+    sendersBlocked: 1,
+    sendersTrusted: 1,
+    emailsBlocked: 40,
+    emailsRescued: 0,
+    inboxHealthScore: 72,
+    estimatedTimeSaved: 200,
+    achievements: ["first-block"],
+  };
+
   it("round-trips daily and monthly analytics by their date keys", async () => {
-    const day: DailyAnalytics = { date: "2026-06-28" };
-    const month: MonthlyAnalytics = { month: "2026-06" };
     await store.analytics.putDay(day);
     await store.analytics.putMonth(month);
 
     expect(await store.analytics.day("2026-06-28")).toEqual(day);
     expect(await store.analytics.month("2026-06")).toEqual(month);
     expect(await store.analytics.day("2000-01-01")).toBeUndefined();
+  });
+
+  it("returns the most recent days first, bounded by the limit", async () => {
+    await store.analytics.putDay({ ...day, date: "2026-06-26" });
+    await store.analytics.putDay({ ...day, date: "2026-06-27" });
+    await store.analytics.putDay({ ...day, date: "2026-06-28" });
+
+    const recent = await store.analytics.recentDays(2);
+    expect(recent.map((d) => d.date)).toEqual(["2026-06-28", "2026-06-27"]);
   });
 });
 

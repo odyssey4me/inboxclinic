@@ -145,3 +145,51 @@ export {
   type EnforceFailure,
   type FilterReconcileOutcome,
 } from "./enforcement/enforce";
+
+// Analytics metrics (pure) — health, time-saved, breakdowns, achievements (M6).
+export {
+  achievements,
+  categoryBreakdown,
+  estimatedTimeSaved,
+  healthInputFromSenders,
+  inboxHealthScore,
+  topDomainsByVolume,
+  HEALTH_COVERAGE_WEIGHT,
+  HEALTH_HYGIENE_WEIGHT,
+  HEALTH_NEUTRAL,
+  HEALTH_READ_WEIGHT,
+  SECONDS_PER_BLOCKED_EMAIL,
+  type Achievement,
+  type AchievementInput,
+  type CategoryStat,
+  type DomainVolume,
+  type InboxHealthInput,
+  type TopDomainsOptions,
+} from "./analytics/metrics";
+
+// Analytics recording (thin over the Store port) + key helpers.
+export {
+  dateKey,
+  emptyDaily,
+  monthKey,
+  recordDailyAnalytics,
+  type DailyDelta,
+} from "./analytics/record";
+
+// Analytics summary, monthly rollup, and shareable snapshot (M6).
+export {
+  analyticsSummary,
+  buildAnalyticsSummary,
+  buildMonthlyAnalytics,
+  buildSnapshot,
+  snapshotText,
+  timeSavedMinutes,
+  DEFAULT_WINDOW_DAYS as ANALYTICS_WINDOW_DAYS,
+  SNAPSHOT_VERSION,
+  type AnalyticsSnapshot,
+  type AnalyticsSummary,
+  type AnalyticsSummaryOptions,
+  type BuildAnalyticsSummaryInput,
+  type TrendPoint,
+  type WindowTotals,
+} from "./analytics/summary";

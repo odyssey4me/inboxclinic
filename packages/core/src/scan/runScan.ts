@@ -13,6 +13,7 @@
  * seeds the History-API marker (`lastHistoryId`) from `getLatestHistoryId` afterwards.
  */
 
+import { recordDailyAnalytics } from "../analytics/record";
 import { generatePrompts } from "../prompts/generatePrompts";
 import { extractSenders } from "../senders/extract";
 import type { GmailClient } from "../ports/GmailClient";
@@ -78,6 +79,7 @@ export async function runScan(
   // Preserve prior trust decisions across rescans; only undecided senders prompt.
   const priorStatus = new Map<string, Sender["trustStatus"]>();
   for (const prior of await store.senders.query({})) priorStatus.set(prior.id, prior.trustStatus);
+  const newSenders = senders.filter((s) => !priorStatus.has(s.id)).length;
   for (const sender of senders) {
     const prev = priorStatus.get(sender.id);
     if (prev !== undefined) sender.trustStatus = prev;
@@ -85,6 +87,7 @@ export async function runScan(
 
   await store.senders.bulkPut(senders);
   await store.domains.bulkPut(domains);
+  await recordDailyAnalytics(store, now, { newSenders });
 
   const prompts = generatePrompts(senders, { now });
   await store.prompts.bulkPut(prompts);

@@ -102,6 +102,11 @@ class InMemoryAnalyticsStore implements AnalyticsStore {
     return Promise.resolve();
   }
 
+  recentDays(limit: number): Promise<DailyAnalytics[]> {
+    const sorted = [...this.days.values()].sort((a, b) => b.date.localeCompare(a.date));
+    return Promise.resolve(sorted.slice(0, Math.max(0, limit)));
+  }
+
   month(month: string): Promise<MonthlyAnalytics | undefined> {
     return Promise.resolve(this.months.get(month));
   }

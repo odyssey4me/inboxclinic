@@ -43,6 +43,8 @@ export interface PromptRepo extends Repo<Prompt> {
 export interface AnalyticsStore {
   day(date: string): Promise<DailyAnalytics | undefined>;
   putDay(value: DailyAnalytics): Promise<void>;
+  /** Most recent days first (by `date`), bounded by `limit`, for range rollups. */
+  recentDays(limit: number): Promise<DailyAnalytics[]>;
   month(month: string): Promise<MonthlyAnalytics | undefined>;
   putMonth(value: MonthlyAnalytics): Promise<void>;
 }

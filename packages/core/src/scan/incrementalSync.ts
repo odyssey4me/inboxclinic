@@ -25,6 +25,7 @@
  */
 
 import { runScan } from "./runScan";
+import { recordDailyAnalytics } from "../analytics/record";
 import { FILTER_SYNC_KEY, reconcileNativeFilters } from "../enforcement/enforce";
 import { keyFor } from "../keys";
 import { generatePrompts } from "../prompts/generatePrompts";
@@ -208,6 +209,9 @@ export async function incrementalSync(
     domainCount: finalDomains.length,
     messageCount,
   });
+
+  // Record the temporal counter that can't be reconstructed from current state.
+  await recordDailyAnalytics(store, now, { newSenders: sendersAdded });
 
   // 6. Keep native filters consistent with the durable blocked set (idempotent).
   const filters = await reconcileNativeFilters(client, store, options.compile);

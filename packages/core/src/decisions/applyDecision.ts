@@ -17,6 +17,7 @@
  *   is made here (enforcement is M4).
  */
 
+import { recordDailyAnalytics } from "../analytics/record";
 import { computeTrustScore } from "../scoring/trustScore";
 import { keyFor } from "../keys";
 import { senderToSnapshot } from "../scoring/senderSnapshot";
@@ -141,6 +142,12 @@ async function applyAddressDecision(
     resolvedPromptIds.push(subjectId);
   }
 
+  await recordDailyAnalytics(store, now, {
+    decisionsMade: 1,
+    sendersTrusted: decision === "trust" ? 1 : 0,
+    sendersBlocked: decision === "block" ? 1 : 0,
+  });
+
   return { status, resolvedPromptIds, deferredPromptIds, pendingActions };
 }
 
@@ -169,14 +176,22 @@ async function applyDomainDecision(
 
   const resolvedPromptIds: string[] = [];
   const deferredPromptIds: string[] = [];
+  let covered = 0;
   for (const member of members) {
     if (domain.exceptionAddresses.includes(member.email)) continue; // address exception wins
+    covered += 1;
     if (decision === "defer") {
       if (await deferPrompt(store, member.id, now)) deferredPromptIds.push(member.id);
     } else if (await resolvePrompt(store, member.id, now)) {
       resolvedPromptIds.push(member.id);
     }
   }
+
+  await recordDailyAnalytics(store, now, {
+    decisionsMade: 1,
+    sendersTrusted: decision === "trust" ? covered : 0,
+    sendersBlocked: decision === "block" ? covered : 0,
+  });
 
   return { status, resolvedPromptIds, deferredPromptIds, pendingActions };
 }

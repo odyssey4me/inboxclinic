@@ -107,6 +107,7 @@ implements. Use [design-_template.md](design-_template.md) for new docs.
 | [design-trust-decisions.md](design-trust-decisions.md) | Draft | Trust-prompt workflow, scoring & prioritisation interfaces (pure `packages/core`), deferred network seam | 4, 6, 9 |
 | [design-local-store-schema.md](design-local-store-schema.md) | Draft | On-device IndexedDB (Dexie) stores, keys, indexes, repository interface, export/delete, versioning | 5, 6 |
 | [design-frontend.md](design-frontend.md) | Draft | Vite + React + Tailwind PWA, local-first state, 4-phase decision UX, components | 3, 6, 7, 8 |
+| [design-analytics.md](design-analytics.md) | Draft | On-device analytics: inbox health score, time-saved, breakdowns, achievements, opt-in local shareable snapshot | 5, 8 |
 | [design-testing.md](design-testing.md) | Draft | Vitest two-tier tests, mocked Gmail boundary, fixtures, coverage gate | 4, 6 |
 | [design-deployment.md](design-deployment.md) | Draft | Hosting, no-secrets build, access/testing-mode, Tally waitlist, Sponsors, licence | 2, 7 |
 
