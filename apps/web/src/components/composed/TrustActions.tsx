@@ -67,16 +67,25 @@ export function TrustActions({
         </label>
       </fieldset>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="trust" onClick={() => onDecide("trust", [])}>
           Trust
         </Button>
-        <Button variant="danger" onClick={() => setBlockOpen((v) => !v)} aria-expanded={blockOpen}>
-          Block…
+        {/* One tap blocks with smart defaults; the impact is shown in Review before it applies. */}
+        <Button variant="danger" onClick={() => onDecide("block", defaultBlockActions(sender))}>
+          Block
         </Button>
         <Button variant="ghost" onClick={() => onDecide("defer", [])}>
           Not sure (defer)
         </Button>
+        <button
+          type="button"
+          onClick={() => setBlockOpen((v) => !v)}
+          aria-expanded={blockOpen}
+          className="text-xs font-medium text-muted underline underline-offset-2 hover:text-ink"
+        >
+          Customize block
+        </button>
       </div>
 
       {blockOpen && (
@@ -99,7 +108,7 @@ export function TrustActions({
             })}
           </div>
           <Button variant="danger" onClick={() => onDecide("block", actions)}>
-            Confirm block
+            Block with these actions
           </Button>
         </div>
       )}

@@ -33,19 +33,16 @@ const clickButton = async (name: RegExp): Promise<void> => {
 };
 
 describe("TrustWorkflow", () => {
-  it("walks Discovery → Decision → Review → Execution, persists, and enforces in Gmail", async () => {
+  it("walks Triage → Review → Execution, persists, and enforces in Gmail", async () => {
     const { store, gmail } = await seededStore(["jane@acme.com", "news@promo.com"]);
     const onDone = vi.fn();
     render(<TrustWorkflow store={store} gmail={gmail} onDone={onDone} />);
 
-    // First prompt: Discovery → Decision → Trust.
-    await clickButton(/make a decision/i);
+    // First prompt: trust (actions are inline — no "make a decision" step).
     await clickButton(/^trust$/i);
 
-    // Second prompt: Discovery → Decision → Block (confirm staged actions).
-    await clickButton(/make a decision/i);
-    await clickButton(/block…/i);
-    await clickButton(/confirm block/i);
+    // Second prompt: block in one tap (smart defaults staged).
+    await clickButton(/^block$/i);
 
     // Review summarises, then Execution applies + enforces.
     await clickButton(/apply changes/i);
@@ -70,7 +67,6 @@ describe("TrustWorkflow", () => {
     const { store, gmail } = await seededStore(["solo@quiet.com"]);
     render(<TrustWorkflow store={store} gmail={gmail} onDone={vi.fn()} />);
 
-    await clickButton(/make a decision/i);
     await clickButton(/defer/i);
     await clickButton(/apply changes/i);
     await clickButton(/^done$/i);

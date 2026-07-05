@@ -126,14 +126,21 @@ React/Vite (no `"use client"`, no Next imports).
 Primitives stay accessible (keyboard, focus, ARIA) and unstyled-by-default; composed
 components express product concepts. Screens compose these; they hold no business logic.
 
-### Decision 6: Four-phase trust-decision workflow as a guided wizard
+### Decision 6: Three-phase trust-decision workflow as a guided wizard
 
 **Context:** §4 defines prompts, trust/block/defer decisions, and prompt expiry. This
-design realises them as a four-phase flow: **Discovery → Decision → Review → Execution**.
+design realises them as a stepper: **Triage → Review → Execution**.
 
-**Decision:** Implement the workflow as a stepper. No Gmail mutation happens until the user
-confirms in **Execution**; everything before it edits a **local pending-decision list**.
-See *Interfaces* and *Examples* below for phase detail.
+**Decision:** Implement the workflow as a stepper. **Triage** shows each sender's evidence
+(score, signals) *with the Trust/Block/Defer actions inline* — one screen, one decision,
+auto-advancing — so the common case is a **single tap** (or a `T`/`B`/`D`/`S` keypress).
+Block uses smart defaults in one tap, with a **"Customize"** expander for the action
+checkboxes. **Review** shows the staged changes with the **impact preview** (Decision 7 of
+design-trust-decisions.md) before the user confirms. No Gmail mutation happens until
+**Execution**; everything before it edits a **local pending-decision list**.
+
+> Discovery and Decision were originally separate (an extra "Make a decision" click that
+> re-showed the same card); they were merged into **Triage** to cut per-sender clicks to one.
 
 ### Decision 7: "Vitals" design system — semantic tokens, light + dark by system
 
@@ -201,10 +208,9 @@ export interface Repository {
 
 | Phase | UI | Key elements |
 |-------|----|--------------|
-| **Discovery** | `prompt-card` | `score-indicator` (e.g. ●●●●○ + tier colour), 3–4 `signal-list` statements, evidence (read rate, count, frequency, category, inbox %), and an optional **`batch-offer`**: "23 other promotional senders you've never opened — review as a group?" → *Review as group* / *Individually* / *Skip*. |
-| **Decision** | `trust-actions` | **Trust** → confirm; offer to **rescue** existing messages from Spam/Trash. **Block** → action checkboxes with smart defaults by category (unsubscribe if `List-Unsubscribe` present ✓, create filter ✓, archive ✓, delete ○). **Defer** → "We'll ask again later" (reduced priority). Each choice appends to the local pending list and auto-advances to the next prompt. |
-| **Review** | `decision-row` list | Summary header: "47 senders: 12 trusted, 35 blocked", est. monthly reduction, action totals. Each row is editable: flip trust ↔ block, toggle individual actions, exclude an address from a domain decision, or remove (returns sender to the queue). |
-| **Execution** | `progress` + summary | Confirm dialog enumerates what will happen → apply via core (Gmail mutations + filter compilation) with a live progress bar and cancel-remaining. Completion summary lists successes/failures; closes with "Undo recent changes in Settings → Past decisions". |
+| **Triage** | `prompt-card` + `trust-actions` | Evidence (`score-indicator` e.g. ●●●●○, 3–4 `signal-list` statements, read rate / count / frequency / category) shown **with the actions inline** — one screen, one decision, auto-advancing: **Trust** (one tap), **Block** (one tap with smart defaults; a **Customize** expander reveals the action checkboxes — unsubscribe if `List-Unsubscribe` ✓, create filter ✓, archive ✓, delete ○), **Defer**. Keyboard: `T`/`B`/`D`/`S`. An optional **`batch-offer`** applies the decision to a whole domain. |
+| **Review** | `decision-row` list + **impact preview** | Summary ("47 senders: 12 trusted, 35 blocked") with each row editable (flip trust ↔ block, remove). The **impact preview** dry-runs the staged changes read-only (a Gmail search per rule) — filters ±, existing mail archived / **deleted**, mail rescued, plus extrapolated future volume — before the user confirms **Apply**. |
+| **Execution** | `progress` + summary | Apply via core (Gmail mutations + filter compilation) with a live progress bar. Completion summary lists successes/failures; decisions are **revisable later** in the Decisions view. |
 
 Scoring, signal selection, smart-default presets, priority, defer-decay and the 30-day
 expiry are **owned by [design-trust-decisions.md](design-trust-decisions.md) / architecture.md §4** — the UI renders their
@@ -395,5 +401,6 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Add **Decision 7: the "Vitals" design system** — semantic CSS-variable tokens exposed through Tailwind v4 `@theme inline`; calm clinical teal palette; light + dark by `prefers-color-scheme` (system-detected). All components re-tokenised off raw palette colours. | Claude |
 | 2026-07-05 | Split the shell into **two distinct layouts** (touch-first mobile top-bar vs. desktop **sidebar**), chosen by `useLayout` and **user-pinnable** via `LayoutSwitch` (Auto / Desktop / Mobile, persisted on-device; forced-desktop widens the viewport on small screens). Dashboard/Analytics go multi-column on desktop. | Claude |
 | 2026-07-05 | Add **demo mode** — a no-Google `?demo` / "Explore the demo" entry that builds an ephemeral in-memory client trio from `@inboxclinic/core/demo` (seeded fixtures), with a persistent Demo banner + Exit. Doubles as the Tier-3 Playwright substrate. | Claude |
+| 2026-07-05 | Workflow optimisation: merge **Discovery + Decision → Triage** (actions inline; one tap or `T`/`B`/`D`/`S` per sender), **one-tap Block** with smart defaults + a Customize expander, and the **impact preview** in Review. Decision 6 is now three phases. | Claude |
 | 2026-07-05 | Functional pass: replace the ambiguous **Sync/Scan** pair with one **Refresh** (incremental sync) + a last-synced/result indicator; move the full **Rescan** to Settings; add Settings **export / delete-all** data controls. | Claude |
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |

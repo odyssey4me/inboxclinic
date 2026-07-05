@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   applyDecision,
+  defaultBlockActions,
   enforce,
   estimateWeeklyVolume,
   keyFor,
@@ -26,11 +27,10 @@ import { ProgressBar } from "../components/ui/ProgressBar";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 import type { PendingDecision } from "./pendingDecisions";
 
-type Phase = "discovery" | "decision" | "review" | "execution";
+type Phase = "triage" | "review" | "execution";
 
 const PHASE_LABELS: { id: Phase; label: string }[] = [
-  { id: "discovery", label: "Discovery" },
-  { id: "decision", label: "Decision" },
+  { id: "triage", label: "Triage" },
   { id: "review", label: "Review" },
   { id: "execution", label: "Execution" },
 ];
@@ -54,7 +54,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
   const [cursor, setCursor] = useState(0);
   const [handled, setHandled] = useState<Set<string>>(() => new Set());
   const [pending, setPending] = useState<PendingDecision[]>([]);
-  const [phase, setPhase] = useState<Phase>("discovery");
+  const [phase, setPhase] = useState<Phase>("triage");
   const [scope, setScope] = useState<DecisionScope>("address");
 
   // Initialise the session queue once from the first loaded snapshot.
@@ -100,7 +100,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
     } else {
       setCursor(next);
       setScope("address");
-      setPhase("discovery");
+      setPhase("triage");
     }
   }
 
@@ -171,7 +171,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
         ))}
       </ol>
 
-      {(phase === "discovery" || phase === "decision") && queue.length > 0 && (
+      {phase === "triage" && queue.length > 0 && (
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted">
             <span>
@@ -183,19 +183,22 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
         </div>
       )}
 
-      {phase === "discovery" && current !== undefined && (
-        <section className="space-y-4" aria-label="Discovery">
+      {phase === "triage" && current !== undefined && (
+        <section className="space-y-4" aria-label="Triage">
           <PromptCard sender={current} />
           <BatchOffer
             domain={current.domain}
             batchSize={domainSize.get(current.domain) ?? 1}
-            onReviewAsGroup={() => {
-              setScope("domain");
-              setPhase("decision");
-            }}
+            onReviewAsGroup={() => setScope("domain")}
           />
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => setPhase("decision")}>Make a decision</Button>
+          <TrustActions
+            sender={current}
+            scope={scope}
+            onScopeChange={setScope}
+            canScopeDomain={(domainSize.get(current.domain) ?? 1) >= 2}
+            onDecide={decide}
+          />
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={skip}>
               Skip for now
             </Button>
@@ -204,23 +207,16 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
                 Review {pending.length} change{pending.length === 1 ? "" : "s"}
               </Button>
             )}
+            <span className="ml-auto text-xs text-muted">
+              Keys: <kbd>T</kbd> trust · <kbd>B</kbd> block · <kbd>D</kbd> defer · <kbd>S</kbd> skip
+            </span>
           </div>
-        </section>
-      )}
-
-      {phase === "decision" && current !== undefined && (
-        <section className="space-y-4" aria-label="Decision">
-          <PromptCard sender={current} />
-          <TrustActions
-            sender={current}
-            scope={scope}
-            onScopeChange={setScope}
-            canScopeDomain={(domainSize.get(current.domain) ?? 1) >= 2}
-            onDecide={decide}
+          <TriageKeyboard
+            onTrust={() => decide("trust", [])}
+            onBlock={() => decide("block", defaultBlockActions(current))}
+            onDefer={() => decide("defer", [])}
+            onSkip={skip}
           />
-          <Button variant="ghost" onClick={() => setPhase("discovery")}>
-            Back
-          </Button>
         </section>
       )}
 
@@ -239,7 +235,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
             const next = nextUnhandled(0, handled);
             if (next < queue.length) {
               setCursor(next);
-              setPhase("discovery");
+              setPhase("triage");
             }
           }}
           onDone={onDone}
@@ -257,6 +253,49 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
       )}
     </div>
   );
+}
+
+/** Installs T/B/D/S keyboard shortcuts while a sender is being triaged (mounted in triage). */
+function TriageKeyboard({
+  onTrust,
+  onBlock,
+  onDefer,
+  onSkip,
+}: {
+  onTrust: () => void;
+  onBlock: () => void;
+  onDefer: () => void;
+  onSkip: () => void;
+}) {
+  const handlers = useRef({ onTrust, onBlock, onDefer, onSkip });
+  useEffect(() => {
+    handlers.current = { onTrust, onBlock, onDefer, onSkip };
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const el = event.target as HTMLElement | null;
+      if (
+        el !== null &&
+        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)
+      ) {
+        return;
+      }
+      const map: Record<string, () => void> = {
+        t: handlers.current.onTrust,
+        b: handlers.current.onBlock,
+        d: handlers.current.onDefer,
+        s: handlers.current.onSkip,
+      };
+      const action = map[event.key.toLowerCase()];
+      if (action !== undefined) {
+        event.preventDefault();
+        action();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return null;
 }
 
 /** The read-only impact preview shown in Review before the user confirms Apply. */

@@ -3,14 +3,13 @@ import { expect, test } from "@playwright/test";
 
 import { gotoDemo } from "./helpers";
 
-test("trust workflow: Discovery → Decision → Review → Execution", async ({ page }) => {
+test("trust workflow: Triage → Review → Execution", async ({ page }) => {
   await gotoDemo(page);
 
   // Enter the workflow from the dashboard's pending decisions.
   await page.getByRole("button", { name: /^Review \d+$/ }).click();
 
-  // Discovery → Decision → trust the current sender.
-  await page.getByRole("button", { name: /make a decision/i }).click();
+  // Triage: actions are inline — trust the current sender in one tap.
   await page.getByRole("button", { name: /^Trust$/ }).click();
 
   // A staged change is now reviewable; open Review and apply it.
@@ -30,11 +29,9 @@ test("block workflow: stage a block with actions", async ({ page }) => {
   await gotoDemo(page);
 
   await page.getByRole("button", { name: /^Review \d+$/ }).click();
-  await page.getByRole("button", { name: /make a decision/i }).click();
 
-  // Open the Block sub-panel, confirm a block (default actions staged).
-  await page.getByRole("button", { name: /^Block…$/ }).click();
-  await page.getByRole("button", { name: /confirm block/i }).click();
+  // Block in one tap (smart defaults staged; the impact preview shows before applying).
+  await page.getByRole("button", { name: /^Block$/ }).click();
 
   await page.getByRole("button", { name: /review \d+ change/i }).click();
   await expect(page.getByText(/1 blocked/i)).toBeVisible();
