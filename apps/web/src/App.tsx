@@ -7,6 +7,7 @@ import {
 } from "@inboxclinic/core";
 import { useCallback, useEffect, useState } from "react";
 
+import { Footer } from "./components/composed/Footer";
 import { Button } from "./components/ui/Button";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { registerPeriodicSync, SW_SYNC_MESSAGE } from "./pwa/periodicSync";
@@ -17,6 +18,9 @@ import { TrustWorkflow } from "./workflow/TrustWorkflow";
 
 const TAGLINE = "Take back control of your inbox — on-device, local-first email triage.";
 const OFFLINE_NOTICE = "Offline — Gmail sync paused; local data is available.";
+/** Waitlist form URL; falls back to the repo issues page when unconfigured at build time. */
+const REQUEST_ACCESS_URL =
+  import.meta.env.VITE_REQUEST_ACCESS_URL ?? "https://github.com/odyssey4me/inboxclinic/issues";
 
 type View = "dashboard" | "workflow" | "analytics" | "settings";
 
@@ -105,26 +109,34 @@ export function App({ gmail, store, backup }: AppProps) {
 
   if (email === null) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-4 px-6 text-center">
-        <h1 className="text-4xl font-bold tracking-tight">Inbox Clinic</h1>
-        <p className="text-lg text-slate-600">{TAGLINE}</p>
-        <Button onClick={() => void signIn()} disabled={!online}>
-          Sign in with Google
-        </Button>
-        {!online && (
-          <p role="status" className="text-sm text-amber-600">
-            {OFFLINE_NOTICE}
-          </p>
-        )}
-        <a href="#request-access" className="text-sm text-slate-500 underline">
-          Request access
-        </a>
-        {error !== null && (
-          <p role="alert" className="text-sm text-red-600">
-            {error}
-          </p>
-        )}
-      </main>
+      <div className="flex min-h-screen flex-col">
+        <main className="mx-auto flex max-w-2xl flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <h1 className="text-4xl font-bold tracking-tight">Inbox Clinic</h1>
+          <p className="text-lg text-slate-600">{TAGLINE}</p>
+          <Button onClick={() => void signIn()} disabled={!online}>
+            Sign in with Google
+          </Button>
+          {!online && (
+            <p role="status" className="text-sm text-amber-600">
+              {OFFLINE_NOTICE}
+            </p>
+          )}
+          <a
+            href={REQUEST_ACCESS_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-slate-500 underline"
+          >
+            Request access
+          </a>
+          {error !== null && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
+        </main>
+        <Footer />
+      </div>
     );
   }
 
@@ -182,6 +194,7 @@ export function App({ gmail, store, backup }: AppProps) {
           {error}
         </p>
       )}
+      <Footer />
     </>
   );
 }

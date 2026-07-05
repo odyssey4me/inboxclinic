@@ -39,7 +39,17 @@ describe("App", () => {
     render(<App gmail={gmail} store={store} backup={backup} />);
 
     expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /request access/i })).toBeInTheDocument();
+    const requestAccess = screen.getByRole("link", { name: /request access/i });
+    // Falls back to the repo issues page when VITE_REQUEST_ACCESS_URL is unset (as in CI).
+    expect(requestAccess).toHaveAttribute("href", expect.stringContaining("http"));
+  });
+
+  it("shows the funding/source footer", () => {
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
+
+    expect(screen.getByRole("link", { name: /sponsor/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /source/i })).toBeInTheDocument();
   });
 
   it("syncs on open: populates senders right after sign-in, no scan click (mock only)", async () => {
