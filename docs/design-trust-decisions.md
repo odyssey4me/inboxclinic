@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-05
 
 ## Overview
 
@@ -112,6 +112,64 @@ trust score, category, decided-via) on each decision.
 
 **Rationale:** 50 is ample for audit/undo and bounds growth; context enables meaningful
 "why did I decide this" review and informs the Alignment signal.
+
+### Decision 6: Decisions are revisable
+
+**Context:** A trust/block/defer decision is not a one-off — a person changes their mind (a
+blocked newsletter becomes wanted; a trusted sender goes rogue).
+
+**Decision:** Any recorded decision can be **changed at any time** from a **Decisions** view.
+Re-deciding is the same `applyDecision(...)` over the store, followed by enforcement
+reconciliation: the durable blocked set is recomputed, so reversing a Block **removes** its
+native filter and reversing a Trust re-adds any warranted filter (enforcement is idempotent
+and reconciled from current state, not per-event — see design-gmail-integration.md Decision 5).
+A reversal may also **rescue affected mail from Trash** (Decision 7 and
+design-gmail-integration.md Decision 8).
+
+**Rationale:** Trust is a living judgement; because filters already reconcile from the durable
+set on every sync, reversal needs no special path beyond re-recording the decision and offering
+to restore mail.
+
+### Decision 7: Impact preview & explicit confirmation before applying
+
+**Context:** A Block can archive or **delete** existing mail and auto-handle future mail.
+Destructive actions must never surprise the user.
+
+**Decision:** Before a decision is enforced, the UI shows a **count-only impact preview** and
+requires **explicit confirmation**:
+- **Now** — existing mail affected: *archives N*, **deletes M** (to Trash — recoverable for
+  ~30 days), filters ±K, and *restores R from Trash* on a reversal.
+- **Going forward** — extrapolated volume the rule will auto-handle, from the sender's
+  frequency / recency (Algorithm Constants).
+
+Deletion is called out prominently and **nothing mutates Gmail until confirmed**. The counts
+come from a no-mutation **simulation** (design-gmail-integration.md Decision 8). Block's default
+staged actions are unchanged (`compileActionsForBlock`): the future filter **trashes new mail by
+default**, while **deleting existing mail is opt-in**.
+
+**Rationale:** Reversibility (Trash, not permanent delete) + preview + confirm makes
+aggressive-but-safe blocking trustworthy.
+
+### Decision 8: Learn prior decisions from Gmail (confirm-first, read-weighted)
+
+**Context:** Most inboxes already encode the user's judgement — existing filters, spam-marks,
+binned mail. Showing everything as "pending" ignores decisions already made.
+
+**Decision:** On first run, **derive suggested Block decisions** from the account's existing
+state and present them as a **confirm-first import** ("Found N prior decisions — import as
+Blocked?"). Sources and weighting:
+- **Existing native filters** that trash/archive/spam a sender/domain → strong Block signal.
+- **Spam-labelled** mail → strong Block signal.
+- **Trashed** mail → a Block signal **only when it was unread when binned** (deleted without
+  opening). **Read-then-deleted is normal triage and is _not_ a signal** — weighted by the
+  sender's read-rate (the unread-share threshold is a tunable constant).
+
+Suggestions are **never auto-applied and never destructive** (the mail is already handled by
+Gmail); the user reviews and imports. Imported blocks then behave like any decision (revisable,
+Decision 6). The read scope for learning is in design-gmail-integration.md Decision 7.
+
+**Rationale:** Confirm-first respects agency (an old filter may be stale); read-weighting avoids
+mislabelling senders the user actually reads and then clears.
 
 ## Interfaces
 
@@ -375,6 +433,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-05 | Add the **Decisions milestone** model: Decision 6 **revisable decisions** (change later → reconcile filters + rescue from Trash); Decision 7 **impact preview + explicit confirm** before applying (deletes are loud; block trashes future by default, delete-existing opt-in); Decision 8 **learn prior decisions** from filters + **read-weighted** Spam/Trash as confirm-first suggestions. | Claude |
 | 2026-06-28 | Rewritten for the client-only, local-first, all-TypeScript PWA model: pure on-device `packages/core` interfaces, network signals deferred (v1 User×0.77 + Compliance×0.23), no backend. Supersedes the backend-API design. | Claude |
 | 2025-12-30 | Approved (previous backend-API design) | Claude |
 | 2025-12-30 | Initial draft | Claude |

@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-05
 
 ## Overview
 
@@ -134,6 +134,54 @@ on the interface, not the transport.
 **Rationale:** Keeps `packages/core` presentation-agnostic (architecture.md §6) and
 lets a **future mobile client swap the transport** (e.g. a native HTTP client with a
 keychain-stored refresh token) without changing product logic (architecture.md §9).
+
+### Decision 7: Learning scan — existing filters + read-weighted Spam/Trash
+
+**Context:** To learn prior decisions (design-trust-decisions.md Decision 8), the client must
+read beyond the Inbox — the account's filters and its Spam/Trash already encode "no" decisions.
+
+**Decision:** In addition to the bounded **Inbox** metadata scan (Decision 3), a **learning
+pass** reads:
+- **`listFilters()`** — the account's native filters. A block-shaped filter (adds `TRASH`/
+  `SPAM` or removes `INBOX` for a `from:` criterion) maps to a suggested Block on that
+  sender/domain.
+- A **bounded Spam and Trash metadata scan** (`in:spam` / `in:trash`, windowed like the Inbox
+  scan). Trash results carry each message's **read-state** (the `UNREAD` label) so the trust
+  layer can weight *unread-when-binned* as a signal and **ignore read-then-deleted**.
+
+Metadata-only (labels + headers), same scope tier as the Inbox scan; results feed the
+confirm-first suggestions, never an automatic mutation.
+
+**Rationale:** Filters + Spam/Trash are where prior "no" decisions live; keeping it
+metadata-only and windowed bounds cost while surfacing real intent.
+
+### Decision 8: Count-only enforcement simulation (preview)
+
+**Context:** design-trust-decisions.md Decision 7 requires an impact preview before applying,
+which must not mutate anything.
+
+**Decision:** Add a no-mutation **`simulate`** that counts what an `enforce` would do for a set
+of pending decisions: messages that would be **archived / trashed / deleted**, filters that
+would be **created / removed**, and messages that would be **rescued from Trash** on a reversal.
+It reuses the same read paths as `enforce` (`listMessageIdsForSender`, `listFilters`) but calls
+**no** mutating endpoint (`createFilter` / `deleteFilter` / `batchModifyMessages`). Future-volume
+extrapolation is computed in `packages/core` from the sender's frequency / recency.
+
+**Rationale:** Reuses the enforcement query paths for an honest count with zero side effects.
+
+### Decision 9: Filter-optimisation suggestions (confirm-first)
+
+**Context:** A user's existing filters accrete cruft — many per-address rules where one domain
+rule would do, duplicates, overlaps, over-broad matches.
+
+**Decision:** Inspect existing filters and **suggest optimisations**: consolidate several
+same-domain `from:addr` rules into one `*@domain` rule (reusing the domain-block threshold,
+`DEFAULT_DOMAIN_BLOCK_THRESHOLD`), drop duplicate/overlapping/redundant rules, and flag
+over-broad matches. Suggestions apply **only after explicit confirmation**, through the normal
+filter-reconcile path (Decision 5); nothing changes silently.
+
+**Rationale:** Fewer, cleaner rules are easier to reason about and stay within Gmail's filter
+limits — but filters are the user's, so every change is opt-in.
 
 ## Interfaces
 
@@ -344,4 +392,5 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-05 | Add **Decisions-milestone** capabilities: Decision 7 **learning scan** (read `listFilters` + a bounded read-weighted Spam/Trash scan to surface prior "no" decisions); Decision 8 **count-only enforcement simulation** (no-mutation impact preview + future extrapolation); Decision 9 **filter-optimisation suggestions** (consolidate/dedupe/tighten, confirm-first). | Claude |
 | 2026-06-28 | Full rewrite for client-only, local-first, no-backend PWA architecture: browser PKCE OAuth, metadata-only scan, polling + periodic sync (no push), native-filter compilation, and the `GmailClient` port in `packages/core`. Supersedes the prior server-based design. | Claude |
