@@ -10,10 +10,12 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "./components/composed/AppShell";
+import { ErrorBoundary } from "./components/composed/ErrorBoundary";
 import { Footer } from "./components/composed/Footer";
 import { Button } from "./components/ui/Button";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { LayoutProvider } from "./layout/LayoutProvider";
+import { recordError } from "./reporting/recentErrors";
 import { registerPeriodicSync, SW_SYNC_MESSAGE } from "./pwa/periodicSync";
 import { Analytics } from "./screens/Analytics";
 import { Dashboard } from "./screens/Dashboard";
@@ -59,7 +61,9 @@ function summariseSync(result: IncrementalSyncResult): string {
 export function App(props: AppProps) {
   return (
     <LayoutProvider>
-      <AppInner {...props} />
+      <ErrorBoundary>
+        <AppInner {...props} />
+      </ErrorBoundary>
     </LayoutProvider>
   );
 }
@@ -85,6 +89,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       setSyncSummary(summariseSync(result));
       setReloadKey((k) => k + 1);
     } catch (caught) {
+      recordError(caught, { view: "sync" });
       setError(errorMessage(caught));
     } finally {
       setSyncing(false);
@@ -99,6 +104,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       setEmail(await gmail.getAccountEmail());
       await sync(); // sync-on-open: keep the local store current right after auth.
     } catch (caught) {
+      recordError(caught, { view: "signIn" });
       setError(errorMessage(caught));
     }
   }, [gmail, sync]);
@@ -115,6 +121,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       );
       setReloadKey((k) => k + 1);
     } catch (caught) {
+      recordError(caught, { view: "scan" });
       setError(errorMessage(caught));
     } finally {
       setScanning(false);
