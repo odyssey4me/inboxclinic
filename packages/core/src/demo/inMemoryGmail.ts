@@ -115,7 +115,13 @@ export class InMemoryGmailClient implements GmailClient {
 
   listMessageIds(query: string, max: number): Promise<string[]> {
     this.listQueries.push(query);
-    return Promise.resolve(this.messages.slice(0, max).map((m) => m.id));
+    // Honour folder scoping so Spam/Trash learning scans are faithful; any other query
+    // (e.g. the `in:inbox` metadata scan) matches all seeded mail as before.
+    let pool = this.messages;
+    if (/in:spam/i.test(query)) pool = this.messages.filter((m) => m.labelIds.includes("SPAM"));
+    else if (/in:trash/i.test(query))
+      pool = this.messages.filter((m) => m.labelIds.includes("TRASH"));
+    return Promise.resolve(pool.slice(0, max).map((m) => m.id));
   }
 
   getMessageMeta(id: string): Promise<MessageMeta> {

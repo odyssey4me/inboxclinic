@@ -133,6 +133,14 @@ export {
 } from "./decisions/resolveEffectiveDecision";
 export { defaultBlockActions } from "./decisions/blockActions";
 
+// Learn prior "no" decisions from existing Gmail state (filters + read-weighted Spam/Trash).
+export {
+  learnPriorDecisions,
+  type LearnedSuggestion,
+  type LearnReason,
+  type LearnPriorOptions,
+} from "./decisions/learnPriorDecisions";
+
 // Bounded metadata scan orchestration (pure over the ports).
 export { buildScanQuery, runScan, type RunScanOptions, type ScanResult } from "./scan/runScan";
 
