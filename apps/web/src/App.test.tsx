@@ -87,6 +87,21 @@ describe("App", () => {
     expect((await screen.findAllByText("deals@retailco.com")).length).toBeGreaterThan(0);
   });
 
+  it("disconnect returns to the signed-out landing and is remembered", async () => {
+    localStorage.clear();
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
+    await screen.findByText("owner@gmail.com");
+
+    fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
+
+    expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
+    expect(localStorage.getItem("inboxclinic.signedOut")).toBe("1");
+    localStorage.clear();
+  });
+
   it("pins the mobile layout from the switch and remembers it on-device", async () => {
     localStorage.clear();
     const { gmail, store, backup } = setup();

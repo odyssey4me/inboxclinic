@@ -25,6 +25,8 @@ const OFFLINE_NOTICE = "Offline — Gmail sync paused; local data is available."
 /** Waitlist form URL; falls back to the repo issues page when unconfigured at build time. */
 const REQUEST_ACCESS_URL =
   import.meta.env.VITE_REQUEST_ACCESS_URL ?? "https://github.com/odyssey4me/inboxclinic/issues";
+/** Set on Disconnect so the local-first auto-render stays signed out until the next sign-in. */
+const SIGNED_OUT_KEY = "inboxclinic.signedOut";
 
 type View = "dashboard" | "workflow" | "analytics" | "settings";
 
@@ -92,6 +94,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     setError(null);
     try {
       await gmail.authenticate();
+      if (typeof localStorage !== "undefined") localStorage.removeItem(SIGNED_OUT_KEY);
       setEmail(await gmail.getAccountEmail());
       await sync(); // sync-on-open: keep the local store current right after auth.
     } catch (caught) {
@@ -117,13 +120,28 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     }
   }, [gmail, store]);
 
+  // Forget the session and return to the landing (local data is kept). Tokens are
+  // in-memory only, so there is nothing to revoke; the flag stops the local-first
+  // auto-render below from signing back in until the user re-authenticates.
+  const disconnect = useCallback(() => {
+    if (demo) {
+      window.location.search = "";
+      return;
+    }
+    if (typeof localStorage !== "undefined") localStorage.setItem(SIGNED_OUT_KEY, "1");
+    setEmail(null);
+    setView("dashboard");
+  }, [demo]);
+
   // Local-first: render from the stored profile even before (or without) a live token,
   // so the app works offline. Also register Periodic Background Sync (feature-detected).
   useEffect(() => {
     let active = true;
     void (async () => {
+      const signedOut =
+        typeof localStorage !== "undefined" && localStorage.getItem(SIGNED_OUT_KEY) === "1";
       const profile = await store.profile.get();
-      if (active && profile !== undefined) {
+      if (active && profile !== undefined && !signedOut) {
         setEmail((prev) => prev ?? profile.googleEmail);
         setLastSyncedAt((prev) => prev ?? profile.lastScanAt);
       }
@@ -227,6 +245,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       refreshing={syncing}
       lastSyncedAt={lastSyncedAt}
       syncSummary={syncSummary}
+      onDisconnect={disconnect}
       error={error}
       demo={demo}
       onExitDemo={() => {

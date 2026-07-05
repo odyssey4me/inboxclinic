@@ -23,6 +23,8 @@ export interface AppShellProps {
   lastSyncedAt: number | null;
   /** One-line result of the most recent refresh (e.g. "3 new senders"), or null. */
   syncSummary: string | null;
+  /** Forget the session and return to the landing (local data is kept). */
+  onDisconnect: () => void;
   error: string | null;
   /** Demo mode: show the demo banner with an exit action. */
   demo?: boolean;
@@ -82,6 +84,25 @@ function ErrorLine({ error }: { error: string }) {
   );
 }
 
+/** The account block shared by both shells' account areas: identity, layout, disconnect. */
+function AccountControls({ email, onDisconnect }: { email: string; onDisconnect: () => void }) {
+  return (
+    <>
+      <p className="truncate text-xs text-muted">
+        Signed in as <span className="font-medium text-ink">{email}</span>
+      </p>
+      <LayoutSwitch />
+      <button
+        type="button"
+        onClick={onDisconnect}
+        className="block text-left text-xs font-medium text-muted underline-offset-2 hover:text-block hover:underline"
+      >
+        Disconnect
+      </button>
+    </>
+  );
+}
+
 function Brand({ onNavigate }: { onNavigate: (view: ShellView) => void }) {
   return (
     <h1 className="text-xl font-bold tracking-tight">
@@ -126,6 +147,7 @@ function MobileShell({
   refreshing,
   lastSyncedAt,
   syncSummary,
+  onDisconnect,
   error,
   demo,
   onExitDemo,
@@ -151,10 +173,7 @@ function MobileShell({
                 </span>
               </summary>
               <div className="absolute right-0 z-10 mt-1 w-64 space-y-3 rounded-md border border-line bg-surface p-4 shadow-sm">
-                <p className="truncate text-xs text-muted">
-                  Signed in as <span className="font-medium text-ink">{email}</span>
-                </p>
-                <LayoutSwitch />
+                <AccountControls email={email} onDisconnect={onDisconnect} />
               </div>
             </details>
           </div>
@@ -209,6 +228,7 @@ function DesktopShell({
   refreshing,
   lastSyncedAt,
   syncSummary,
+  onDisconnect,
   error,
   demo,
   onExitDemo,
@@ -243,10 +263,7 @@ function DesktopShell({
             })}
           </nav>
           <div className="mt-auto space-y-3 border-t border-line px-5 py-4">
-            <p className="truncate text-xs text-muted">
-              Signed in as <span className="font-medium text-ink">{email}</span>
-            </p>
-            <LayoutSwitch />
+            <AccountControls email={email} onDisconnect={onDisconnect} />
           </div>
         </aside>
 
