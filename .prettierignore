@@ -1,0 +1,14 @@
+node_modules
+dist
+dev-dist
+coverage
+*.tsbuildinfo
+
+# Pre-existing, hand-authored content — not governed by the code formatter.
+docs
+.claude
+scripts
+LICENSE
+README.md
+CLAUDE.md
+CONTRIBUTING.md

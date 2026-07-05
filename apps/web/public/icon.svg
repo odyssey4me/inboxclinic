@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Inbox Clinic">
+  <rect width="512" height="512" rx="96" fill="#0f172a" />
+  <path
+    d="M128 176h256a16 16 0 0 1 16 16v128a16 16 0 0 1-16 16h-80l-48 48-48-48h-80a16 16 0 0 1-16-16V192a16 16 0 0 1 16-16Z"
+    fill="#38bdf8"
+  />
+  <path d="M256 216v80M216 256h80" stroke="#0f172a" stroke-width="24" stroke-linecap="round" />
+</svg>

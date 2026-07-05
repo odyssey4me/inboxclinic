@@ -1,0 +1,37 @@
+# Default to LF line endings for all text files
+* text=auto eol=lf
+
+# Ensure specific file types always have Unix line endings
+*.sh text eol=lf
+*.py text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.tf text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.git-hooks/* text eol=lf
+
+# Keep Windows batch files with CRLF (if any exist)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files - do not modify
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

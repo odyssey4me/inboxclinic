@@ -1,0 +1,30 @@
+# Automated dependency updates.
+# Dependabot opens PRs for new versions; each PR runs the full CI (lint, typecheck,
+# test, build) before it can be merged, so updates stay verifiable. Security fixes
+# are delivered automatically when "Dependabot security updates" is enabled in the
+# repository settings.
+version: 2
+updates:
+  # npm dependencies (covers the root + all workspaces via the root lockfile)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      # Batch low-risk minor/patch bumps into a single PR to cut noise…
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      # …while major bumps still get their own PR for careful review.
+
+  # Keep the GitHub Actions used in CI up to date too.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"

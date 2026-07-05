@@ -1,0 +1,49 @@
+# Inbox Clinic - Git Ignore File (TypeScript monorepo)
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Vite / PWA dev artifacts
+.vite/
+dev-dist/
+
+# Test & coverage
+coverage/
+
+# Environment & local config (the app holds no secrets — never commit local env)
+.env
+.env.local
+.env.*.local
+*.local
+
+# OAuth tokens / credentials (should never exist; guard anyway)
+token.json
+credentials.json
+
+# Editor / IDE — track shared VS Code config, ignore personal
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Claude Code — ignore local settings and ephemeral plans
+.claude/settings.local.json
+.claude/plans/
+
+# OS
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/

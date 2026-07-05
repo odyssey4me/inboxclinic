@@ -1,0 +1,310 @@
+# Design: Frontend
+
+> **Status:** Draft (Alpha)
+>
+> **Last Updated:** 2026-06-28
+
+## Overview
+
+This document defines the frontend for Inbox Clinic: a **client-only, local-first,
+all-TypeScript browser PWA with no backend**. It owns **UI component patterns, state
+management, and the trust-decision interaction**. The app is a static **Vite + React +
+Tailwind** SPA; all product logic lives in a framework-agnostic `packages/core`, and all
+user data lives **on-device in IndexedDB (Dexie)**.
+
+This replaces the previous Next.js design (SSR, server components, TanStack-Query-against-
+our-API, admin/status routes). Those concepts are gone: there is **no app server, no SSR,
+no app-backend fetching**. The only network calls are direct browser → Google API calls.
+
+**Scope:** rendering strategy, component architecture, state management, the trust-decision
+workflow UX, accessibility/responsive conventions, and the privacy export/delete UX.
+
+**Out of scope (linked, not duplicated):**
+- Gmail OAuth (PKCE), scanning, filter compilation — see [design-gmail-integration.md](design-gmail-integration.md).
+- Trust scoring, prioritisation, decision persistence — see [design-trust-decisions.md](design-trust-decisions.md) and architecture.md §4.
+- Test conventions — see [design-testing.md](design-testing.md).
+
+## Architecture Reference
+
+This design implements the following sections of [architecture.md](architecture.md).
+It does not restate them; it defines how the UI realises them.
+
+| Section | Title | Relevance |
+|---------|-------|-----------|
+| 3 | System Model | Client-only topology; `apps/web` (presentation) over `packages/core` (logic); service worker |
+| 6 | Core Interfaces | The UI depends on the store and provider-client ports; it renders their output and holds no business rules |
+| 7 | Access, Openness & Funding | Static, reproducible build; opt-in **local** shareable snapshot (no server, no referral tracking) |
+| 8 | User Settings & Opt-in Features | User-controlled opt-in toggles stored on-device |
+
+## Design Decisions
+
+### Decision 1: Vite + React + Tailwind, static SPA (no SSR)
+
+**Context:** architecture.md §3 describes a client-only app with no application servers;
+the static-SPA, Vite + React + Tailwind, and PWA-from-day-one choices are this design's
+(architecture is technology-agnostic).
+
+**Decision:** Build `apps/web` as a Vite React SPA, styled with Tailwind, output as static
+assets. No SSR, no server components, no Next.js.
+
+**Rationale:** A static SPA matches the client-only topology, deploys to GitHub/Cloudflare
+Pages with zero servers, and keeps the build trivially reproducible by forkers (§7). Vite
+gives fast dev + a small static bundle.
+
+**Alternatives considered:**
+- *Next.js (previous design):* requires/encourages a server runtime; SSR and server
+  components are meaningless with no backend and no per-request data. Rejected by §2 (client-only).
+- *Remix / TanStack Start:* server-oriented data loading we have no use for.
+
+### Decision 2: Logic in `packages/core`, presentation in `apps/web`
+
+**Context:** §6 (provider/UI-agnostic core) and §9 (additional clients) require product
+logic to be framework-agnostic and unit-testable without a DOM, and reusable by a future
+mobile client.
+
+**Decision:** All scoring, prioritisation, filter compilation, Gmail access, and the
+**store repository** live in `packages/core` as plain TypeScript (ports-and-adapters).
+`apps/web` only renders state and dispatches intents into core. React components contain no
+business rules.
+
+**Rationale:** Keeps the coverage-gated logic testable in isolation (§6) and lets a
+Capacitor/React-Native shell reuse the same core (§9). The repository interface is the
+single seam between UI and IndexedDB.
+
+### Decision 3: Local-first state — the Dexie store is the source of truth
+
+**Context:** §5 keeps **all** user data on the device. There is no server state of our own.
+
+**Decision:** UI state has three tiers:
+
+| Tier | Holds | Mechanism |
+|------|-------|-----------|
+| **Persistent (app state)** | senders, domains, prompts, decisions, analytics, settings | Dexie via the core **repository interface**; React subscribes with `useLiveQuery` (Dexie React hooks) |
+| **Ephemeral (UI state)** | modal open, selected tab, form drafts, wizard step | React `useState` / context |
+| **Server state (Google only)** | in-flight Gmail/People API calls | **Optional** TanStack Query, scoped to Google calls only |
+
+Reads and writes go through the repository (`core/store`), never directly to Dexie from a
+component. `useLiveQuery` makes the UI reactive: when core writes a decision, every view
+re-renders from IndexedDB automatically.
+
+**Rationale:** A single local source of truth removes cache-coherency problems and works
+fully offline. TanStack Query is **optional and only for Google API calls** (retry,
+in-flight de-dupe, background refetch during scan/sync) — never for app data, because there
+is no app backend to fetch from.
+
+**Alternatives considered:** Redux/Zustand global store — redundant when IndexedDB +
+`useLiveQuery` already provide reactive shared state.
+
+### Decision 4: PWA with offline cache + periodic sync from day one
+
+**Context:** §1 (local-first, mobile-ready) motivates an installable PWA; §3 shows the
+client reconciling periodically with the provider; [design-gmail-integration.md](design-gmail-integration.md)
+defines polling-based incremental sync.
+
+**Decision:** Ship a service worker on first release that (a) precaches the app shell and
+static assets for offline launch, and (b) registers **Periodic Background Sync** (where the
+platform permits) to let core run an incremental Gmail sync while the app is closed,
+falling back to on-open sync otherwise.
+
+**Rationale:** Offline launch and "add to home screen" are baseline expectations for a
+local-first tool; periodic sync surfaces new prompts without a push pipeline (none exists in
+the client-only model). Capability is feature-detected — degrade gracefully where Periodic
+Sync is unavailable (e.g. iOS Safari).
+
+### Decision 5: Component vocabulary — ui primitives + composed components
+
+**Context:** Retain the prior, well-understood component vocabulary, but as plain
+React/Vite (no `"use client"`, no Next imports).
+
+**Decision:** Two layers under `apps/web/src/components/`:
+
+| Layer | Examples |
+|-------|----------|
+| `ui/` (primitives) | `button`, `card`, `dialog`, `badge`, `progress`, `tabs`, `tooltip` |
+| `composed/` (app components) | `prompt-card`, `decision-row`, `trust-actions`, `domain-card`, `undo-dialog`, `score-indicator`, `signal-list`, `batch-offer` |
+
+Primitives stay accessible (keyboard, focus, ARIA) and unstyled-by-default; composed
+components express product concepts. Screens compose these; they hold no business logic.
+
+### Decision 6: Four-phase trust-decision workflow as a guided wizard
+
+**Context:** §4 defines prompts, trust/block/defer decisions, and prompt expiry. This
+design realises them as a four-phase flow: **Discovery → Decision → Review → Execution**.
+
+**Decision:** Implement the workflow as a stepper. No Gmail mutation happens until the user
+confirms in **Execution**; everything before it edits a **local pending-decision list**.
+See *Interfaces* and *Examples* below for phase detail.
+
+## Interfaces
+
+### Repository interface (UI ⇄ store)
+
+`apps/web` depends only on this port from `packages/core`; the Dexie implementation is an
+adapter behind it.
+
+```typescript
+// packages/core/store/repository.ts
+export interface Repository {
+  // Reactive reads return Dexie queries the UI subscribes to via useLiveQuery
+  dashboardSummary(): Promise<DashboardSummary>;   // health score, blocked count, pending count, 30d summary, top domains
+  topPrompt(): Promise<Prompt | null>;             // highest-priority undecided prompt (Discovery)
+  promptBatch(groupId: string): Promise<Prompt[]>; // similar senders for a batch offer
+  listDomains(filter: DomainFilter): Promise<Domain[]>;
+  listDecisions(filter: DecisionFilter): Promise<Sender[]>;
+  analytics(range: 'daily' | 'monthly'): Promise<AnalyticsSeries>;
+
+  // Writes (pending list lives in memory until Execution commits it)
+  recordDecision(d: DecisionInput): Promise<void>;      // trust | block | defer
+  revokeDecision(senderId: string): Promise<void>;
+  setDomainException(domain: string, address: string, status: TrustStatus): Promise<void>;
+  setPrivacyContribution(enabled: boolean): Promise<void>;
+
+  // Privacy (§5)
+  exportAll(): Promise<Blob>;     // dump IndexedDB to a downloadable file
+  deleteAllLocal(): Promise<void>; // clear every object store
+}
+```
+
+### Trust-decision workflow (the interaction this doc owns)
+
+| Phase | UI | Key elements |
+|-------|----|--------------|
+| **Discovery** | `prompt-card` | `score-indicator` (e.g. ●●●●○ + tier colour), 3–4 `signal-list` statements, evidence (read rate, count, frequency, category, inbox %), and an optional **`batch-offer`**: "23 other promotional senders you've never opened — review as a group?" → *Review as group* / *Individually* / *Skip*. |
+| **Decision** | `trust-actions` | **Trust** → confirm; offer to **rescue** existing messages from Spam/Trash. **Block** → action checkboxes with smart defaults by category (unsubscribe if `List-Unsubscribe` present ✓, create filter ✓, archive ✓, delete ○). **Defer** → "We'll ask again later" (reduced priority). Each choice appends to the local pending list and auto-advances to the next prompt. |
+| **Review** | `decision-row` list | Summary header: "47 senders: 12 trusted, 35 blocked", est. monthly reduction, action totals. Each row is editable: flip trust ↔ block, toggle individual actions, exclude an address from a domain decision, or remove (returns sender to the queue). |
+| **Execution** | `progress` + summary | Confirm dialog enumerates what will happen → apply via core (Gmail mutations + filter compilation) with a live progress bar and cancel-remaining. Completion summary lists successes/failures; closes with "Undo recent changes in Settings → Past decisions". |
+
+Scoring, signal selection, smart-default presets, priority, defer-decay and the 30-day
+expiry are **owned by [design-trust-decisions.md](design-trust-decisions.md) / architecture.md §4** — the UI renders their
+output and must not re-derive them.
+
+### Screens
+
+| Screen | Composed of | Notes |
+|--------|-------------|-------|
+| **Dashboard** | health-score card, stat cards, `domain-card` list | Inbox health score, blocked count, pending decisions, 30-day summary, top domains. |
+| **Trust-decision workflow** | the four phases above | Entry point from Dashboard "pending decisions". |
+| **Domain explorer** | `domain-card` grid, drill-in sender list, unsubscribe tracker | Browse by volume/status; start a workflow on a selection. |
+| **Past decisions / settings** | `decision-row` list, filters, exception editor, toggles | Review/revoke; domain exceptions; **privacy toggle** (`contributeToAggregate`); **export/delete**; undo. |
+| **Analytics** | trend charts, category breakdown, achievements, share | Daily/monthly trends, top blocked domains, achievements, **opt-in local shareable snapshot** — produces a self-contained artefact the user chooses to publish; **no server, no referral tracking** (§7). |
+
+## Configuration
+
+No `NEXT_PUBLIC_*` or server-side variables exist. Configuration is build-time, exposed via
+Vite's `import.meta.env` (only `VITE_`-prefixed vars reach the client).
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `VITE_GOOGLE_OAUTH_CLIENT_ID` | Yes | – | Public OAuth client id (PKCE; no secret). |
+| `VITE_SCAN_WINDOW_DAYS` | No | `30` | Initial inbox scan window (see [design-gmail-integration.md](design-gmail-integration.md)). |
+
+User settings are stored on-device (IndexedDB), not in build config or any server profile.
+They are surfaced as toggles in the Settings screen and persisted via the core repository (§8):
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `theme` | `'light' \| 'dark' \| 'system'` | `'system'` | Theme preference. |
+| `contributeToAggregate` | boolean | `true` | Opt-out of the deferred anonymous collective-trust aggregate (§9). |
+
+## Error Handling
+
+There is no app API, so errors are local or Google-originated. Surface them inline or as a
+toast; never block the local-first UI on a network failure.
+
+| Error | When | UX |
+|-------|------|----|
+| Offline / asset miss | Service worker has no cached response | App still launches from cache; show "Offline — Gmail sync paused; local data is available". |
+| Token expired | Google access token (in-memory) lapsed | Prompt to re-consent (PKCE re-auth); pending local decisions are preserved. |
+| Gmail quota near cap | Client-tracked usage approaches per-user limit | Warn and slow/pause scanning (see [design-gmail-integration.md](design-gmail-integration.md)); keep the UI responsive. |
+| Gmail mutation failed (Execution) | A filter/unsubscribe/modify call fails | Mark that row failed in the completion summary; local decision remains the source of truth and is retried on next sync. |
+| IndexedDB unavailable | Private-mode / storage blocked | Hard-fail with a clear explanation — the app cannot function without local storage. |
+
+Recoverable Google calls should be retried with backoff (TanStack Query handles this if
+adopted for those calls). Local decisions are **idempotent and authoritative**, so a failed
+enforcement call never loses the user's intent.
+
+## Examples
+
+### Reactive read via the repository
+
+```tsx
+// apps/web/src/screens/Dashboard.tsx
+import { useLiveQuery } from 'dexie-react-hooks';
+import { repo } from '@/core';
+
+export function Dashboard() {
+  const summary = useLiveQuery(() => repo.dashboardSummary());
+  if (!summary) return <DashboardSkeleton />;
+  return (
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
+      <HealthScoreCard score={summary.inboxHealthScore} />
+      <StatGrid blocked={summary.blockedCount} pending={summary.pendingCount} />
+      <TopDomains domains={summary.topDomains} />
+    </main>
+  );
+}
+```
+
+### Decision phase writing to the local pending list
+
+```tsx
+// apps/web/src/components/composed/trust-actions.tsx
+function onBlock(sender: Sender, actions: BlockActions) {
+  // Appends to the in-memory pending list; nothing touches Gmail until Execution.
+  workflow.append({ senderId: sender.id, kind: 'block', actions });
+  workflow.advance(); // surface the next highest-priority prompt
+}
+```
+
+### Export / delete (privacy UX, §5)
+
+```tsx
+// Settings → Privacy
+async function onExport() {
+  const blob = await repo.exportAll();          // dump IndexedDB
+  downloadBlob(blob, 'inbox-clinic-export.json');
+}
+
+async function onDeleteEverything() {
+  await repo.deleteAllLocal();                   // clear all object stores
+  await google.revokeAccess();                   // revoke the app's Google grant
+  navigate('/goodbye');
+}
+```
+
+## Accessibility & Responsive
+
+Per the project accessibility baseline:
+
+| Requirement | Implementation |
+|-------------|----------------|
+| Mobile-first, responsive | Tailwind breakpoints, single-column by default; **Capacitor wrapper is a future target (§9)** so layouts stay touch-first. |
+| Colour + text/icon | Every colour-coded signal (score tier, status badge) also carries text/icon. |
+| Keyboard navigable | Workflow phases, decision actions, and dialogs operable by keyboard; focus managed by `ui/` primitives. |
+| Announced state | Progress and completion in Execution announced to screen readers (`aria-live`). |
+| Touch targets | ≥44×44px for all interactive controls. |
+| Alternative flows | Any batch decision can be done one-at-a-time (Discovery's "review individually"). |
+| Reduced motion | Respect `prefers-reduced-motion`; transitions degrade to instant. |
+
+## Migration Notes
+
+This supersedes the Next.js frontend design. Removed concepts: SSR/static hybrid rendering,
+server components, `NEXT_PUBLIC_*`/`API_URL` env vars, TanStack Query against our API,
+admin dashboard routes, public status-page route, and middleware-based auth. Direct
+component → Firestore/API access is replaced by the `packages/core` **repository** over
+IndexedDB. There is no running implementation to migrate yet (Alpha).
+
+## Open Questions
+
+- [ ] Adopt TanStack Query for Google API calls, or a thinner core-owned fetch wrapper? (Decision 3 leaves it optional.)
+- [ ] Periodic Background Sync is unavailable on iOS Safari — is on-open sync sufficient there until the Capacitor build lands?
+- [ ] Shareable analytics snapshot format (image vs. self-contained HTML/JSON) and how achievements render in it.
+- [ ] Routing approach for a static SPA (hash vs. history routing) given GitHub/Cloudflare Pages constraints.
+
+---
+
+**Changelog:**
+
+| Date | Change | Author |
+|------|--------|--------|
+| 2026-06-28 | Rewritten for the client-only, local-first, all-TypeScript PWA architecture (Vite + React + Tailwind, `packages/core`, Dexie/IndexedDB). Replaces the Next.js design. | Claude |
