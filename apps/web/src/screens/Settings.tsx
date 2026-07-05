@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 import { ReportProblem } from "../components/composed/ReportProblem";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { reportingIntegration } from "../reporting/integration";
 import { latestError } from "../reporting/recentErrors";
 
 export interface SettingsProps {
@@ -412,6 +413,7 @@ export function Settings({
         {reporting ? (
           <ReportProblem
             store={store}
+            {...(reportingIntegration() ?? {})}
             initial={(() => {
               const latest = latestError();
               if (latest === undefined) return {};

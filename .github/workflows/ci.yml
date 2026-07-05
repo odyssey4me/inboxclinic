@@ -129,4 +129,8 @@ jobs:
           # management token. Account id is public, kept as a repo variable.
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/web/dist --project-name=inboxclinic --branch=main
+          # Run from apps/web so wrangler bundles the Pages Functions in ./functions
+          # (the feedback intake, /api/report) alongside the static ./dist assets.
+          # KV/secret bindings are configured in the Pages project (design-error-reporting.md).
+          workingDirectory: apps/web
+          command: pages deploy dist --project-name=inboxclinic --branch=main

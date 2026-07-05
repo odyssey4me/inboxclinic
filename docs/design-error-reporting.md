@@ -209,18 +209,37 @@ are **not** written to the issue.
 Copy/Download are always available so a report is never lost to a submission failure — and
 they are the **no-backend fallback** (Decision 2 alternative).
 
-## Migration Notes
+## Deployment & setup (runbook)
 
-- Adds one on-device field (`installId`); no destructive change (alpha, no back-compat needed).
-- The §5/§6 egress amendment is **approved and applied** (architecture v3.1) — no blocker remains here.
-- The edge function is additive; the static client works unchanged without it (falls back to copy/download).
+The edge intake lives at `apps/web/functions/api/report.ts` (Cloudflare Pages Function). CI
+deploys with `workingDirectory: apps/web` + `wrangler pages deploy dist`, so wrangler bundles
+`apps/web/functions/` alongside the static `dist/` assets. **One-time manual setup** (dashboard
+actions — cannot be automated):
+
+1. **GitHub token** — create a **fine-grained PAT** scoped to `odyssey4me/inboxclinic` only,
+   with **Issues: Read & write** (nothing else). This is the sole runtime secret.
+2. **Turnstile** — create a Turnstile widget (managed mode). Note the **site key** (public)
+   and **secret key**.
+3. **Cloudflare Pages project** (`inboxclinic`) → Settings:
+   - Secrets: `GITHUB_TOKEN` (the PAT), `TURNSTILE_SECRET`. Optional `GITHUB_REPO` to override
+     the target repo (defaults to `odyssey4me/inboxclinic`).
+   - KV: create a namespace and bind it as `REPORT_KV` (Production **and** Preview).
+4. **Build var** — set repo/Actions variable `VITE_TURNSTILE_SITE_KEY` (public site key) so the
+   deploy build enables the **Send** action. Until this is set, the panel is copy/download-only.
+5. **CSP** — if a Content-Security-Policy is added later, allow the Turnstile script/frames
+   (`https://challenges.cloudflare.com`).
+
+Verify locally with `wrangler pages dev dist` (from `apps/web`) using test Turnstile keys; the
+GitHub call needs a real token. The pure intake helpers (`src/reporting/reportIntake.ts`) are
+unit-tested; the live Turnstile widget + issue creation need this setup to verify end-to-end.
 
 ## Open Questions
 
-- [ ] Should the optional server-signed token (Decision 5 alt) ship in v1, or stay deferred?
-- [ ] Should reports also be mirrored to a private store (D1) for triage history, or issues-only?
-- [ ] Deployment: the current `wrangler pages deploy apps/web/dist` must include a `functions/` dir — confirm the build wiring in [design-deployment.md](design-deployment.md).
-- [ ] Do we want a lightweight in-app "recent errors" ring buffer so non-crash errors (like the 429) are reportable after the fact, or report only the currently-surfaced error?
+- [ ] Should the optional server-signed token (Decision 5 alt) ship in v1, or stay deferred? **(Deferred for v1 per user.)**
+- [ ] Should reports also be mirrored to a private store (D1) for triage history, or issues-only? **(Issues-only for v1 per user.)**
+- [x] Deployment wiring — resolved: `workingDirectory: apps/web` + `pages deploy dist` bundles `functions/` (see runbook above).
+- [x] In-app recent-errors buffer — resolved: implemented (`src/reporting/recentErrors.ts`), so after-the-fact errors like the 429 are reportable.
+- [ ] Turnstile widget UX (centered overlay) and CSP allowance need live verification once keys are set.
 
 ---
 
@@ -230,3 +249,4 @@ they are the **no-backend fallback** (Decision 2 alternative).
 |------|--------|--------|
 | 2026-07-05 | Initial draft — opt-in, anonymous, user-reviewed feedback → GitHub issue via a Cloudflare Pages Function; on-device redaction; anonymous install ID for abuse-correlation (distinct from aggregate identity); Turnstile + KV rate-limiting; proposed §5/§6 architecture amendment for a second (opt-in, reviewed) egress path. Scoped as the first service of the deferred aggregate backend (§9). | Claude |
 | 2026-07-05 | §5/§6 architecture amendment **approved and applied** (architecture v3.1); doc updated from "proposed" to "implements". | Claude |
+| 2026-07-05 | Implemented Phases 1–5: core redactor/install-ID/port; build-stamp footer; error boundary + recent-errors buffer; "Report a problem" panel (copy/download, no backend) + reset identifier; Cloudflare edge intake (`functions/api/report.ts`) with Turnstile + KV rate-limiting and anonymous GitHub issue; deploy wiring + setup runbook. | Claude |

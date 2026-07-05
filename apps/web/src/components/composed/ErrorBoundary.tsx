@@ -2,6 +2,7 @@
 import { redact, type Store } from "@inboxclinic/core";
 import { Component, type ReactNode } from "react";
 
+import { reportingIntegration } from "../../reporting/integration";
 import { recordError } from "../../reporting/recentErrors";
 import { Button } from "../ui/Button";
 import { ReportProblem } from "./ReportProblem";
@@ -64,6 +65,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="w-full text-left">
             <ReportProblem
               store={store}
+              {...(reportingIntegration() ?? {})}
               initial={{
                 message: error.message,
                 ...(error.stack !== undefined ? { stack: error.stack } : {}),

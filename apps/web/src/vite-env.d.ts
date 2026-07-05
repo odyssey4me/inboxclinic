@@ -6,6 +6,8 @@ interface ImportMetaEnv {
   readonly VITE_OAUTH_CLIENT_ID?: string;
   /** URL of the hosted request-access (waitlist) form; falls back to the repo issues page. */
   readonly VITE_REQUEST_ACCESS_URL?: string;
+  /** Cloudflare Turnstile site key. When set, the feedback panel can submit to /api/report. */
+  readonly VITE_TURNSTILE_SITE_KEY?: string;
 }
 
 interface ImportMeta {
