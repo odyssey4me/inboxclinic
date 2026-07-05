@@ -155,11 +155,20 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function TrendChart({ trend }: { trend: TrendPoint[] }) {
   const max = Math.max(1, ...trend.map((p) => p.emailsBlocked));
+  const first = trend[0];
+  const last = trend[trend.length - 1];
   return (
     <section aria-label="Emails blocked trend" className="space-y-2">
-      <h2 className="text-lg font-semibold">Emails blocked per day</h2>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold">Emails blocked per day</h2>
+        <span className="text-xs text-muted">peak {max}/day</span>
+      </div>
       <div className="flex h-24 items-end gap-1" role="img" aria-label="Emails blocked per day">
         {trend.map((point) => (
           <div
@@ -170,6 +179,12 @@ function TrendChart({ trend }: { trend: TrendPoint[] }) {
           />
         ))}
       </div>
+      {first !== undefined && last !== undefined && (
+        <div className="flex justify-between text-xs text-muted">
+          <span>{shortDate(first.date)}</span>
+          <span>{shortDate(last.date)}</span>
+        </div>
+      )}
     </section>
   );
 }

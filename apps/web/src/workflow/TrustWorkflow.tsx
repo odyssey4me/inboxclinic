@@ -167,6 +167,18 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
         ))}
       </ol>
 
+      {(phase === "discovery" || phase === "decision") && queue.length > 0 && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-muted">
+            <span>
+              Sender {Math.min(handled.size + 1, queue.length)} of {queue.length}
+            </span>
+            <span>{queue.length - handled.size} left</span>
+          </div>
+          <ProgressBar value={handled.size} max={queue.length} label="Triage progress" />
+        </div>
+      )}
+
       {phase === "discovery" && current !== undefined && (
         <section className="space-y-4" aria-label="Discovery">
           <PromptCard sender={current} />
