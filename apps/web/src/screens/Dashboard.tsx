@@ -7,6 +7,7 @@ import {
   type Sender,
   type Store,
 } from "@inboxclinic/core";
+import { useState } from "react";
 
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { Badge, type BadgeTone } from "../components/ui/Badge";
@@ -39,15 +40,34 @@ function statusTone(status: Sender["trustStatus"]): BadgeTone {
 }
 
 /** Dashboard: inbox-health hero + next action, counts, top pending prompts, sender list. */
+/** Rows rendered before the list is capped (search narrows the rest). */
+const SENDERS_CAP = 50;
+
 export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
   const { data } = useStoreSnapshot(store);
   const { layout } = useLayout();
   const desktop = layout === "desktop";
+  const [query, setQuery] = useState("");
 
   const senders = data?.senders ?? [];
   const domains = data?.domains ?? [];
   const openPrompts = (data?.prompts ?? []).filter((p) => p.resolvedAt === null);
   const senderById = new Map(senders.map((s) => [s.id, s]));
+
+  // Search across address/domain/category/status, then order by volume so the cap keeps
+  // the highest-impact senders.
+  const q = query.trim().toLowerCase();
+  const filteredSenders = [...senders]
+    .filter(
+      (s) =>
+        q === "" ||
+        s.email.toLowerCase().includes(q) ||
+        s.domain.toLowerCase().includes(q) ||
+        s.category.toLowerCase().includes(q) ||
+        s.trustStatus.toLowerCase().includes(q),
+    )
+    .sort((a, b) => b.totalEmails - a.totalEmails);
+  const shownSenders = filteredSenders.slice(0, SENDERS_CAP);
 
   const topPending = [...openPrompts]
     .sort((a, b) => b.priorityScore - a.priorityScore)
@@ -107,9 +127,22 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
 
   const sendersSection =
     senders.length > 0 ? (
-      <section aria-label="Senders" className="space-y-2">
-        <h2 className="text-lg font-semibold">Senders</h2>
-        {desktop ? (
+      <section aria-label="Senders" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">Senders</h2>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search senders…"
+            aria-label="Search senders"
+            className="min-h-9 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:w-56"
+          />
+        </div>
+
+        {shownSenders.length === 0 ? (
+          <p className="text-sm text-muted">No senders match “{query}”.</p>
+        ) : desktop ? (
           <table className="w-full border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-line text-muted">
@@ -121,7 +154,7 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
               </tr>
             </thead>
             <tbody>
-              {senders.map((sender) => (
+              {shownSenders.map((sender) => (
                 <tr key={sender.id} className="border-b border-line">
                   <td className="py-2 pr-4">{sender.email}</td>
                   <td className="py-2 pr-4 text-muted">{sender.domain}</td>
@@ -136,7 +169,7 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
           </table>
         ) : (
           <ul className="space-y-2">
-            {senders.map((sender) => (
+            {shownSenders.map((sender) => (
               <li
                 key={sender.id}
                 className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2"
@@ -151,6 +184,12 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
               </li>
             ))}
           </ul>
+        )}
+
+        {filteredSenders.length > shownSenders.length && (
+          <p className="text-xs text-muted">
+            Showing {shownSenders.length} of {filteredSenders.length}. Search to narrow.
+          </p>
         )}
       </section>
     ) : null;
