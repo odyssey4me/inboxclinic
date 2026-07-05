@@ -4,6 +4,7 @@ import {
   backupToDrive,
   BackupNotFoundError,
   getBackupState,
+  resetInstallId,
   restoreFromDrive,
   setBackupEnabled,
   suggestFilterOptimisations,
@@ -15,8 +16,10 @@ import {
 } from "@inboxclinic/core";
 import { useEffect, useState } from "react";
 
+import { ReportProblem } from "../components/composed/ReportProblem";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
+import { latestError } from "../reporting/recentErrors";
 
 export interface SettingsProps {
   store: Store;
@@ -69,6 +72,20 @@ export function Settings({
   const [error, setError] = useState<string | null>(null);
   const [optimisations, setOptimisations] = useState<FilterOptimisation[] | null>(null);
   const [filterBusy, setFilterBusy] = useState<"checking" | "applying" | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  const onResetIdentifier = async (): Promise<void> => {
+    setNote(null);
+    setError(null);
+    try {
+      await resetInstallId(store);
+      setConfirmingReset(false);
+      setNote("Feedback identifier reset — future reports use a new anonymous ID.");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  };
 
   const onCheckFilters = async (): Promise<void> => {
     setNote(null);
@@ -381,6 +398,67 @@ export function Settings({
                 : `Apply ${optimisations.length} change${optimisations.length === 1 ? "" : "s"}`}
             </Button>
           </>
+        )}
+      </Card>
+
+      <Card aria-label="Report a problem" className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Report a problem</h2>
+          <p className="text-sm text-muted">
+            Send an anonymous, redacted report — you see exactly what it contains and can edit it
+            before sending, copying, or downloading it. Nothing is sent automatically.
+          </p>
+        </div>
+        {reporting ? (
+          <ReportProblem
+            store={store}
+            initial={(() => {
+              const latest = latestError();
+              if (latest === undefined) return {};
+              return {
+                message: latest.message,
+                ...(latest.stack !== undefined ? { stack: latest.stack } : {}),
+                ...(latest.view !== undefined ? { view: latest.view } : {}),
+              };
+            })()}
+          />
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={() => setReporting(true)}>
+              Report a problem
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setNote(null);
+                setError(null);
+                setConfirmingReset(true);
+              }}
+            >
+              Reset feedback identifier
+            </Button>
+          </div>
+        )}
+
+        {confirmingReset && (
+          <div
+            role="alertdialog"
+            aria-label="Confirm reset feedback identifier"
+            className="space-y-3 rounded-md border border-line bg-surface-2 p-3"
+          >
+            <p className="text-sm text-ink">
+              Reset the anonymous ID used to correlate your reports? Future reports will use a new
+              identity (and a fresh abuse-prevention slate).
+            </p>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => void onResetIdentifier()}>
+                Reset identifier
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmingReset(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
         )}
       </Card>
 

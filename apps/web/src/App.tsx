@@ -61,7 +61,7 @@ function summariseSync(result: IncrementalSyncResult): string {
 export function App(props: AppProps) {
   return (
     <LayoutProvider>
-      <ErrorBoundary>
+      <ErrorBoundary store={props.store}>
         <AppInner {...props} />
       </ErrorBoundary>
     </LayoutProvider>
