@@ -116,6 +116,16 @@ class InMemoryAnalyticsStore implements AnalyticsStore {
     return Promise.resolve();
   }
 
+  /** All daily records (for `exportAll`); order is not significant. */
+  allDays(): DailyAnalytics[] {
+    return [...this.days.values()];
+  }
+
+  /** All monthly records (for `exportAll`); order is not significant. */
+  allMonths(): MonthlyAnalytics[] {
+    return [...this.months.values()];
+  }
+
   clear(): void {
     this.days.clear();
     this.months.clear();
@@ -149,17 +159,48 @@ export class InMemoryStore implements Store {
   readonly filterSync = new InMemorySingletonStore<FilterSyncState>();
   readonly settings = new InMemoryRepo<Setting>((s) => s.key);
 
+  /**
+   * Serialise every store as a `{ tableName: rows[] }` dump — the same format the Dexie
+   * adapter produces, so a blob round-trips through either `Store` implementation.
+   * Singleton stores (profile, filterSyncState) dump as a 0-or-1-element array.
+   */
   async exportAll(): Promise<Uint8Array> {
+    const profile = await this.profile.get();
+    const filterSyncState = await this.filterSync.get();
     const dump = {
-      profile: await this.profile.get(),
+      profile: profile !== undefined ? [profile] : [],
       senders: await this.senders.query({}),
       domains: await this.domains.query({}),
+      prompts: await this.prompts.query({}),
+      analyticsDaily: this.analytics.allDays(),
+      analyticsMonthly: this.analytics.allMonths(),
+      filterSyncState: filterSyncState !== undefined ? [filterSyncState] : [],
+      settings: await this.settings.query({}),
     };
     return new TextEncoder().encode(JSON.stringify(dump));
   }
 
-  importAll(): Promise<void> {
-    return Promise.reject(new Error("InMemoryStore.importAll is not implemented"));
+  /** Replace every store from a dump produced by {@link exportAll} (or the Dexie adapter). */
+  async importAll(blob: Uint8Array): Promise<void> {
+    const dump = JSON.parse(new TextDecoder().decode(blob)) as {
+      profile?: Profile[];
+      senders?: Sender[];
+      domains?: Domain[];
+      prompts?: Prompt[];
+      analyticsDaily?: DailyAnalytics[];
+      analyticsMonthly?: MonthlyAnalytics[];
+      filterSyncState?: FilterSyncState[];
+      settings?: Setting[];
+    };
+    await this.wipeAll();
+    if (dump.profile?.[0] !== undefined) await this.profile.put(dump.profile[0]);
+    await this.senders.bulkPut(dump.senders ?? []);
+    await this.domains.bulkPut(dump.domains ?? []);
+    await this.prompts.bulkPut(dump.prompts ?? []);
+    for (const day of dump.analyticsDaily ?? []) await this.analytics.putDay(day);
+    for (const month of dump.analyticsMonthly ?? []) await this.analytics.putMonth(month);
+    if (dump.filterSyncState?.[0] !== undefined) await this.filterSync.put(dump.filterSyncState[0]);
+    await this.settings.bulkPut(dump.settings ?? []);
   }
 
   wipeAll(): Promise<void> {
