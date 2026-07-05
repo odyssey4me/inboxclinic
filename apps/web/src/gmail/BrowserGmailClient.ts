@@ -24,6 +24,7 @@ import type {
 } from "@inboxclinic/core";
 
 import { requestAccessToken } from "../auth/gis";
+import { fetchWithRetry } from "../lib/googleFetch";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 const PAGE_SIZE = 500;
@@ -222,7 +223,7 @@ export class BrowserGmailClient implements GmailClient {
       if (pageToken !== undefined) params.set("pageToken", pageToken);
 
       const token = await this.getAccessToken();
-      const response = await fetch(`${GMAIL_API}/history?${params.toString()}`, {
+      const response = await fetchWithRetry(`${GMAIL_API}/history?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token.value}` },
       });
       if (response.status === 404) {
@@ -282,7 +283,7 @@ export class BrowserGmailClient implements GmailClient {
 
   private async apiGet<T>(path: string): Promise<T> {
     const token = await this.getAccessToken();
-    const response = await fetch(`${GMAIL_API}${path}`, {
+    const response = await fetchWithRetry(`${GMAIL_API}${path}`, {
       headers: { Authorization: `Bearer ${token.value}` },
     });
     if (!response.ok) {
@@ -294,7 +295,7 @@ export class BrowserGmailClient implements GmailClient {
   /** POST/DELETE helper; returns the parsed body (or `undefined` for empty responses). */
   private async apiSend<T>(method: "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
     const token = await this.getAccessToken();
-    const response = await fetch(`${GMAIL_API}${path}`, {
+    const response = await fetchWithRetry(`${GMAIL_API}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${token.value}`,

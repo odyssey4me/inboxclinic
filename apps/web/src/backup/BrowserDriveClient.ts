@@ -13,6 +13,7 @@ import { BACKUP_FILE_NAME, BackupNotFoundError, DRIVE_FILE_SCOPE } from "@inboxc
 import type { BackupClient, BackupFile } from "@inboxclinic/core";
 
 import { requestAccessToken } from "../auth/gis";
+import { fetchWithRetry } from "../lib/googleFetch";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
@@ -99,7 +100,7 @@ export class BrowserDriveClient implements BackupClient {
 
   async downloadBackupFile(id: string): Promise<Uint8Array> {
     const token = await this.getToken();
-    const response = await fetch(`${DRIVE_API}/files/${id}?alt=media`, {
+    const response = await fetchWithRetry(`${DRIVE_API}/files/${id}?alt=media`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (response.status === 404) {
@@ -121,7 +122,7 @@ export class BrowserDriveClient implements BackupClient {
     payload?: { contentType: string; body: BodyInit },
   ): Promise<T> {
     const token = await this.getToken();
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,

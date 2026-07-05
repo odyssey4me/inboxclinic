@@ -341,9 +341,11 @@ toast; never block the local-first UI on a network failure.
 | Gmail mutation failed (Execution) | A filter/unsubscribe/modify call fails | Mark that row failed in the completion summary; local decision remains the source of truth and is retried on next sync. |
 | IndexedDB unavailable | Private-mode / storage blocked | Hard-fail with a clear explanation — the app cannot function without local storage. |
 
-Recoverable Google calls should be retried with backoff (TanStack Query handles this if
-adopted for those calls). Local decisions are **idempotent and authoritative**, so a failed
-enforcement call never loses the user's intent.
+Recoverable Google calls are retried with backoff at the transport layer — a shared
+`fetchWithRetry` wraps every Gmail/Drive `fetch`, honouring `Retry-After` and otherwise
+using exponential backoff + jitter for 429 / 403 rate-limit / 5xx / 408 (see
+[design-gmail-integration.md](design-gmail-integration.md) error table). Local decisions are
+**idempotent and authoritative**, so a failed enforcement call never loses the user's intent.
 
 ## Examples
 
@@ -439,6 +441,7 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Decisions view gains the **confirm-first import** of learned prior decisions (`learnPriorDecisions` → `importLearnedDecisions`): "Found N prior decisions" from existing filters + read-weighted Spam/Trash, imported as Blocked on request. Demo seeds Spam/Trash-only senders (the in-memory Gmail inbox scan now excludes Spam/Trash). | Claude |
 | 2026-07-05 | Workflow optimisation: merge **Discovery + Decision → Triage** (actions inline; one tap or `T`/`B`/`D`/`S` per sender), **one-tap Block** with smart defaults + a Customize expander, and the **impact preview** in Review. Decision 6 is now three phases. | Claude |
 | 2026-07-05 | Add **Decision 8: dashboard senders actionable in place via a `SenderDetail` drawer** (desktop right panel / mobile bottom sheet). Clicking any sender, pending row, or the Pending tile opens it; reuses `PromptCard` / `TrustActions` / `ImpactPreview` so Trust/Defer apply immediately and Block previews + confirms — closing the affordance/behaviour gap on the dashboard. | Claude |
+| 2026-07-05 | Implement **transport-level retry/backoff** for Google calls: a shared `fetchWithRetry` wraps every Gmail/Drive `fetch` (Retry-After + exponential backoff/jitter for 429 / 403 rate-limit / 5xx / 408), replacing the earlier "TanStack Query if adopted" hedge in Error Handling. | Claude |
 | 2026-07-05 | Extend Decision 8 to **domains**: a **Senders / Domains** segmented toggle on the dashboard list (switched by the summary tiles), a domains explorer, and a `DomainDetail` drawer (shared `ui/Drawer` shell) showing the aggregate, an averaged member score, drillable member senders, and a domain-scoped Trust/Block/Defer — closing the dead-end **Domains** count. | Claude |
 | 2026-07-05 | Functional pass: replace the ambiguous **Sync/Scan** pair with one **Refresh** (incremental sync) + a last-synced/result indicator; move the full **Rescan** to Settings; add Settings **export / delete-all** data controls. | Claude |
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |
