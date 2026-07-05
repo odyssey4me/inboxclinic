@@ -96,7 +96,7 @@ empty static PWA shell.
 - Restore: download → `importAll()` (replace-local with a warning). Not sync.
 - **Exit:** a user can back up to their Drive and restore on a fresh install.
 
-### M8 — Access, waitlist & open-source release
+### M8 — Access, waitlist & open-source release — ✅ COMPLETE
 **Goal:** others can use it (and self-host).
 - "Request access" flow → Tally form (Section 7); maintainer allowlist runbook.
 - Apache-2.0 headers/licence verified; zero-secrets check; GitHub Sponsors link.
