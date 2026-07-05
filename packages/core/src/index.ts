@@ -31,6 +31,21 @@ export {
   type BackupFile,
 } from "./ports/BackupClient";
 
+// Backup / restore orchestration (over the BackupClient + Store ports).
+export {
+  backupToDrive,
+  getBackupState,
+  restoreFromDrive,
+  setBackupEnabled,
+  BACKUP_ENABLED_KEY,
+  BACKUP_FILE_ID_KEY,
+  BACKUP_LAST_AT_KEY,
+  type BackupOptions,
+  type BackupResult,
+  type BackupState,
+  type RestoreResult,
+} from "./backup/backup";
+
 // On-device store ports and entity types.
 export type {
   AnalyticsStore,
