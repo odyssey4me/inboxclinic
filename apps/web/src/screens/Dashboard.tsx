@@ -4,12 +4,14 @@ import {
   healthInputFromSenders,
   inboxHealthScore,
   senderToSnapshot,
+  type Domain,
   type GmailClient,
   type Sender,
   type Store,
 } from "@inboxclinic/core";
 import { useState } from "react";
 
+import { DomainDetail } from "../components/composed/DomainDetail";
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { SenderDetail } from "../components/composed/SenderDetail";
 import { Badge, type BadgeTone } from "../components/ui/Badge";
@@ -74,7 +76,9 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
   const { layout } = useLayout();
   const desktop = layout === "desktop";
   const [query, setQuery] = useState("");
+  const [listMode, setListMode] = useState<"senders" | "domains">("senders");
   const [selected, setSelected] = useState<Sender | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
 
   const senders = data?.senders ?? [];
   const domains = data?.domains ?? [];
@@ -95,6 +99,20 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
     )
     .sort((a, b) => b.totalEmails - a.totalEmails);
   const shownSenders = filteredSenders.slice(0, SENDERS_CAP);
+
+  const filteredDomains = [...domains]
+    .filter(
+      (d) =>
+        q === "" || d.domain.toLowerCase().includes(q) || d.trustStatus.toLowerCase().includes(q),
+    )
+    .sort((a, b) => b.totalEmails - a.totalEmails);
+  const shownDomains = filteredDomains.slice(0, SENDERS_CAP);
+  const membersOf = (domain: Domain): Sender[] => senders.filter((s) => s.domain === domain.domain);
+
+  const openDomain = (domain: Domain): void => {
+    setSelected(null);
+    setSelectedDomain(domain);
+  };
 
   const topPending = [...openPrompts]
     .sort((a, b) => b.priorityScore - a.priorityScore)
@@ -155,81 +173,163 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
       </section>
     ) : null;
 
-  const sendersSection =
+  const sendersList =
+    shownSenders.length === 0 ? (
+      <p className="text-sm text-muted">No senders match “{query}”.</p>
+    ) : desktop ? (
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b border-line text-muted">
+            <th className="py-2 pr-4 font-medium">Sender</th>
+            <th className="py-2 pr-4 font-medium">Domain</th>
+            <th className="py-2 pr-4 font-medium">Category</th>
+            <th className="py-2 pr-4 font-medium">Status</th>
+            <th className="py-2 text-right font-medium">Emails</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shownSenders.map((sender) => (
+            <tr
+              key={sender.id}
+              tabIndex={0}
+              onClick={() => setSelected(sender)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") setSelected(sender);
+              }}
+              className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+            >
+              <td className="py-2 pr-4 font-medium text-ink">{sender.email}</td>
+              <td className="py-2 pr-4 text-muted">{sender.domain}</td>
+              <td className="py-2 pr-4 text-muted">{sender.category}</td>
+              <td className="py-2 pr-4">
+                <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
+              </td>
+              <td className="py-2 text-right tabular-nums">{sender.totalEmails}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      <ul className="space-y-2">
+        {shownSenders.map((sender) => (
+          <li key={sender.id}>
+            <button
+              type="button"
+              onClick={() => setSelected(sender)}
+              className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-left transition-colors hover:border-accent/40 hover:bg-surface-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-ink">{sender.email}</p>
+                <p className="truncate text-xs text-muted">
+                  {sender.category} · {sender.totalEmails} emails
+                </p>
+              </div>
+              <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+
+  const domainsList =
+    shownDomains.length === 0 ? (
+      <p className="text-sm text-muted">No domains match “{query}”.</p>
+    ) : desktop ? (
+      <table className="w-full border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b border-line text-muted">
+            <th className="py-2 pr-4 font-medium">Domain</th>
+            <th className="py-2 pr-4 font-medium">Senders</th>
+            <th className="py-2 pr-4 font-medium">Status</th>
+            <th className="py-2 text-right font-medium">Emails</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shownDomains.map((domain) => (
+            <tr
+              key={domain.id}
+              tabIndex={0}
+              onClick={() => openDomain(domain)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") openDomain(domain);
+              }}
+              className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+            >
+              <td className="py-2 pr-4 font-medium text-ink">{domain.domain}</td>
+              <td className="py-2 pr-4 tabular-nums text-muted">{domain.senderCount}</td>
+              <td className="py-2 pr-4">
+                <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
+              </td>
+              <td className="py-2 text-right tabular-nums">{domain.totalEmails}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      <ul className="space-y-2">
+        {shownDomains.map((domain) => (
+          <li key={domain.id}>
+            <button
+              type="button"
+              onClick={() => openDomain(domain)}
+              className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-left transition-colors hover:border-accent/40 hover:bg-surface-2"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-ink">{domain.domain}</p>
+                <p className="truncate text-xs text-muted">
+                  {domain.senderCount} sender{domain.senderCount === 1 ? "" : "s"} ·{" "}
+                  {domain.totalEmails} emails
+                </p>
+              </div>
+              <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+
+  const activeCount = listMode === "senders" ? filteredSenders.length : filteredDomains.length;
+  const shownCount = listMode === "senders" ? shownSenders.length : shownDomains.length;
+
+  const listSection =
     senders.length > 0 ? (
-      <section aria-label="Senders" className="space-y-3">
+      <section aria-label={listMode === "senders" ? "Senders" : "Domains"} className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">Senders</h2>
+          <div
+            role="tablist"
+            aria-label="List view"
+            className="flex gap-1 rounded-md bg-surface-2 p-1"
+          >
+            {(["senders", "domains"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={listMode === mode}
+                onClick={() => setListMode(mode)}
+                className={`min-h-8 rounded px-3 text-sm font-medium capitalize transition-colors ${
+                  listMode === mode ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search senders…"
-            aria-label="Search senders"
+            placeholder={listMode === "senders" ? "Search senders…" : "Search domains…"}
+            aria-label={listMode === "senders" ? "Search senders" : "Search domains"}
             className="min-h-9 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:w-56"
           />
         </div>
 
-        {shownSenders.length === 0 ? (
-          <p className="text-sm text-muted">No senders match “{query}”.</p>
-        ) : desktop ? (
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-muted">
-                <th className="py-2 pr-4 font-medium">Sender</th>
-                <th className="py-2 pr-4 font-medium">Domain</th>
-                <th className="py-2 pr-4 font-medium">Category</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 text-right font-medium">Emails</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shownSenders.map((sender) => (
-                <tr
-                  key={sender.id}
-                  tabIndex={0}
-                  onClick={() => setSelected(sender)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") setSelected(sender);
-                  }}
-                  className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
-                >
-                  <td className="py-2 pr-4 font-medium text-ink">{sender.email}</td>
-                  <td className="py-2 pr-4 text-muted">{sender.domain}</td>
-                  <td className="py-2 pr-4 text-muted">{sender.category}</td>
-                  <td className="py-2 pr-4">
-                    <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
-                  </td>
-                  <td className="py-2 text-right tabular-nums">{sender.totalEmails}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <ul className="space-y-2">
-            {shownSenders.map((sender) => (
-              <li key={sender.id}>
-                <button
-                  type="button"
-                  onClick={() => setSelected(sender)}
-                  className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-left transition-colors hover:border-accent/40 hover:bg-surface-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{sender.email}</p>
-                    <p className="truncate text-xs text-muted">
-                      {sender.category} · {sender.totalEmails} emails
-                    </p>
-                  </div>
-                  <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        {listMode === "senders" ? sendersList : domainsList}
 
-        {filteredSenders.length > shownSenders.length && (
+        {activeCount > shownCount && (
           <p className="text-xs text-muted">
-            Showing {shownSenders.length} of {filteredSenders.length}. Search to narrow.
+            Showing {shownCount} of {activeCount}. Search to narrow.
           </p>
         )}
       </section>
@@ -240,8 +340,16 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
       {heroCard}
 
       <section className="grid grid-cols-3 gap-3" aria-label="Summary">
-        <Stat label="Senders" value={senders.length} />
-        <Stat label="Domains" value={domains.length} />
+        <Stat
+          label="Senders"
+          value={senders.length}
+          onClick={senders.length > 0 ? () => setListMode("senders") : undefined}
+        />
+        <Stat
+          label="Domains"
+          value={domains.length}
+          onClick={domains.length > 0 ? () => setListMode("domains") : undefined}
+        />
         <Stat
           label="Pending"
           value={openPrompts.length}
@@ -251,13 +359,13 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
 
       {desktop && pendingSection !== null ? (
         <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] items-start gap-6">
-          {sendersSection}
+          {listSection}
           {pendingSection}
         </div>
       ) : (
         <>
           {pendingSection}
-          {sendersSection}
+          {listSection}
         </>
       )}
 
@@ -267,6 +375,20 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
         gmail={gmail}
         online={online}
         onClose={() => setSelected(null)}
+        onChanged={onChanged}
+      />
+
+      <DomainDetail
+        domain={selectedDomain}
+        members={selectedDomain !== null ? membersOf(selectedDomain) : []}
+        store={store}
+        gmail={gmail}
+        online={online}
+        onClose={() => setSelectedDomain(null)}
+        onOpenSender={(sender) => {
+          setSelectedDomain(null);
+          setSelected(sender);
+        }}
         onChanged={onChanged}
       />
     </div>

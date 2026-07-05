@@ -22,7 +22,7 @@ test("trust workflow: Triage → Review → Execution", async ({ page }) => {
   await page.getByRole("button", { name: /^Done$/ }).click();
 
   // Back on the dashboard.
-  await expect(page.getByRole("heading", { name: /^Senders$/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Inbox health$/ })).toBeVisible();
 });
 
 test("block workflow: stage a block with actions", async ({ page }) => {
