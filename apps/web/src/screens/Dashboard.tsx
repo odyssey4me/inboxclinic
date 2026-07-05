@@ -8,15 +8,7 @@ import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 
 export interface DashboardProps {
   store: Store;
-  email: string;
-  online: boolean;
-  scanning: boolean;
-  syncing: boolean;
-  onScan: () => void;
-  onSync: () => void;
   onStartWorkflow: () => void;
-  onOpenAnalytics: () => void;
-  onOpenSettings: () => void;
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
@@ -28,19 +20,8 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** Dashboard shell: counts, top pending prompts, the sender list, scan + workflow entry. */
-export function Dashboard({
-  store,
-  email,
-  online,
-  scanning,
-  syncing,
-  onScan,
-  onSync,
-  onStartWorkflow,
-  onOpenAnalytics,
-  onOpenSettings,
-}: DashboardProps) {
+/** Dashboard: counts, top pending prompts, and the sender list. */
+export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
   const { data } = useStoreSnapshot(store);
 
   const senders = data?.senders ?? [];
@@ -55,30 +36,7 @@ export function Dashboard({
     .slice(0, 3);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Inbox Clinic</h1>
-          <p className="text-sm text-slate-500">
-            Signed in as <span className="font-medium text-slate-700">{email}</span>
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={onOpenAnalytics}>
-            Analytics
-          </Button>
-          <Button variant="secondary" onClick={onOpenSettings}>
-            Settings
-          </Button>
-          <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
-            {syncing ? "Syncing…" : "Sync"}
-          </Button>
-          <Button variant="secondary" onClick={onScan} disabled={scanning || !online}>
-            {scanning ? "Scanning…" : "Scan inbox"}
-          </Button>
-        </div>
-      </header>
-
+    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8">
       <section className="grid grid-cols-3 gap-3" aria-label="Summary">
         <Stat label="Senders" value={senders.length} />
         <Stat label="Domains" value={domains.length} />
@@ -132,6 +90,6 @@ export function Dashboard({
           </table>
         </section>
       )}
-    </main>
+    </div>
   );
 }

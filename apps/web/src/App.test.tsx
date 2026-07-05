@@ -74,7 +74,7 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
-    const scanButton = await screen.findByRole("button", { name: /scan inbox/i });
+    const scanButton = await screen.findByRole("button", { name: /^scan$/i });
     expect(await screen.findByText("owner@gmail.com")).toBeInTheDocument();
 
     fireEvent.click(scanButton);

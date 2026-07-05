@@ -178,6 +178,22 @@ Scoring, signal selection, smart-default presets, priority, defer-decay and the 
 expiry are **owned by [design-trust-decisions.md](design-trust-decisions.md) / architecture.md §4** — the UI renders their
 output and must not re-derive them.
 
+### Application shell & navigation
+
+Once signed in, **every screen renders inside a persistent application shell** — the
+`Inbox Clinic` brand (a link home), the signed-in account, primary navigation
+(**Dashboard · Analytics · Settings**), the global **Sync/Scan** actions, and the offline
+indicator stay fixed while only the content area swaps. This gives a stable anchor — who
+you are, where you are, how to get home — across all views, instead of each screen
+re-declaring its own header. Screens are therefore **content-only** (no per-screen brand
+or "Back" chrome); a screen may render its own `<h2>` title. The **signed-out landing**
+page is the one exception (its own centred layout).
+
+Navigation is **in-memory view state** in `App` and the shell highlights the active view;
+a URL router (hash vs. history) stays deferred (see Open Questions). The **Trust-decision
+workflow** is launched from the Dashboard and renders inside the shell as a focused
+sub-flow (with its own progress header + exit), so the anchor is never lost mid-flow.
+
 ### Screens
 
 | Screen | Composed of | Notes |
@@ -308,3 +324,4 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-06-28 | Rewritten for the client-only, local-first, all-TypeScript PWA architecture (Vite + React + Tailwind, `packages/core`, Dexie/IndexedDB). Replaces the Next.js design. | Claude |
+| 2026-07-05 | Add the **persistent application shell**: signed-in views share one header (brand, account, Dashboard/Analytics/Settings nav, Sync/Scan, offline indicator); screens become content-only. Navigation stays in-memory view state (URL router deferred). | Claude |

@@ -18,7 +18,6 @@ export interface SettingsProps {
   store: Store;
   backup: BackupClient;
   online: boolean;
-  onBack: () => void;
   /** Called after a successful restore so the app can reload its view of the store. */
   onRestored: () => void;
 }
@@ -32,7 +31,7 @@ function formatWhen(epochMs: number | null): string {
 }
 
 /** Settings: opt-in Google Drive backup, manual back-up-now, and replace-local restore. */
-export function Settings({ store, backup, online, onBack, onRestored }: SettingsProps) {
+export function Settings({ store, backup, online, onRestored }: SettingsProps) {
   const [state, setState] = useState<BackupState | null>(null);
   const [busy, setBusy] = useState<"backup" | "restore" | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
@@ -122,13 +121,8 @@ export function Settings({ store, backup, online, onBack, onRestored }: Settings
   const actionsDisabled = !state.enabled || !online || busy !== null;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 py-8">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <Button variant="ghost" onClick={onBack}>
-          Back
-        </Button>
-      </header>
+    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8">
+      <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
 
       <Card aria-label="Google Drive backup" className="space-y-4">
         <div className="flex items-start justify-between gap-4">
@@ -216,6 +210,6 @@ export function Settings({ store, backup, online, onBack, onRestored }: Settings
           </p>
         )}
       </Card>
-    </main>
+    </div>
   );
 }

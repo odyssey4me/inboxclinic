@@ -13,7 +13,7 @@ function setup(): { store: Store; backup: MockBackupClient } {
 describe("Settings view", () => {
   it("enables backup (requesting drive.file consent) via the toggle", async () => {
     const { store, backup } = setup();
-    render(<Settings store={store} backup={backup} online onBack={vi.fn()} onRestored={vi.fn()} />);
+    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
 
     const toggle = await screen.findByRole("checkbox", { name: /enable google drive backup/i });
     expect(toggle).not.toBeChecked();
@@ -28,7 +28,7 @@ describe("Settings view", () => {
   it("backs up to Drive when enabled and reports the result", async () => {
     const { store, backup } = setup();
     await store.senders.put(senderBuilder("a@x.com"));
-    render(<Settings store={store} backup={backup} online onBack={vi.fn()} onRestored={vi.fn()} />);
+    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
     await screen.findByText(/backup enabled/i);
@@ -42,7 +42,7 @@ describe("Settings view", () => {
 
   it("gates actions until backup is enabled", async () => {
     const { store, backup } = setup();
-    render(<Settings store={store} backup={backup} online onBack={vi.fn()} onRestored={vi.fn()} />);
+    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
 
     expect(await screen.findByRole("button", { name: /back up now/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /restore from backup/i })).toBeDisabled();
@@ -51,7 +51,7 @@ describe("Settings view", () => {
   it("restores only after confirming the replace-local warning", async () => {
     const { store, backup } = setup();
     await store.senders.put(senderBuilder("keep@x.com"));
-    render(<Settings store={store} backup={backup} online onBack={vi.fn()} onRestored={vi.fn()} />);
+    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
 
     // Enable + back up so a restore target exists.
     fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
@@ -78,9 +78,7 @@ describe("Settings view", () => {
   it("calls onRestored after a successful restore", async () => {
     const { store, backup } = setup();
     const onRestored = vi.fn();
-    render(
-      <Settings store={store} backup={backup} online onBack={vi.fn()} onRestored={onRestored} />,
-    );
+    render(<Settings store={store} backup={backup} online onRestored={onRestored} />);
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
     await screen.findByText(/backup enabled/i);
@@ -91,14 +89,5 @@ describe("Settings view", () => {
     fireEvent.click(await screen.findByRole("button", { name: /replace local data/i }));
 
     await waitFor(() => expect(onRestored).toHaveBeenCalledOnce());
-  });
-
-  it("returns to the dashboard via Back", async () => {
-    const { store, backup } = setup();
-    const onBack = vi.fn();
-    render(<Settings store={store} backup={backup} online onBack={onBack} onRestored={vi.fn()} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /^back$/i }));
-    expect(onBack).toHaveBeenCalledOnce();
   });
 });

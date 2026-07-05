@@ -19,7 +19,6 @@ import { ProgressBar } from "../components/ui/ProgressBar";
 
 export interface AnalyticsProps {
   store: Store;
-  onBack: () => void;
 }
 
 function healthTone(score: number): { tone: "green" | "amber" | "red"; label: string } {
@@ -42,7 +41,7 @@ function downloadText(filename: string, text: string, type: string): void {
 }
 
 /** Analytics dashboard: inbox health, a 30-day summary, breakdowns, and achievements. */
-export function Analytics({ store, onBack }: AnalyticsProps) {
+export function Analytics({ store }: AnalyticsProps) {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [shareNote, setShareNote] = useState<string | null>(null);
 
@@ -84,13 +83,8 @@ export function Analytics({ store, onBack }: AnalyticsProps) {
   const health = healthTone(summary.inboxHealthScore);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
-        <Button variant="ghost" onClick={onBack}>
-          Back
-        </Button>
-      </header>
+    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8">
+      <h2 className="text-2xl font-bold tracking-tight">Analytics</h2>
 
       <Card aria-label="Inbox health score" className="space-y-3">
         <div className="flex items-baseline justify-between">
@@ -145,7 +139,7 @@ export function Analytics({ store, onBack }: AnalyticsProps) {
           </p>
         )}
       </section>
-    </main>
+    </div>
   );
 }
 

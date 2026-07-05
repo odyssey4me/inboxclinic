@@ -147,9 +147,9 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
   const deferred = pending.filter((p) => p.decision === "defer").length;
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-8">
+    <div className="mx-auto flex max-w-2xl flex-col gap-5 px-4 py-8">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-tight">Trust decisions</h1>
+        <h2 className="text-xl font-bold tracking-tight">Trust decisions</h2>
         <Button variant="ghost" onClick={onDone}>
           Close
         </Button>
@@ -237,7 +237,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
           onDone={onDone}
         />
       )}
-    </main>
+    </div>
   );
 }
 

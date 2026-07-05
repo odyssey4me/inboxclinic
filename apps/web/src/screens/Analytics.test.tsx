@@ -36,7 +36,7 @@ async function seeded(): Promise<Store> {
 describe("Analytics view", () => {
   it("renders the inbox health score, the 30-day summary, and achievements", async () => {
     const store = await seeded();
-    render(<Analytics store={store} onBack={vi.fn()} />);
+    render(<Analytics store={store} />);
 
     expect(await screen.findByText("Inbox health")).toBeInTheDocument();
     // Health card shows a 0–100 score.
@@ -51,7 +51,7 @@ describe("Analytics view", () => {
 
   it("persists the monthly rollup when it loads", async () => {
     const store = await seeded();
-    render(<Analytics store={store} onBack={vi.fn()} />);
+    render(<Analytics store={store} />);
 
     await screen.findByText("Inbox health");
     await waitFor(async () => {
@@ -67,21 +67,12 @@ describe("Analytics view", () => {
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
 
     const store = await seeded();
-    render(<Analytics store={store} onBack={vi.fn()} />);
+    render(<Analytics store={store} />);
 
     fireEvent.click(await screen.findByRole("button", { name: /copy text summary/i }));
     await waitFor(() => expect(writeText).toHaveBeenCalledOnce());
     expect(writeText.mock.calls[0]?.[0]).toContain("Inbox health:");
 
     vi.unstubAllGlobals();
-  });
-
-  it("returns to the dashboard via Back", async () => {
-    const store = await seeded();
-    const onBack = vi.fn();
-    render(<Analytics store={store} onBack={onBack} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /back/i }));
-    expect(onBack).toHaveBeenCalledOnce();
   });
 });

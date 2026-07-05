@@ -8,6 +8,7 @@ import {
 } from "@inboxclinic/core";
 import { useCallback, useEffect, useState } from "react";
 
+import { AppShell } from "./components/composed/AppShell";
 import { Footer } from "./components/composed/Footer";
 import { Button } from "./components/ui/Button";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
@@ -141,8 +142,8 @@ export function App({ gmail, store, backup }: AppProps) {
     );
   }
 
-  if (view === "workflow") {
-    return (
+  const content =
+    view === "workflow" ? (
       <TrustWorkflow
         store={store}
         gmail={gmail}
@@ -151,52 +152,33 @@ export function App({ gmail, store, backup }: AppProps) {
           setView("dashboard");
         }}
       />
-    );
-  }
-
-  if (view === "analytics") {
-    return <Analytics store={store} onBack={() => setView("dashboard")} />;
-  }
-
-  if (view === "settings") {
-    return (
+    ) : view === "analytics" ? (
+      <Analytics store={store} />
+    ) : view === "settings" ? (
       <Settings
         store={store}
         backup={backup}
         online={online}
-        onBack={() => setView("dashboard")}
         onRestored={() => setReloadKey((k) => k + 1)}
       />
+    ) : (
+      <Dashboard key={reloadKey} store={store} onStartWorkflow={() => setView("workflow")} />
     );
-  }
 
   return (
-    <>
-      {!online && (
-        <p role="status" className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-700">
-          {OFFLINE_NOTICE}
-        </p>
-      )}
-      <Dashboard
-        key={reloadKey}
-        store={store}
-        email={email}
-        online={online}
-        scanning={scanning}
-        syncing={syncing}
-        onScan={() => void scan()}
-        onSync={() => void sync()}
-        onStartWorkflow={() => setView("workflow")}
-        onOpenAnalytics={() => setView("analytics")}
-        onOpenSettings={() => setView("settings")}
-      />
-      {error !== null && (
-        <p role="alert" className="px-4 pb-4 text-center text-sm text-red-600">
-          {error}
-        </p>
-      )}
-      <Footer />
-    </>
+    <AppShell
+      email={email}
+      online={online}
+      view={view}
+      onNavigate={setView}
+      onSync={() => void sync()}
+      onScan={() => void scan()}
+      syncing={syncing}
+      scanning={scanning}
+      error={error}
+    >
+      {content}
+    </AppShell>
   );
 }
 
