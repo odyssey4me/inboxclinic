@@ -38,6 +38,8 @@ test("block workflow: stage a block with actions", async ({ page }) => {
 
   await page.getByRole("button", { name: /review \d+ change/i }).click();
   await expect(page.getByText(/1 blocked/i)).toBeVisible();
+  // The impact preview dry-runs the change before it is applied.
+  await expect(page.getByText(/when you apply/i)).toBeVisible();
   await page.getByRole("button", { name: /apply changes/i }).click();
   await expect(page.getByText(/done —/i)).toBeVisible();
 });

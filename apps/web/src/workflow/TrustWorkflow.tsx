@@ -2,13 +2,16 @@
 import {
   applyDecision,
   enforce,
+  estimateWeeklyVolume,
   keyFor,
+  simulateEnforcement,
   type BlockAction,
   type Decision,
   type DecisionScope,
   type EnforceResult,
   type GmailClient,
   type Sender,
+  type SimulatedImpact,
   type Store,
 } from "@inboxclinic/core";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +21,7 @@ import { DecisionRow } from "../components/composed/DecisionRow";
 import { PromptCard } from "../components/composed/PromptCard";
 import { TrustActions } from "../components/composed/TrustActions";
 import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 import type { PendingDecision } from "./pendingDecisions";
@@ -222,6 +226,8 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
 
       {phase === "review" && (
         <ReviewPhase
+          store={store}
+          gmail={gmail}
           pending={pending}
           trusted={trusted}
           blocked={blocked}
@@ -253,7 +259,71 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
   );
 }
 
+/** The read-only impact preview shown in Review before the user confirms Apply. */
+function ImpactPreview({
+  impact,
+  weeklyVolume,
+}: {
+  impact: SimulatedImpact | null;
+  weeklyVolume: number;
+}) {
+  if (impact === null) {
+    return <p className="text-sm text-muted">Checking impact…</p>;
+  }
+
+  const lines: string[] = [];
+  if (impact.filtersToCreate > 0) {
+    lines.push(
+      `Create ${impact.filtersToCreate} filter${impact.filtersToCreate === 1 ? "" : "s"} to auto-handle future mail`,
+    );
+  }
+  if (impact.filtersToDelete > 0) {
+    lines.push(`Remove ${impact.filtersToDelete} filter${impact.filtersToDelete === 1 ? "" : "s"}`);
+  }
+  if (impact.messagesToArchive > 0) {
+    lines.push(
+      `Archive ${impact.messagesToArchive} existing email${impact.messagesToArchive === 1 ? "" : "s"}`,
+    );
+  }
+  if (impact.messagesToRescue > 0) {
+    lines.push(
+      `Restore ${impact.messagesToRescue} email${impact.messagesToRescue === 1 ? "" : "s"} from Spam/Trash`,
+    );
+  }
+
+  return (
+    <Card aria-label="Impact preview" className="space-y-2 text-sm">
+      <p className="font-medium text-ink">When you apply</p>
+      {lines.length > 0 ? (
+        <ul className="ml-4 list-disc space-y-1 text-muted">
+          {lines.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-muted">Records your decisions on-device; no Gmail changes needed.</p>
+      )}
+      {impact.messagesToDelete > 0 && (
+        <p className="rounded-md bg-block/10 px-3 py-2 text-block">
+          <strong className="font-semibold">
+            Deletes {impact.messagesToDelete} existing email
+            {impact.messagesToDelete === 1 ? "" : "s"}
+          </strong>{" "}
+          — moved to Trash, recoverable for ~30 days.
+        </p>
+      )}
+      {weeklyVolume > 0 && (
+        <p className="text-muted">
+          Going forward: ~{weeklyVolume} email{weeklyVolume === 1 ? "" : "s"}/week auto-handled.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 interface ReviewPhaseProps {
+  store: Store;
+  gmail: GmailClient;
   pending: PendingDecision[];
   trusted: number;
   blocked: number;
@@ -266,6 +336,8 @@ interface ReviewPhaseProps {
 }
 
 function ReviewPhase({
+  store,
+  gmail,
   pending,
   trusted,
   blocked,
@@ -276,6 +348,48 @@ function ReviewPhase({
   onBack,
   onDone,
 }: ReviewPhaseProps) {
+  const [impact, setImpact] = useState<SimulatedImpact | null>(null);
+  const [weeklyVolume, setWeeklyVolume] = useState(0);
+
+  // Read-only dry-run of the staged changes (a Gmail search per rule — no mutation) so the
+  // user sees the exact impact, especially deletes, before confirming (design Decision 7).
+  useEffect(() => {
+    let active = true;
+    if (pending.length === 0) {
+      setImpact(null);
+      return;
+    }
+    void (async () => {
+      const simulated = await simulateEnforcement(
+        gmail,
+        store,
+        pending.map((p) => ({
+          subjectId: p.subjectId,
+          scope: p.scope,
+          decision: p.decision,
+          actions: p.actions,
+        })),
+      );
+      const senders = await store.senders.query({});
+      const byId = new Map(senders.map((s) => [s.id, s]));
+      let weekly = 0;
+      for (const p of pending) {
+        if (p.decision !== "block") continue;
+        for (const id of p.coveredSenderIds) {
+          const sender = byId.get(id);
+          if (sender !== undefined) weekly += estimateWeeklyVolume(sender);
+        }
+      }
+      if (active) {
+        setImpact(simulated);
+        setWeeklyVolume(weekly);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [store, gmail, pending]);
+
   return (
     <section className="space-y-4" aria-label="Review">
       <p className="text-sm text-muted">
@@ -300,6 +414,9 @@ function ReviewPhase({
               />
             ))}
           </ul>
+
+          <ImpactPreview impact={impact} weeklyVolume={weeklyVolume} />
+
           <div className="flex flex-wrap gap-2">
             <Button onClick={onApply}>Apply changes</Button>
             <Button variant="ghost" onClick={onBack}>
