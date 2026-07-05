@@ -36,8 +36,9 @@ This design implements the following sections of [architecture.md](architecture.
   counterpart*, so a CRDT/replication layer would be dead weight. A plain local
   store suffices (architecture §2).
 - **Single-device** is the accepted v1 trade-off; true multi-device sync is out of
-  scope, though **Drive backup/restore** (architecture §5) covers moving to a new
-  device.
+  scope, though **Drive backup/restore** covers moving to a new device — the mechanism
+  (opt-in `drive.file`, single backup file, replace-local restore) lives in
+  [design-backup-restore.md](design-backup-restore.md).
 - **Stable, collision-free keys** — records are keyed by a **URL-safe Base64 of the
   lowercased email/domain** (no padding), so `foo.bar@x.com` and `foo_bar@x.com`
   never collide.
@@ -113,11 +114,8 @@ const keyFor = (s: string) =>
 ## Examples
 
 - **Export:** `store.exportAll()` → download as `inbox-clinic-export-<date>.json`.
-- **Back up to Drive (opt-in):** `store.exportAll()` → upload/overwrite a visible
-  `Inbox Clinic Backup.json` in the user's own Drive via the `drive.file` scope
-  (architecture §5). Manual in v1; optional periodic later.
-- **Restore from Drive:** download the file → `store.importAll(blob)` (replaces local
-  data after a warning). Backup/restore, not sync.
+- **Back up / restore to Drive (opt-in):** built on `exportAll`/`importAll`; the Drive
+  mechanism lives in [design-backup-restore.md](design-backup-restore.md).
 - **Delete my data:** `store.wipeAll()` then revoke the app's Google access token.
 
 ## Open Questions
@@ -133,3 +131,4 @@ const keyFor = (s: string) =>
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-06-28 | Initial draft (client-only PWA). | Claude |
+| 2026-07-05 | Move the Drive backup/restore mechanism to design-backup-restore.md; keep only the store `exportAll`/`importAll`/`wipeAll` primitives here (pointer to the new doc). | Claude |

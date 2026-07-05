@@ -34,7 +34,7 @@ changes before implementing — design-doc changes are major changes). All docs 
 | M4 Enforcement | design-gmail-integration.md (filters), design-trust-decisions.md (actions) |
 | M5 Sync & PWA | design-gmail-integration.md (History sync), design-frontend.md (service worker) |
 | M6 Analytics | design-frontend.md (analytics views) |
-| M7 Backup & restore | design-local-store-schema.md, design-gmail-integration.md (Drive scope) |
+| M7 Backup & restore | design-backup-restore.md, design-local-store-schema.md |
 | M8 Access & release | design-frontend.md (settings) |
 
 ---
