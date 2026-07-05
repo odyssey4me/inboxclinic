@@ -228,6 +228,12 @@ export {
   type DailyDelta,
 } from "./analytics/record";
 
+// Opt-in feedback / error reporting (design-error-reporting.md): pure redactor, anonymous
+// install ID (over the Store port), and the Reporting client port + payload.
+export { redact } from "./reporting/redact";
+export { getInstallId, resetInstallId, INSTALL_ID_KEY } from "./reporting/installId";
+export type { DiagnosticReport, ReportingClient, ReportSubmitResult } from "./reporting/types";
+
 // Analytics summary, monthly rollup, and shareable snapshot (M6).
 export {
   analyticsSummary,
