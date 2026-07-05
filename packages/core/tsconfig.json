@@ -1,6 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // Web-Platform globals the core uses (btoa, TextEncoder/TextDecoder) — declared
+    // explicitly (matching packages/store) rather than relying on a transitive type leak.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": []
   },
   "include": ["src"]
