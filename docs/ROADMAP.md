@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-05
 
 This roadmap defines the build path for the **client-only, local-first PWA**
 (see [architecture.md](architecture.md)). It supersedes
@@ -41,7 +41,7 @@ changes before implementing — design-doc changes are major changes). All docs 
 
 ## Milestones
 
-### M0 — Repo reset & scaffold
+### M0 — Repo reset & scaffold — ✅ COMPLETE
 **Goal:** a clean monorepo that builds, lints, type-checks, tests, and deploys an
 empty static PWA shell.
 - Remove the old `src/`, `terraform/`, `k8s/`, `docker/`, server scripts, Python tooling.
@@ -50,45 +50,45 @@ empty static PWA shell.
 - CI: build + test + publish static assets (GitHub/Cloudflare Pages).
 - **Exit:** `main` deploys a blank installable PWA; CI green.
 
-### M1 — Auth & inbox scan (read-only)
+### M1 — Auth & inbox scan (read-only) — ✅ COMPLETE
 **Goal:** sign in and see your senders.
 - Browser PKCE OAuth (Google Identity Services), `gmail.readonly`, in-memory token.
 - Bounded metadata scan (default 30 days), sender/domain extraction & categorisation.
 - Dexie local store (profile, senders, domains) per `design-local-store-schema.md`.
 - **Exit:** authenticated scan populates the on-device sender/domain list.
 
-### M2 — Trust scoring & prompt generation
+### M2 — Trust scoring & prompt generation — ✅ COMPLETE
 **Goal:** prioritised decisions to make.
 - Pure `packages/core` scoring (v1: User×0.77 + Compliance×0.23) and prioritisation.
 - Generate/store prompts with priority + batch grouping; 30-day TTL.
 - **Exit:** the store holds correctly scored, prioritised prompts; covered by unit tests.
 
-### M3 — Trust-decision workflow (UI)
+### M3 — Trust-decision workflow (UI) — ✅ COMPLETE
 **Goal:** make decisions.
 - Four-phase flow (Discovery → Decision → Review → Execution) over local data.
 - Dashboard shell; record Trust/Block/Defer decisions; scope override (domain > address).
 - **Exit:** a user can work through prompts and persist decisions locally.
 
-### M4 — Enforcement & actions
+### M4 — Enforcement & actions — ✅ COMPLETE
 **Goal:** decisions take effect in Gmail.
 - Escalate to `gmail.modify` + `gmail.settings.basic`.
 - Native-filter compilation (domain aggregation, OR-combine, ~450 soft cap).
 - Block actions: filter, archive, delete, unsubscribe; Trust rescue from Spam/Trash.
 - **Exit:** blocks produce native Gmail filters; actions apply with a result summary.
 
-### M5 — Incremental sync & PWA hardening
+### M5 — Incremental sync & PWA hardening — ✅ COMPLETE
 **Goal:** stays current and works offline.
 - History-API incremental sync with stored `historyId` + 404 rescan recovery.
 - Service worker: offline cache + periodic background sync; filter reconciliation.
 - **Exit:** reopening updates state without a full rescan; usable offline.
 
-### M6 — Analytics & dashboard
+### M6 — Analytics & dashboard — ✅ COMPLETE
 **Goal:** see the impact.
 - Daily/monthly local analytics; inbox health score; category breakdown; top domains.
 - Achievements + opt-in **local** shareable snapshot (no server, no referral tracking).
 - **Exit:** analytics reflect activity; a snapshot can be exported/shared locally.
 
-### M7 — Backup & restore (Google Drive)
+### M7 — Backup & restore (Google Drive) — ✅ COMPLETE
 **Goal:** durable, user-owned backup; move to a new device.
 - Opt-in setting (default off); incremental `drive.file` scope requested on enable.
 - Back up: `exportAll()` → a visible `Inbox Clinic Backup.json` in the user's own
