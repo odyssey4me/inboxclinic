@@ -68,7 +68,16 @@ npm run format       # Prettier
 npm run typecheck    # tsc --noEmit
 ```
 
-Test structure, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
+**End-to-end (Tier 3, Playwright):** drives the built app through its no-Google
+[demo mode](docs/design-frontend.md) — no account or network needed.
+
+```bash
+npx playwright install   # one-time: download browsers (add --with-deps on Linux/CI)
+npm run e2e              # build + preview + run chromium/firefox/webkit/mobile
+npm run e2e:ui          # interactive runner while writing specs
+```
+
+Test structure, tiers, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
 Coverage gate: **≥80%** on `packages/core` logic.
 
 ### Dependency updates

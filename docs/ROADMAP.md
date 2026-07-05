@@ -105,6 +105,14 @@ empty static PWA shell.
 
 ---
 
+## Delivered after v1
+
+| Item | Notes |
+|------|-------|
+| **Demo mode + Tier-3 E2E** — ✅ COMPLETE | A no-Google `?demo` path with curated in-memory data (`@inboxclinic/core/demo`) so anyone can explore the full product, plus **Playwright** end-to-end tests driving it (Discovery → Decision → Review → Execution, backup/restore, layout switch) across chromium/firefox/webkit/mobile as a required CI gate. See [design-testing.md](design-testing.md) Decision 7 and [design-frontend.md](design-frontend.md) (Demo mode). |
+
+---
+
 ## Deferred (post-v1)
 
 | Item | Notes |
@@ -112,7 +120,6 @@ empty static PWA shell.
 | **Collective trust intelligence** | Anonymous, opt-out aggregate (a user setting). Build behind the `packages/core` contribution interface; choose backend/datastore then (architecture §9). |
 | **Mobile apps (iOS/Android)** | Capacitor wrap of the SPA first; React Native fallback. Kept open via platform-capability + repository interfaces. |
 | **Server-side real-time triage** | Deliberately avoided (would reintroduce a backend + token custody). |
-| **Local demo mode + E2E tests** | A seed-with-test-data path (no real Google) to click through the full workflow locally, and **Playwright** end-to-end coverage of Discovery → Decision → Review → Execution and backup/restore. Complements the existing mocked component tests; would need a design-testing.md update. |
 
 ## Notes
 
