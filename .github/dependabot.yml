@@ -28,3 +28,10 @@ updates:
       interval: "weekly"
     labels:
       - "dependencies"
+    groups:
+      # Batch Action minor/patch bumps into one PR (auto-merged on green); majors
+      # still get individual PRs for manual review.
+      actions:
+        update-types:
+          - "minor"
+          - "patch"

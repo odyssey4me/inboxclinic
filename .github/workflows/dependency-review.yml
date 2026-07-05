@@ -1,0 +1,22 @@
+# Flags pull requests that add or update dependencies with known vulnerabilities
+# (or disallowed licences), using GitHub's dependency graph. Fails on high severity.
+name: Dependency review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
