@@ -18,10 +18,8 @@ export function PromptCard({ sender }: { sender: Sender }) {
     <Card className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">
-            {sender.displayName ?? sender.email}
-          </h2>
-          <p className="text-sm text-slate-500">{sender.email}</p>
+          <h2 className="text-lg font-semibold text-ink">{sender.displayName ?? sender.email}</h2>
+          <p className="text-sm text-muted">{sender.email}</p>
         </div>
         <ScoreIndicator score={result.score} />
       </div>
@@ -30,20 +28,20 @@ export function PromptCard({ sender }: { sender: Sender }) {
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
         <div>
-          <dt className="text-slate-400">Read rate</dt>
-          <dd className="font-medium text-slate-800">{readRateLabel(sender.readRate)}</dd>
+          <dt className="text-muted">Read rate</dt>
+          <dd className="font-medium text-ink">{readRateLabel(sender.readRate)}</dd>
         </div>
         <div>
-          <dt className="text-slate-400">Emails</dt>
-          <dd className="font-medium text-slate-800">{sender.totalEmails}</dd>
+          <dt className="text-muted">Emails</dt>
+          <dd className="font-medium text-ink">{sender.totalEmails}</dd>
         </div>
         <div>
-          <dt className="text-slate-400">Frequency</dt>
-          <dd className="font-medium text-slate-800">{sender.frequency}</dd>
+          <dt className="text-muted">Frequency</dt>
+          <dd className="font-medium text-ink">{sender.frequency}</dd>
         </div>
         <div>
-          <dt className="text-slate-400">Category</dt>
-          <dd className="font-medium text-slate-800">{sender.category}</dd>
+          <dt className="text-muted">Category</dt>
+          <dd className="font-medium text-ink">{sender.category}</dd>
         </div>
       </dl>
     </Card>

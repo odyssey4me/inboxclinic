@@ -22,10 +22,10 @@ export interface DecisionRowProps {
 /** Review: one editable pending change (flip decision, or remove from the batch). */
 export function DecisionRow({ pending, onChangeDecision, onRemove }: DecisionRowProps) {
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 py-3">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line py-3">
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-slate-900">{pending.label}</p>
-        <p className="text-xs text-slate-500">
+        <p className="truncate font-medium text-ink">{pending.label}</p>
+        <p className="text-xs text-muted">
           {pending.scope === "domain" ? "whole domain" : "this address"}
           {pending.decision === "block" && pending.actions.length > 0
             ? ` · ${pending.actions.join(", ")}`
@@ -49,7 +49,7 @@ export function DecisionRow({ pending, onChangeDecision, onRemove }: DecisionRow
         ))}
       </div>
 
-      <Button variant="ghost" className="px-2 py-1 text-red-600" onClick={onRemove}>
+      <Button variant="ghost" className="px-2 py-1 text-block" onClick={onRemove}>
         Remove
       </Button>
     </li>

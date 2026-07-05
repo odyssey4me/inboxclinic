@@ -9,12 +9,12 @@ const SPONSOR_URL = "https://github.com/sponsors/odyssey4me";
  */
 export function Footer() {
   return (
-    <footer className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 py-6 text-center text-xs text-slate-500">
+    <footer className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 py-6 text-center text-xs text-muted">
       <span>Inbox Clinic — open-source, local-first. Apache-2.0.</span>
-      <a href={REPO_URL} className="underline hover:text-slate-700">
+      <a href={REPO_URL} className="underline hover:text-ink">
         Source
       </a>
-      <a href={SPONSOR_URL} className="underline hover:text-slate-700">
+      <a href={SPONSOR_URL} className="underline hover:text-ink">
         Sponsor
       </a>
     </footer>

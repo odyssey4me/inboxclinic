@@ -30,11 +30,11 @@ export function SignalList({ signals, limit = 4 }: { signals: TrustSignal[]; lim
           <li key={signal.label} className="flex items-start gap-2">
             <span
               aria-hidden="true"
-              className={positive ? "font-semibold text-green-600" : "font-semibold text-red-600"}
+              className={positive ? "font-semibold text-trust" : "font-semibold text-block"}
             >
               {positive ? "+" : "−"}
             </span>
-            <span className="text-slate-700">{SIGNAL_TEXT[signal.label] ?? signal.label}</span>
+            <span className="text-ink">{SIGNAL_TEXT[signal.label] ?? signal.label}</span>
           </li>
         );
       })}

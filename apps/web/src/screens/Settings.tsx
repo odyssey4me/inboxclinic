@@ -50,7 +50,7 @@ export function Settings({ store, backup, online, onRestored }: SettingsProps) {
   }, [store]);
 
   if (state === null) {
-    return <p className="p-6 text-center text-slate-500">Loading settings…</p>;
+    return <p className="p-6 text-center text-muted">Loading settings…</p>;
   }
 
   const reload = async (): Promise<void> => {
@@ -128,7 +128,7 @@ export function Settings({ store, backup, online, onRestored }: SettingsProps) {
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">Back up to Google Drive</h2>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-muted">
               Save an encryptable copy of your on-device data to your own Google Drive. Inbox Clinic
               requests the least-permission <code>drive.file</code> scope, which can only see the
               single backup file it creates — never the rest of your Drive.
@@ -146,13 +146,13 @@ export function Settings({ store, backup, online, onRestored }: SettingsProps) {
           </label>
         </div>
 
-        <dl className="flex justify-between border-t border-slate-100 pt-3 text-sm">
-          <dt className="text-slate-500">Last backup</dt>
-          <dd className="tabular-nums text-slate-700">{formatWhen(state.lastBackupAt)}</dd>
+        <dl className="flex justify-between border-t border-line pt-3 text-sm">
+          <dt className="text-muted">Last backup</dt>
+          <dd className="tabular-nums text-ink">{formatWhen(state.lastBackupAt)}</dd>
         </dl>
 
         {!online && (
-          <p role="status" className="text-sm text-amber-600">
+          <p role="status" className="text-sm text-defer">
             Offline — connect to back up or restore.
           </p>
         )}
@@ -178,9 +178,9 @@ export function Settings({ store, backup, online, onRestored }: SettingsProps) {
           <div
             role="alertdialog"
             aria-label="Confirm restore"
-            className="space-y-3 rounded-md border border-red-200 bg-red-50 p-3"
+            className="space-y-3 rounded-md border border-block/30 bg-block/10 p-3"
           >
-            <p className="text-sm text-red-800">
+            <p className="text-sm text-block">
               Restoring <strong>replaces all data on this device</strong> with the contents of your
               Drive backup. This cannot be undone. Continue?
             </p>
@@ -200,12 +200,12 @@ export function Settings({ store, backup, online, onRestored }: SettingsProps) {
         )}
 
         {note !== null && (
-          <p role="status" className="text-sm text-emerald-700">
+          <p role="status" className="text-sm text-accent-ink">
             {note}
           </p>
         )}
         {error !== null && (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-block">
             {error}
           </p>
         )}

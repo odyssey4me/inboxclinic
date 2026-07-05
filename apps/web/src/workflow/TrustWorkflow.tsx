@@ -73,7 +73,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
   }, [queue]);
 
   if (data === null || queue === null) {
-    return <p className="p-6 text-center text-slate-500">Loading…</p>;
+    return <p className="p-6 text-center text-muted">Loading…</p>;
   }
 
   const current = cursor < queue.length ? queue[cursor] : undefined;
@@ -160,7 +160,7 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
           <li
             key={step.id}
             aria-current={step.id === phase ? "step" : undefined}
-            className={step.id === phase ? "font-semibold text-slate-900" : "text-slate-400"}
+            className={step.id === phase ? "font-semibold text-ink" : "text-muted"}
           >
             {index + 1}. {step.label}
           </li>
@@ -266,14 +266,14 @@ function ReviewPhase({
 }: ReviewPhaseProps) {
   return (
     <section className="space-y-4" aria-label="Review">
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-muted">
         {pending.length} change{pending.length === 1 ? "" : "s"}: {trusted} trusted, {blocked}{" "}
         blocked, {deferred} deferred.
       </p>
 
       {pending.length === 0 ? (
         <div className="space-y-3">
-          <p className="text-slate-500">No pending changes.</p>
+          <p className="text-muted">No pending changes.</p>
           <Button onClick={onDone}>Done</Button>
         </div>
       ) : (
@@ -352,7 +352,7 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
   return (
     <section className="space-y-4" aria-label="Execution">
       <ProgressBar value={results.length} max={pending.length} label="Applying changes" />
-      <p aria-live="polite" className="text-sm text-slate-600">
+      <p aria-live="polite" className="text-sm text-muted">
         {finished
           ? `Done — ${applied} applied${failed > 0 ? `, ${failed} failed` : ""}.`
           : `Applying ${results.length} of ${pending.length}…`}
@@ -362,11 +362,11 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
         <>
           {enforcement !== null && <EnforcementSummary result={enforcement} />}
           {enforceError !== null && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="text-sm text-block">
               Gmail enforcement failed: {enforceError}
             </p>
           )}
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted">
             Decisions are stored on-device; Gmail filters keep enforcing while the app is closed.
             Undo in Settings → Past decisions.
           </p>
@@ -390,25 +390,20 @@ function EnforcementSummary({ result }: { result: EnforceResult }) {
   }
 
   return (
-    <div
-      className="space-y-1 rounded-md border border-slate-200 p-3 text-sm"
-      aria-label="Enforcement"
-    >
-      <p className="font-medium text-slate-700">Gmail enforcement</p>
+    <div className="space-y-1 rounded-md border border-line p-3 text-sm" aria-label="Enforcement">
+      <p className="font-medium text-ink">Gmail enforcement</p>
       {lines.length > 0 ? (
-        <p className="text-slate-600">{lines.join(" · ")}.</p>
+        <p className="text-muted">{lines.join(" · ")}.</p>
       ) : (
-        <p className="text-slate-500">No Gmail changes were needed.</p>
+        <p className="text-muted">No Gmail changes were needed.</p>
       )}
       {result.capReached && (
-        <p className="text-amber-600">
+        <p className="text-defer">
           Filter limit reached — {result.skippedAtCap} block(s) not yet filtered.
         </p>
       )}
       {result.failures.length > 0 && (
-        <p className="text-red-600">
-          {result.failures.length} action(s) failed; will retry on sync.
-        </p>
+        <p className="text-block">{result.failures.length} action(s) failed; will retry on sync.</p>
       )}
     </div>
   );

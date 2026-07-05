@@ -51,26 +51,22 @@ export function AppShell({
   return (
     <div className="flex min-h-screen flex-col">
       {!online && (
-        <p role="status" className="bg-amber-50 px-4 py-2 text-center text-sm text-amber-700">
+        <p role="status" className="bg-defer/10 px-4 py-2 text-center text-sm text-defer">
           {OFFLINE_NOTICE}
         </p>
       )}
 
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3">
           <div className="flex min-w-0 items-baseline gap-3">
             <h1 className="shrink-0 text-xl font-bold tracking-tight">
-              <button
-                type="button"
-                onClick={() => onNavigate("dashboard")}
-                className="text-slate-900"
-              >
+              <button type="button" onClick={() => onNavigate("dashboard")} className="text-ink">
                 Inbox Clinic
               </button>
             </h1>
-            <span className="truncate text-sm text-slate-500">
+            <span className="truncate text-sm text-muted">
               <span className="hidden sm:inline">Signed in as </span>
-              <span className="font-medium text-slate-700">{email}</span>
+              <span className="font-medium text-ink">{email}</span>
             </span>
           </div>
 
@@ -85,7 +81,7 @@ export function AppShell({
                     onClick={() => onNavigate(item.id)}
                     aria-current={active ? "page" : undefined}
                     className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                      active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+                      active ? "bg-ink text-bg" : "text-muted hover:bg-surface-2"
                     }`}
                   >
                     {item.label}
@@ -93,10 +89,7 @@ export function AppShell({
                 );
               })}
             </nav>
-            <span
-              className="mx-1 hidden h-5 w-px bg-slate-200 sm:inline-block"
-              aria-hidden="true"
-            />
+            <span className="mx-1 hidden h-5 w-px bg-line sm:inline-block" aria-hidden="true" />
             <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
               {syncing ? "Syncing…" : "Sync"}
             </Button>
@@ -110,7 +103,7 @@ export function AppShell({
       <main className="flex-1">{children}</main>
 
       {error !== null && (
-        <p role="alert" className="px-4 pb-4 text-center text-sm text-red-600">
+        <p role="alert" className="px-4 pb-4 text-center text-sm text-block">
           {error}
         </p>
       )}

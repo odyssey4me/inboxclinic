@@ -45,7 +45,7 @@ export function TrustActions({
     <div className="space-y-4">
       <fieldset className="flex flex-wrap items-center gap-2">
         <legend className="sr-only">Decision scope</legend>
-        <span className="text-sm text-slate-500">Apply to:</span>
+        <span className="text-sm text-muted">Apply to:</span>
         <label className="flex items-center gap-1 text-sm">
           <input
             type="radio"
@@ -80,8 +80,8 @@ export function TrustActions({
       </div>
 
       {blockOpen && (
-        <div className="space-y-3 rounded-md border border-slate-200 p-3">
-          <p className="text-sm font-medium text-slate-700">Actions to stage (applied later):</p>
+        <div className="space-y-3 rounded-md border border-line p-3">
+          <p className="text-sm font-medium text-ink">Actions to stage (applied later):</p>
           <div className="space-y-1">
             {ALL_ACTIONS.map(({ id, label }) => {
               const disabled = id === "unsubscribe" && !sender.hasListUnsubscribe;
@@ -93,7 +93,7 @@ export function TrustActions({
                     disabled={disabled}
                     onChange={() => toggle(id)}
                   />
-                  <span className={disabled ? "text-slate-400" : "text-slate-700"}>{label}</span>
+                  <span className={disabled ? "text-muted" : "text-ink"}>{label}</span>
                 </label>
               );
             })}

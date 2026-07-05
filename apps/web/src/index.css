@@ -1,1 +1,64 @@
 @import "tailwindcss";
+
+/* -----------------------------------------------------------------------------
+   "Vitals" design system — a calm, clinical palette (design-frontend.md).
+   Semantic tokens flip by prefers-color-scheme (system-detected). Components style
+   through the tokens (bg-surface, text-ink, text-accent, …), never raw colours, so
+   both themes stay consistent. Neutrals carry a slight teal bias — chosen, not grey.
+   ----------------------------------------------------------------------------- */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-trust: var(--trust);
+  --color-block: var(--block);
+  --color-defer: var(--defer);
+  --color-on-solid: var(--on-solid);
+}
+
+:root {
+  --bg: #f8fafa;
+  --surface: #ffffff;
+  --surface-2: #f1f6f6;
+  --ink: #0f172a;
+  --muted: #5c6b78;
+  --line: #e5edef;
+  --accent: #0d9488;
+  --accent-soft: #d6f4ef;
+  --accent-ink: #0a5f57;
+  --trust: #15803d;
+  --block: #be123c;
+  --defer: #b45309;
+  --on-solid: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1413;
+    --surface: #101e1c;
+    --surface-2: #16211f;
+    --ink: #e9efee;
+    --muted: #93a6a2;
+    --line: #223431;
+    --accent: #2dd4bf;
+    --accent-soft: #0f2e2a;
+    --accent-ink: #7fe9dc;
+    --trust: #4ade80;
+    --block: #fb7185;
+    --defer: #fbbf24;
+    --on-solid: #07110f;
+  }
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}

@@ -14,8 +14,8 @@ export interface DashboardProps {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <Card className="text-center">
-      <p className="text-2xl font-bold tabular-nums text-slate-900">{value}</p>
-      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-2xl font-bold tabular-nums text-ink">{value}</p>
+      <p className="text-xs text-muted">{label}</p>
     </Card>
   );
 }
@@ -53,9 +53,9 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
             {topPending.map((sender) => (
               <li
                 key={sender.id}
-                className="flex items-center justify-between rounded-md border border-slate-100 px-3 py-2 text-sm"
+                className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm"
               >
-                <span className="truncate font-medium text-slate-800">{sender.email}</span>
+                <span className="truncate font-medium text-ink">{sender.email}</span>
                 <ScoreIndicator score={computeTrustScore(senderToSnapshot(sender)).score} />
               </li>
             ))}
@@ -68,7 +68,7 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
           <h2 className="mb-2 text-lg font-semibold">Senders</h2>
           <table className="w-full border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-slate-300 text-slate-500">
+              <tr className="border-b border-line text-muted">
                 <th className="py-2 pr-4 font-medium">Sender</th>
                 <th className="py-2 pr-4 font-medium">Domain</th>
                 <th className="py-2 pr-4 font-medium">Category</th>
@@ -78,11 +78,11 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
             </thead>
             <tbody>
               {senders.map((sender) => (
-                <tr key={sender.id} className="border-b border-slate-100">
+                <tr key={sender.id} className="border-b border-line">
                   <td className="py-2 pr-4">{sender.email}</td>
-                  <td className="py-2 pr-4 text-slate-500">{sender.domain}</td>
-                  <td className="py-2 pr-4 text-slate-500">{sender.category}</td>
-                  <td className="py-2 pr-4 text-slate-500">{sender.trustStatus}</td>
+                  <td className="py-2 pr-4 text-muted">{sender.domain}</td>
+                  <td className="py-2 pr-4 text-muted">{sender.category}</td>
+                  <td className="py-2 pr-4 text-muted">{sender.trustStatus}</td>
                   <td className="py-2 text-right tabular-nums">{sender.totalEmails}</td>
                 </tr>
               ))}

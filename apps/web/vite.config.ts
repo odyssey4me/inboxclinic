@@ -29,8 +29,9 @@ export default defineConfig({
         name: "Inbox Clinic",
         short_name: "InboxClinic",
         description: "Take back control of your inbox — on-device, local-first email triage.",
-        theme_color: "#0f172a",
-        background_color: "#0f172a",
+        // "Vitals" palette (design-frontend.md): calm light ground, teal brand accent.
+        theme_color: "#0d9488",
+        background_color: "#f8fafa",
         display: "standalone",
         // Relative so the installed PWA works under any base (root, or a sub-path).
         start_url: ".",

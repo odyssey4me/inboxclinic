@@ -4,11 +4,11 @@ import type { HTMLAttributes } from "react";
 type Tone = "neutral" | "green" | "red" | "amber" | "blue";
 
 const TONES: Record<Tone, string> = {
-  neutral: "bg-slate-100 text-slate-700",
-  green: "bg-green-100 text-green-800",
-  red: "bg-red-100 text-red-800",
-  amber: "bg-amber-100 text-amber-800",
-  blue: "bg-blue-100 text-blue-800",
+  neutral: "bg-surface-2 text-muted",
+  green: "bg-trust/15 text-trust",
+  red: "bg-block/15 text-block",
+  amber: "bg-defer/15 text-defer",
+  blue: "bg-accent/15 text-accent",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

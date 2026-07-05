@@ -2,11 +2,11 @@
 import { trustTier, type TrustTierColour } from "@inboxclinic/core";
 
 const TEXT_COLOUR: Record<TrustTierColour, string> = {
-  green: "text-green-600",
-  "light-green": "text-green-500",
-  grey: "text-slate-500",
-  orange: "text-orange-500",
-  red: "text-red-600",
+  green: "text-trust",
+  "light-green": "text-trust",
+  grey: "text-muted",
+  orange: "text-defer",
+  red: "text-block",
 };
 
 const DOTS = 5;

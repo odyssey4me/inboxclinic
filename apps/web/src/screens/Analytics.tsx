@@ -57,7 +57,7 @@ export function Analytics({ store }: AnalyticsProps) {
   }, [store]);
 
   if (summary === null) {
-    return <p className="p-6 text-center text-slate-500">Loading analytics…</p>;
+    return <p className="p-6 text-center text-muted">Loading analytics…</p>;
   }
 
   const onDownloadSnapshot = (): void => {
@@ -91,9 +91,9 @@ export function Analytics({ store }: AnalyticsProps) {
           <h2 className="text-lg font-semibold">Inbox health</h2>
           <Badge tone={health.tone}>{health.label}</Badge>
         </div>
-        <p className="text-4xl font-bold tabular-nums text-slate-900">
+        <p className="text-4xl font-bold tabular-nums text-ink">
           {summary.inboxHealthScore}
-          <span className="text-lg font-normal text-slate-400"> / 100</span>
+          <span className="text-lg font-normal text-muted"> / 100</span>
         </p>
         <ProgressBar value={summary.inboxHealthScore} max={100} label="Inbox health score" />
       </Card>
@@ -120,7 +120,7 @@ export function Analytics({ store }: AnalyticsProps) {
 
       <section aria-label="Share" className="space-y-3">
         <h2 className="text-lg font-semibold">Share your progress</h2>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-muted">
           Snapshots are created on your device and shared only if you choose to. They contain
           aggregate numbers only — never senders, addresses, or message content. No server, no
           tracking.
@@ -134,7 +134,7 @@ export function Analytics({ store }: AnalyticsProps) {
           </Button>
         </div>
         {shareNote !== null && (
-          <p role="status" className="whitespace-pre-line text-sm text-emerald-700">
+          <p role="status" className="whitespace-pre-line text-sm text-accent-ink">
             {shareNote}
           </p>
         )}
@@ -146,8 +146,8 @@ export function Analytics({ store }: AnalyticsProps) {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <Card className="text-center">
-      <p className="text-2xl font-bold tabular-nums text-slate-900">{value}</p>
-      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-2xl font-bold tabular-nums text-ink">{value}</p>
+      <p className="text-xs text-muted">{label}</p>
     </Card>
   );
 }
@@ -162,7 +162,7 @@ function TrendChart({ trend }: { trend: TrendPoint[] }) {
           <div
             key={point.date}
             title={`${point.date}: ${point.emailsBlocked} blocked`}
-            className="flex-1 rounded-t bg-emerald-500"
+            className="flex-1 rounded-t bg-accent"
             style={{ height: `${Math.round((point.emailsBlocked / max) * 100)}%` }}
           />
         ))}
@@ -180,8 +180,8 @@ function CategoryBreakdown({ categories }: { categories: CategoryStat[] }) {
         {categories.map((category) => (
           <li key={category.category} className="space-y-1">
             <div className="flex justify-between text-sm">
-              <span className="capitalize text-slate-700">{category.category}</span>
-              <span className="tabular-nums text-slate-500">
+              <span className="capitalize text-ink">{category.category}</span>
+              <span className="tabular-nums text-muted">
                 {category.emails} emails · {category.senders} senders
               </span>
             </div>
@@ -196,15 +196,15 @@ function CategoryBreakdown({ categories }: { categories: CategoryStat[] }) {
 function DomainList({ title, domains }: { title: string; domains: DomainVolume[] }) {
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
       {domains.length === 0 ? (
-        <p className="text-sm text-slate-400">None yet.</p>
+        <p className="text-sm text-muted">None yet.</p>
       ) : (
         <ul className="space-y-1 text-sm">
           {domains.map((domain) => (
             <li key={domain.domain} className="flex justify-between">
-              <span className="truncate text-slate-700">{domain.domain}</span>
-              <span className="tabular-nums text-slate-500">{domain.totalEmails}</span>
+              <span className="truncate text-ink">{domain.domain}</span>
+              <span className="tabular-nums text-muted">{domain.totalEmails}</span>
             </li>
           ))}
         </ul>
