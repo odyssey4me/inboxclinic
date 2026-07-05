@@ -22,9 +22,9 @@ import type {
   ScopeTier,
 } from "@inboxclinic/core";
 
+import { requestAccessToken } from "../auth/gis";
+
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
-const GIS_POLL_MS = 50;
-const GIS_TIMEOUT_MS = 10_000;
 const PAGE_SIZE = 500;
 /** Gmail caps `batchModify` at 1000 ids per call. */
 const BATCH_MODIFY_LIMIT = 1000;
@@ -103,23 +103,6 @@ function toNativeFilter(resource: GmailFilterResource): NativeFilter {
   };
 }
 
-function waitForGis(): Promise<typeof google.accounts.oauth2> {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const poll = (): void => {
-      const oauth2 = window.google?.accounts?.oauth2;
-      if (oauth2 !== undefined) {
-        resolve(oauth2);
-      } else if (Date.now() - start > GIS_TIMEOUT_MS) {
-        reject(new Error("Google Identity Services failed to load"));
-      } else {
-        setTimeout(poll, GIS_POLL_MS);
-      }
-    };
-    poll();
-  });
-}
-
 function parseHeaders(headers: GmailHeader[]): MessageHeaders {
   const result: MessageHeaders = {};
   for (const { name, value } of headers) {
@@ -144,22 +127,7 @@ export class BrowserGmailClient implements GmailClient {
       throw new Error("VITE_OAUTH_CLIENT_ID is not configured");
     }
     const scopes = scopesForTiers(tiers);
-    const oauth2 = await waitForGis();
-    const response = await new Promise<google.accounts.oauth2.TokenResponse>((resolve, reject) => {
-      const client = oauth2.initTokenClient({
-        client_id: this.clientId,
-        scope: scopes.join(" "),
-        callback: (resp) => {
-          if (resp.error !== undefined) {
-            reject(new Error(resp.error_description ?? resp.error));
-          } else {
-            resolve(resp);
-          }
-        },
-        error_callback: (err) => reject(new Error(err.message ?? err.type)),
-      });
-      client.requestAccessToken();
-    });
+    const response = await requestAccessToken(this.clientId, scopes.join(" "));
 
     this.token = {
       value: response.access_token,
