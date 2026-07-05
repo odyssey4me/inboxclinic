@@ -17,6 +17,7 @@ import { LayoutProvider } from "./layout/LayoutProvider";
 import { registerPeriodicSync, SW_SYNC_MESSAGE } from "./pwa/periodicSync";
 import { Analytics } from "./screens/Analytics";
 import { Dashboard } from "./screens/Dashboard";
+import { Decisions } from "./screens/Decisions";
 import { Settings } from "./screens/Settings";
 import { TrustWorkflow } from "./workflow/TrustWorkflow";
 
@@ -28,7 +29,7 @@ const REQUEST_ACCESS_URL =
 /** Set on Disconnect so the local-first auto-render stays signed out until the next sign-in. */
 const SIGNED_OUT_KEY = "inboxclinic.signedOut";
 
-type View = "dashboard" | "workflow" | "analytics" | "settings";
+type View = "dashboard" | "workflow" | "decisions" | "analytics" | "settings";
 
 export interface AppProps {
   gmail: GmailClient;
@@ -219,6 +220,13 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
           setReloadKey((k) => k + 1);
           setView("dashboard");
         }}
+      />
+    ) : view === "decisions" ? (
+      <Decisions
+        store={store}
+        gmail={gmail}
+        online={online}
+        onChanged={() => setReloadKey((k) => k + 1)}
       />
     ) : view === "analytics" ? (
       <Analytics store={store} />

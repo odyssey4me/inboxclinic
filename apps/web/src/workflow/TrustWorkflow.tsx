@@ -19,10 +19,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { BatchOffer } from "../components/composed/BatchOffer";
 import { DecisionRow } from "../components/composed/DecisionRow";
+import { ImpactPreview } from "../components/composed/ImpactPreview";
 import { PromptCard } from "../components/composed/PromptCard";
 import { TrustActions } from "../components/composed/TrustActions";
 import { Button } from "../components/ui/Button";
-import { Card } from "../components/ui/Card";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 import type { PendingDecision } from "./pendingDecisions";
@@ -298,68 +298,6 @@ function TriageKeyboard({
   return null;
 }
 
-/** The read-only impact preview shown in Review before the user confirms Apply. */
-function ImpactPreview({
-  impact,
-  weeklyVolume,
-}: {
-  impact: SimulatedImpact | null;
-  weeklyVolume: number;
-}) {
-  if (impact === null) {
-    return <p className="text-sm text-muted">Checking impact…</p>;
-  }
-
-  const lines: string[] = [];
-  if (impact.filtersToCreate > 0) {
-    lines.push(
-      `Create ${impact.filtersToCreate} filter${impact.filtersToCreate === 1 ? "" : "s"} to auto-handle future mail`,
-    );
-  }
-  if (impact.filtersToDelete > 0) {
-    lines.push(`Remove ${impact.filtersToDelete} filter${impact.filtersToDelete === 1 ? "" : "s"}`);
-  }
-  if (impact.messagesToArchive > 0) {
-    lines.push(
-      `Archive ${impact.messagesToArchive} existing email${impact.messagesToArchive === 1 ? "" : "s"}`,
-    );
-  }
-  if (impact.messagesToRescue > 0) {
-    lines.push(
-      `Restore ${impact.messagesToRescue} email${impact.messagesToRescue === 1 ? "" : "s"} from Spam/Trash`,
-    );
-  }
-
-  return (
-    <Card aria-label="Impact preview" className="space-y-2 text-sm">
-      <p className="font-medium text-ink">When you apply</p>
-      {lines.length > 0 ? (
-        <ul className="ml-4 list-disc space-y-1 text-muted">
-          {lines.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-muted">Records your decisions on-device; no Gmail changes needed.</p>
-      )}
-      {impact.messagesToDelete > 0 && (
-        <p className="rounded-md bg-block/10 px-3 py-2 text-block">
-          <strong className="font-semibold">
-            Deletes {impact.messagesToDelete} existing email
-            {impact.messagesToDelete === 1 ? "" : "s"}
-          </strong>{" "}
-          — moved to Trash, recoverable for ~30 days.
-        </p>
-      )}
-      {weeklyVolume > 0 && (
-        <p className="text-muted">
-          Going forward: ~{weeklyVolume} email{weeklyVolume === 1 ? "" : "s"}/week auto-handled.
-        </p>
-      )}
-    </Card>
-  );
-}
-
 interface ReviewPhaseProps {
   store: Store;
   gmail: GmailClient;
@@ -536,7 +474,7 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
           )}
           <p className="text-xs text-muted">
             Decisions are stored on-device; Gmail filters keep enforcing while the app is closed.
-            Undo in Settings → Past decisions.
+            Change any decision later in the <strong>Decisions</strong> tab.
           </p>
           <Button onClick={onDone}>Done</Button>
         </>

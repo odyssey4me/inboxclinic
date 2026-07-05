@@ -9,7 +9,7 @@ import { LayoutSwitch } from "./LayoutSwitch";
 
 /** Views reachable from the primary nav. `App`'s View union may include more (e.g. the
  *  workflow sub-flow), which simply leaves no tab highlighted. */
-export type ShellView = "dashboard" | "analytics" | "settings";
+export type ShellView = "dashboard" | "decisions" | "analytics" | "settings";
 
 export interface AppShellProps {
   email: string;
@@ -34,6 +34,7 @@ export interface AppShellProps {
 
 const NAV: { id: ShellView; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "decisions", label: "Decisions" },
   { id: "analytics", label: "Analytics" },
   { id: "settings", label: "Settings" },
 ];
