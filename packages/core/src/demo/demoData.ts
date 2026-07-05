@@ -38,7 +38,8 @@ interface DemoSenderSpec {
   /** How many are UNREAD — drives read-rate (`1 − unread/total`). */
   unread: number;
   starred?: number;
-  spam?: number;
+  /** Place the sender's mail in a folder other than the inbox (for learning-scan demos). */
+  folder?: "spam" | "trash";
   category?: CategoryLabel;
   listUnsub?: boolean;
   listId?: boolean;
@@ -78,8 +79,14 @@ const DEMO_SENDERS: DemoSenderSpec[] = [
   { name: "X", email: "info@x.com", total: 8, unread: 7, category: "CATEGORY_SOCIAL", auth: "pass", withinDays: 15 }, // prettier-ignore
   { name: "DevForum Digest", email: "digest@devforum.org", total: 5, unread: 1, category: "CATEGORY_FORUMS", listId: true, listUnsub: true, auth: "pass", withinDays: 27 }, // prettier-ignore
 
-  // -- Spoofed look-alike (lowest trust) -----------------------------------------
-  { name: "PayPal Security", email: "security@paypa1-alert.com", total: 4, unread: 4, spam: 3, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "fail", withinDays: 10 }, // prettier-ignore
+  // -- Spoofed look-alike that landed in the inbox (lowest trust) ----------------
+  { name: "PayPal Security", email: "security@paypa1-alert.com", total: 4, unread: 4, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "fail", withinDays: 10 }, // prettier-ignore
+
+  // -- Already handled outside the inbox — for the "learn prior decisions" demo --
+  // Spam-marked (strong signal) and unread-binned (a signal); read-then-binned is not.
+  { name: "MegaCasino", email: "wins@megacasino.example", total: 5, unread: 5, folder: "spam", auth: "fail", withinDays: 12 }, // prettier-ignore
+  { name: "Flash Deals", email: "blast@flashdeals.example", total: 6, unread: 6, folder: "trash", listUnsub: true, auth: "pass", withinDays: 15 }, // prettier-ignore
+  { name: "Corner Shop", email: "receipts@cornershop.example", total: 4, unread: 0, folder: "trash", auth: "pass", withinDays: 20 }, // prettier-ignore
 ];
 
 /** Addresses pre-decided when the store is seeded (a realistic starting mix). */
@@ -107,11 +114,11 @@ function expand(spec: DemoSenderSpec, now: number): MessageMeta[] {
     const ageDays = Math.floor((i / spec.total) * spec.withinDays);
     const internalDate = now - ageDays * DAY_MS;
 
-    const labelIds = ["INBOX"];
+    const labelIds =
+      spec.folder === "spam" ? ["SPAM"] : spec.folder === "trash" ? ["TRASH"] : ["INBOX"];
     if (spec.category !== undefined) labelIds.push(spec.category);
     if (i < spec.unread) labelIds.push("UNREAD");
     if (spec.starred !== undefined && i < spec.starred) labelIds.push("STARRED");
-    if (spec.spam !== undefined && i < spec.spam) labelIds.push("SPAM");
 
     const domain = spec.email.slice(spec.email.indexOf("@") + 1);
     out.push({

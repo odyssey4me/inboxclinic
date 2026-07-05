@@ -22,3 +22,18 @@ test("decisions view: change a block to trust with a previewed, confirmed re-dec
 
   await expect(page.getByText(/deals@retailco\.com is now trusted/i)).toBeVisible();
 });
+
+test("decisions view: import prior decisions learned from Gmail (Spam/Trash)", async ({ page }) => {
+  await gotoDemo(page);
+  await page.getByRole("button", { name: /^Decisions$/ }).click();
+
+  // Learned from the demo's Spam/Trash: a confirm-first import appears.
+  await expect(page.getByRole("heading", { name: /found \d+ prior decision/i })).toBeVisible();
+  await page.getByRole("button", { name: /import all as blocked/i }).click();
+
+  await expect(page.getByText(/imported \d+ prior decision/i)).toBeVisible();
+  // The imported spam sender is now a blocked decision in the list.
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "wins@megacasino.example" }),
+  ).toBeVisible();
+});

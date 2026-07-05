@@ -3,16 +3,20 @@ import {
   applyDecision,
   defaultBlockActions,
   enforce,
+  importLearnedDecisions,
+  learnPriorDecisions,
   simulateEnforcement,
   type BlockAction,
   type Decision,
   type DecisionScope,
   type GmailClient,
+  type LearnedSuggestion,
+  type LearnReason,
   type SimulatedImpact,
   type Store,
   type TrustStatus,
 } from "@inboxclinic/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ImpactPreview } from "../components/composed/ImpactPreview";
 import { Badge } from "../components/ui/Badge";
@@ -47,6 +51,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const REASON_TEXT: Record<LearnReason, string> = {
+  filter: "existing filter",
+  spam: "marked spam",
+  trash: "binned unread",
+};
+
 /**
  * Decisions view: every recorded trust/block, revisable at any time. Changing a decision
  * previews its impact (a read-only dry-run), then applies it and reconciles Gmail filters
@@ -60,6 +70,39 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<LearnedSuggestion[]>([]);
+  const [dismissed, setDismissed] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  // On open, learn prior "no" decisions from existing filters + Spam/Trash (read-only).
+  useEffect(() => {
+    if (!online) return;
+    let active = true;
+    void (async () => {
+      const found = await learnPriorDecisions(gmail, store);
+      if (active) setSuggestions(found);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [store, gmail, online]);
+
+  const importAll = async (): Promise<void> => {
+    setImporting(true);
+    setError(null);
+    try {
+      const count = await importLearnedDecisions(store, suggestions, Date.now());
+      await enforce(gmail, store);
+      await reload();
+      onChanged();
+      setNote(`Imported ${count} prior decision${count === 1 ? "" : "s"} as blocked.`);
+      setSuggestions([]);
+    } catch (caught) {
+      setError(`Import failed: ${errorMessage(caught)}`);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const subjects: DecidedSubject[] = [
     ...(data?.senders ?? [])
@@ -151,6 +194,39 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
           className="min-h-9 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:w-56"
         />
       </div>
+
+      {suggestions.length > 0 && !dismissed && (
+        <Card aria-label="Prior decisions found" className="space-y-3 border-accent/40">
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold">
+              Found {suggestions.length} prior decision{suggestions.length === 1 ? "" : "s"}
+            </h3>
+            <p className="text-sm text-muted">
+              Senders you already filter or bin. Import them as Blocked? Nothing is deleted — Gmail
+              already handles them; this just records the decisions here.
+            </p>
+          </div>
+          <ul className="space-y-1 text-sm">
+            {suggestions.map((s) => (
+              <li
+                key={`${s.scope}:${s.subjectId}`}
+                className="flex items-center justify-between gap-2"
+              >
+                <span className="truncate text-ink">{s.label}</span>
+                <span className="shrink-0 text-xs text-muted">{REASON_TEXT[s.reason]}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex gap-2">
+            <Button onClick={() => void importAll()} disabled={importing || !online}>
+              {importing ? "Importing…" : "Import all as Blocked"}
+            </Button>
+            <Button variant="ghost" onClick={() => setDismissed(true)} disabled={importing}>
+              Dismiss
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {change !== null && (
         <Card

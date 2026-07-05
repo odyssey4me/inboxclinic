@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { analyticsSummary } from "../analytics/summary";
+import { learnPriorDecisions } from "../decisions/learnPriorDecisions";
 import { keyFor } from "../keys";
 import { runScan } from "../scan/runScan";
 import { DEMO_ACCOUNT_EMAIL, DEMO_HISTORY_ID, demoInbox } from "./demoData";
@@ -14,8 +15,8 @@ const NOW = Date.UTC(2026, 6, 5); // 2026-07-05, fixed for determinism
 describe("demo environment", () => {
   it("builds an inbox whose message count matches the curated specs", () => {
     const inbox = demoInbox(NOW);
-    // 16 senders totalling their per-sender message counts.
-    expect(inbox.length).toBe(116);
+    // 16 inbox senders + 3 Spam/Trash-only senders (15 msgs) for the learning-scan demo.
+    expect(inbox.length).toBe(131);
     // Every message is deterministic and dated at or before `now`.
     expect(inbox.every((m) => m.internalDate <= NOW)).toBe(true);
     expect(new Set(inbox.map((m) => m.id)).size).toBe(inbox.length);
@@ -77,6 +78,14 @@ describe("demo environment", () => {
     expect((await store.senders.query({})).length).toBe(before);
     const jane = await store.senders.get(keyFor("jane.cooper@gmail.com"));
     expect(jane?.trustStatus).toBe("trusted");
+  });
+
+  it("exposes learnable prior decisions from Spam/Trash (unread-binned only)", async () => {
+    const { store, gmail } = await createDemoEnvironment({ now: NOW });
+    const labels = (await learnPriorDecisions(gmail, store, { now: NOW })).map((s) => s.label);
+    expect(labels).toContain("wins@megacasino.example"); // spam-marked
+    expect(labels).toContain("blast@flashdeals.example"); // unread when binned
+    expect(labels).not.toContain("receipts@cornershop.example"); // read then binned — not a signal
   });
 
   it("seedDemoStore populates a caller-provided store + gmail client", async () => {

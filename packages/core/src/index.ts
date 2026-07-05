@@ -140,6 +140,7 @@ export {
   type LearnReason,
   type LearnPriorOptions,
 } from "./decisions/learnPriorDecisions";
+export { importLearnedDecisions } from "./decisions/importLearned";
 
 // Bounded metadata scan orchestration (pure over the ports).
 export { buildScanQuery, runScan, type RunScanOptions, type ScanResult } from "./scan/runScan";
