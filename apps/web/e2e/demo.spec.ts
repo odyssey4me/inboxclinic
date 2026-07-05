@@ -9,8 +9,9 @@ test("landing offers a demo that opens a populated dashboard, and can exit", asy
   await page.getByRole("button", { name: /explore the demo/i }).click();
 
   // Signed in as the demo identity with a clear demo banner — no Google sign-in.
+  // (The mobile shell shows the email in both the account summary and its panel.)
   await expect(page.getByText(/demo mode/i)).toBeVisible();
-  await expect(page.getByText(DEMO_EMAIL)).toBeVisible();
+  await expect(page.getByText(DEMO_EMAIL).first()).toBeVisible();
 
   // The dashboard is populated from the seeded store.
   await expect(page.getByText("jane.cooper@gmail.com").first()).toBeVisible();
