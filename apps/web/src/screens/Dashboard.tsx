@@ -4,12 +4,14 @@ import {
   healthInputFromSenders,
   inboxHealthScore,
   senderToSnapshot,
+  type GmailClient,
   type Sender,
   type Store,
 } from "@inboxclinic/core";
 import { useState } from "react";
 
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
+import { SenderDetail } from "../components/composed/SenderDetail";
 import { Badge, type BadgeTone } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
@@ -20,16 +22,40 @@ import { healthTone } from "../lib/health";
 
 export interface DashboardProps {
   store: Store;
+  gmail: GmailClient;
+  online: boolean;
   onStartWorkflow: () => void;
+  /** Called after a sender decision is applied from the detail drawer. */
+  onChanged: () => void;
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <Card className="text-center">
+function Stat({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  onClick?: (() => void) | undefined;
+}) {
+  const body = (
+    <>
       <p className="text-2xl font-bold tabular-nums text-ink">{value}</p>
       <p className="text-xs text-muted">{label}</p>
-    </Card>
+    </>
   );
+  if (onClick !== undefined) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-lg border border-line bg-surface p-4 text-center shadow-sm transition-colors hover:border-accent/40 hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {body}
+      </button>
+    );
+  }
+  return <Card className="text-center">{body}</Card>;
 }
 
 /** Trust status as a colour-coded chip (colour is always paired with the status word). */
@@ -43,11 +69,12 @@ function statusTone(status: Sender["trustStatus"]): BadgeTone {
 /** Rows rendered before the list is capped (search narrows the rest). */
 const SENDERS_CAP = 50;
 
-export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
+export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: DashboardProps) {
   const { data } = useStoreSnapshot(store);
   const { layout } = useLayout();
   const desktop = layout === "desktop";
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Sender | null>(null);
 
   const senders = data?.senders ?? [];
   const domains = data?.domains ?? [];
@@ -113,12 +140,15 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
         <h2 className="text-lg font-semibold">Pending decisions</h2>
         <ul className="space-y-2">
           {topPending.map((sender) => (
-            <li
-              key={sender.id}
-              className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm"
-            >
-              <span className="truncate font-medium text-ink">{sender.email}</span>
-              <ScoreIndicator score={computeTrustScore(senderToSnapshot(sender)).score} />
+            <li key={sender.id}>
+              <button
+                type="button"
+                onClick={() => setSelected(sender)}
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-left text-sm transition-colors hover:border-accent/40 hover:bg-surface-2"
+              >
+                <span className="truncate font-medium text-ink">{sender.email}</span>
+                <ScoreIndicator score={computeTrustScore(senderToSnapshot(sender)).score} />
+              </button>
             </li>
           ))}
         </ul>
@@ -155,8 +185,16 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
             </thead>
             <tbody>
               {shownSenders.map((sender) => (
-                <tr key={sender.id} className="border-b border-line">
-                  <td className="py-2 pr-4">{sender.email}</td>
+                <tr
+                  key={sender.id}
+                  tabIndex={0}
+                  onClick={() => setSelected(sender)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") setSelected(sender);
+                  }}
+                  className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+                >
+                  <td className="py-2 pr-4 font-medium text-ink">{sender.email}</td>
                   <td className="py-2 pr-4 text-muted">{sender.domain}</td>
                   <td className="py-2 pr-4 text-muted">{sender.category}</td>
                   <td className="py-2 pr-4">
@@ -170,17 +208,20 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
         ) : (
           <ul className="space-y-2">
             {shownSenders.map((sender) => (
-              <li
-                key={sender.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-ink">{sender.email}</p>
-                  <p className="truncate text-xs text-muted">
-                    {sender.category} · {sender.totalEmails} emails
-                  </p>
-                </div>
-                <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
+              <li key={sender.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(sender)}
+                  className="flex w-full items-center justify-between gap-3 rounded-md border border-line px-3 py-2 text-left transition-colors hover:border-accent/40 hover:bg-surface-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">{sender.email}</p>
+                    <p className="truncate text-xs text-muted">
+                      {sender.category} · {sender.totalEmails} emails
+                    </p>
+                  </div>
+                  <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
+                </button>
               </li>
             ))}
           </ul>
@@ -201,7 +242,11 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
       <section className="grid grid-cols-3 gap-3" aria-label="Summary">
         <Stat label="Senders" value={senders.length} />
         <Stat label="Domains" value={domains.length} />
-        <Stat label="Pending" value={openPrompts.length} />
+        <Stat
+          label="Pending"
+          value={openPrompts.length}
+          onClick={openPrompts.length > 0 ? onStartWorkflow : undefined}
+        />
       </section>
 
       {desktop && pendingSection !== null ? (
@@ -215,6 +260,15 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
           {sendersSection}
         </>
       )}
+
+      <SenderDetail
+        sender={selected}
+        store={store}
+        gmail={gmail}
+        online={online}
+        onClose={() => setSelected(null)}
+        onChanged={onChanged}
+      />
     </div>
   );
 }

@@ -241,7 +241,14 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
         rescanning={scanning}
       />
     ) : (
-      <Dashboard key={reloadKey} store={store} onStartWorkflow={() => setView("workflow")} />
+      <Dashboard
+        key={reloadKey}
+        store={store}
+        gmail={gmail}
+        online={online}
+        onStartWorkflow={() => setView("workflow")}
+        onChanged={() => setReloadKey((k) => k + 1)}
+      />
     );
 
   return (
