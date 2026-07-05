@@ -226,6 +226,23 @@ a URL router (hash vs. history) stays deferred (see Open Questions). The **Trust
 workflow** is launched from the Dashboard and renders inside the shell as a focused
 sub-flow (with its own progress header + exit), so the anchor is never lost mid-flow.
 
+**Two distinct layouts, user-switchable.** The shell renders one of two structurally
+different layouts, chosen by `useLayout` (`layout/context.ts` + `LayoutProvider`):
+
+| | Mobile shell | Desktop shell |
+|-|--------------|---------------|
+| Structure | Top bar; single content column | Left **sidebar** (brand, vertical nav, account); wide content |
+| Nav | Horizontal pills | Vertical list in the sidebar |
+| Account + layout switch | In a header disclosure menu | Pinned to the sidebar foot |
+| Content width | `max-w-3xl`, stacked | up to `max-w-6xl`; screens go multi-column (e.g. Dashboard = senders + pending aside) |
+
+The layout is not merely CSS breakpoints: a **`LayoutSwitch`** (Auto / Desktop / Mobile)
+lets the user pin either layout, remembered on-device (`localStorage`). `auto` follows the
+`(min-width: 1024px)` breakpoint. Because a page can be forced to a layout its viewport
+wouldn't otherwise choose, screens branch on the JS `layout` value (not `lg:` utilities).
+Pinning **Desktop** on a small screen also widens the `viewport` meta to `width=1024` so the
+desktop layout has room (mobile browsers zoom to fit; desktop browsers ignore it).
+
 ### Screens
 
 | Screen | Composed of | Notes |
@@ -326,7 +343,7 @@ Per the project accessibility baseline:
 
 | Requirement | Implementation |
 |-------------|----------------|
-| Mobile-first, responsive | Tailwind breakpoints, single-column by default; **Capacitor wrapper is a future target (§9)** so layouts stay touch-first. |
+| Mobile-first, responsive | Two distinct shells — a touch-first single-column **mobile** layout and a sidebar **desktop** layout — chosen automatically by breakpoint and **user-pinnable** via the `LayoutSwitch` (Auto / Desktop / Mobile), remembered on-device. **Capacitor wrapper is a future target (§9)** so the mobile layout stays touch-first. |
 | Colour + text/icon | Every colour-coded signal (score tier, status badge) also carries text/icon. |
 | Keyboard navigable | Workflow phases, decision actions, and dialogs operable by keyboard; focus managed by `ui/` primitives. |
 | Announced state | Progress and completion in Execution announced to screen readers (`aria-live`). |
@@ -358,3 +375,4 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-06-28 | Rewritten for the client-only, local-first, all-TypeScript PWA architecture (Vite + React + Tailwind, `packages/core`, Dexie/IndexedDB). Replaces the Next.js design. | Claude |
 | 2026-07-05 | Add the **persistent application shell**: signed-in views share one header (brand, account, Dashboard/Analytics/Settings nav, Sync/Scan, offline indicator); screens become content-only. Navigation stays in-memory view state (URL router deferred). | Claude |
 | 2026-07-05 | Add **Decision 7: the "Vitals" design system** — semantic CSS-variable tokens exposed through Tailwind v4 `@theme inline`; calm clinical teal palette; light + dark by `prefers-color-scheme` (system-detected). All components re-tokenised off raw palette colours. | Claude |
+| 2026-07-05 | Split the shell into **two distinct layouts** (touch-first mobile top-bar vs. desktop **sidebar**), chosen by `useLayout` and **user-pinnable** via `LayoutSwitch` (Auto / Desktop / Mobile, persisted on-device; forced-desktop widens the viewport on small screens). Dashboard/Analytics go multi-column on desktop. | Claude |

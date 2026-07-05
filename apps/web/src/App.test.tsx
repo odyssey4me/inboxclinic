@@ -68,6 +68,24 @@ describe("App", () => {
     expect(profile?.lastHistoryId).not.toBeNull();
   });
 
+  it("pins the mobile layout from the switch and remembers it on-device", async () => {
+    localStorage.clear();
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
+    await screen.findByText("owner@gmail.com");
+
+    // With no matchMedia (jsdom), Auto resolves to the desktop shell — a sidebar.
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+
+    // Pinning Mobile swaps to the single-column shell (no sidebar) and is persisted.
+    fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(localStorage.getItem("inboxclinic.layoutPref")).toBe("mobile");
+    localStorage.clear();
+  });
+
   it("lists scanned senders after sign-in and scan (no real Google)", async () => {
     const { gmail, store, backup } = setup();
     render(<App gmail={gmail} store={store} backup={backup} />);

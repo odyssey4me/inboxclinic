@@ -12,6 +12,7 @@ import { AppShell } from "./components/composed/AppShell";
 import { Footer } from "./components/composed/Footer";
 import { Button } from "./components/ui/Button";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { LayoutProvider } from "./layout/LayoutProvider";
 import { registerPeriodicSync, SW_SYNC_MESSAGE } from "./pwa/periodicSync";
 import { Analytics } from "./screens/Analytics";
 import { Dashboard } from "./screens/Dashboard";
@@ -36,7 +37,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function App({ gmail, store, backup }: AppProps) {
+export function App(props: AppProps) {
+  return (
+    <LayoutProvider>
+      <AppInner {...props} />
+    </LayoutProvider>
+  );
+}
+
+function AppInner({ gmail, store, backup }: AppProps) {
   const [email, setEmail] = useState<string | null>(null);
   const [view, setView] = useState<View>("dashboard");
   const [scanning, setScanning] = useState(false);

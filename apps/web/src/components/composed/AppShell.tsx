@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { ReactNode } from "react";
 
+import { useLayout } from "../../layout/context";
 import { Button } from "../ui/Button";
 import { Footer } from "./Footer";
+import { LayoutSwitch } from "./LayoutSwitch";
 
 /** Views reachable from the primary nav. `App`'s View union may include more (e.g. the
  *  workflow sub-flow), which simply leaves no tab highlighted. */
@@ -32,11 +34,64 @@ const OFFLINE_NOTICE = "Offline — Gmail sync paused; local data is available."
 
 /**
  * Persistent application shell for signed-in views (design-frontend.md — Application
- * shell & navigation): a fixed header with the brand, the signed-in account, primary
- * navigation, and the global Sync/Scan actions, wrapping a swappable content area and the
- * footer. Screens render content only.
+ * shell & navigation). Two structurally distinct layouts share the same props: a
+ * touch-first single-column **mobile** shell (top bar) and a **desktop** shell (left
+ * sidebar + wide content). The active layout comes from `useLayout`, which the account
+ * area lets the user pin. Screens render content only.
  */
-export function AppShell({
+export function AppShell(props: AppShellProps) {
+  const { layout } = useLayout();
+  return layout === "desktop" ? <DesktopShell {...props} /> : <MobileShell {...props} />;
+}
+
+function OfflineBanner() {
+  return (
+    <p role="status" className="bg-defer/10 px-4 py-2 text-center text-sm text-defer">
+      {OFFLINE_NOTICE}
+    </p>
+  );
+}
+
+function ErrorLine({ error }: { error: string }) {
+  return (
+    <p role="alert" className="px-4 pb-4 text-center text-sm text-block">
+      {error}
+    </p>
+  );
+}
+
+function Brand({ onNavigate }: { onNavigate: (view: ShellView) => void }) {
+  return (
+    <h1 className="text-xl font-bold tracking-tight">
+      <button type="button" onClick={() => onNavigate("dashboard")} className="text-ink">
+        Inbox Clinic
+      </button>
+    </h1>
+  );
+}
+
+function SyncScan({
+  onSync,
+  onScan,
+  syncing,
+  scanning,
+  online,
+}: Pick<AppShellProps, "onSync" | "onScan" | "syncing" | "scanning" | "online">) {
+  return (
+    <>
+      <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
+        {syncing ? "Syncing…" : "Sync"}
+      </Button>
+      <Button variant="secondary" onClick={onScan} disabled={scanning || !online}>
+        {scanning ? "Scanning…" : "Scan"}
+      </Button>
+    </>
+  );
+}
+
+// ---- Mobile shell: top bar, single column, touch-first --------------------------------
+
+function MobileShell({
   email,
   online,
   view,
@@ -50,24 +105,29 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
-      {!online && (
-        <p role="status" className="bg-defer/10 px-4 py-2 text-center text-sm text-defer">
-          {OFFLINE_NOTICE}
-        </p>
-      )}
+      {!online && <OfflineBanner />}
 
       <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-3">
-          <div className="flex min-w-0 items-baseline gap-3">
-            <h1 className="shrink-0 text-xl font-bold tracking-tight">
-              <button type="button" onClick={() => onNavigate("dashboard")} className="text-ink">
-                Inbox Clinic
-              </button>
-            </h1>
-            <span className="truncate text-sm text-muted">
-              <span className="hidden sm:inline">Signed in as </span>
-              <span className="font-medium text-ink">{email}</span>
-            </span>
+        <div className="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <Brand onNavigate={onNavigate} />
+            <details className="group relative">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-md px-2 text-sm text-muted marker:hidden">
+                <span className="max-w-[9rem] truncate font-medium text-ink">{email}</span>
+                <span
+                  aria-hidden="true"
+                  className="ml-1 transition-transform group-open:rotate-180"
+                >
+                  ▾
+                </span>
+              </summary>
+              <div className="absolute right-0 z-10 mt-1 w-64 space-y-3 rounded-md border border-line bg-surface p-4 shadow-sm">
+                <p className="truncate text-xs text-muted">
+                  Signed in as <span className="font-medium text-ink">{email}</span>
+                </p>
+                <LayoutSwitch />
+              </div>
+            </details>
           </div>
 
           <div className="flex flex-wrap items-center gap-1">
@@ -90,23 +150,89 @@ export function AppShell({
               })}
             </nav>
             <span className="mx-1 hidden h-5 w-px bg-line sm:inline-block" aria-hidden="true" />
-            <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
-              {syncing ? "Syncing…" : "Sync"}
-            </Button>
-            <Button variant="secondary" onClick={onScan} disabled={scanning || !online}>
-              {scanning ? "Scanning…" : "Scan"}
-            </Button>
+            <SyncScan
+              onSync={onSync}
+              onScan={onScan}
+              syncing={syncing}
+              scanning={scanning}
+              online={online}
+            />
           </div>
         </div>
       </header>
 
       <main className="flex-1">{children}</main>
 
-      {error !== null && (
-        <p role="alert" className="px-4 pb-4 text-center text-sm text-block">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorLine error={error} />}
+      <Footer />
+    </div>
+  );
+}
+
+// ---- Desktop shell: left sidebar + wide content ---------------------------------------
+
+function DesktopShell({
+  email,
+  online,
+  view,
+  onNavigate,
+  onSync,
+  onScan,
+  syncing,
+  scanning,
+  error,
+  children,
+}: AppShellProps) {
+  return (
+    <div className="flex min-h-screen flex-col">
+      {!online && <OfflineBanner />}
+
+      <div className="mx-auto flex w-full max-w-7xl flex-1">
+        <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-surface">
+          <div className="px-5 py-5">
+            <Brand onNavigate={onNavigate} />
+          </div>
+          <nav className="flex flex-col gap-1 px-3" aria-label="Primary">
+            {NAV.map((item) => {
+              const active = view === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onNavigate(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    active ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="mt-auto space-y-3 border-t border-line px-5 py-4">
+            <p className="truncate text-xs text-muted">
+              Signed in as <span className="font-medium text-ink">{email}</span>
+            </p>
+            <LayoutSwitch />
+          </div>
+        </aside>
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-center justify-end gap-1 border-b border-line bg-surface px-6 py-3">
+            <SyncScan
+              onSync={onSync}
+              onScan={onScan}
+              syncing={syncing}
+              scanning={scanning}
+              online={online}
+            />
+          </div>
+          <main className="flex-1">{children}</main>
+          {error !== null && <ErrorLine error={error} />}
+        </div>
+      </div>
+
       <Footer />
     </div>
   );

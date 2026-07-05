@@ -5,6 +5,7 @@ import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
+import { useLayout } from "../layout/context";
 
 export interface DashboardProps {
   store: Store;
@@ -20,9 +21,12 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-/** Dashboard: counts, top pending prompts, and the sender list. */
+/** Dashboard: counts, top pending prompts, and the sender list. Single column on mobile;
+ *  a wide two-pane (senders + pending aside) on desktop. */
 export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
   const { data } = useStoreSnapshot(store);
+  const { layout } = useLayout();
+  const desktop = layout === "desktop";
 
   const senders = data?.senders ?? [];
   const domains = data?.domains ?? [];
@@ -33,62 +37,76 @@ export function Dashboard({ store, onStartWorkflow }: DashboardProps) {
     .sort((a, b) => b.priorityScore - a.priorityScore)
     .map((p) => senderById.get(p.senderId))
     .filter((s): s is Sender => s !== undefined)
-    .slice(0, 3);
+    .slice(0, desktop ? 6 : 3);
+
+  const pendingSection =
+    openPrompts.length > 0 ? (
+      <section className="space-y-3" aria-label="Pending decisions">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Pending decisions</h2>
+          <Button onClick={onStartWorkflow}>Review {openPrompts.length}</Button>
+        </div>
+        <ul className="space-y-2">
+          {topPending.map((sender) => (
+            <li
+              key={sender.id}
+              className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm"
+            >
+              <span className="truncate font-medium text-ink">{sender.email}</span>
+              <ScoreIndicator score={computeTrustScore(senderToSnapshot(sender)).score} />
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null;
+
+  const sendersSection =
+    senders.length > 0 ? (
+      <section aria-label="Senders">
+        <h2 className="mb-2 text-lg font-semibold">Senders</h2>
+        <table className="w-full border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-line text-muted">
+              <th className="py-2 pr-4 font-medium">Sender</th>
+              <th className="py-2 pr-4 font-medium">Domain</th>
+              <th className="py-2 pr-4 font-medium">Category</th>
+              <th className="py-2 pr-4 font-medium">Status</th>
+              <th className="py-2 text-right font-medium">Emails</th>
+            </tr>
+          </thead>
+          <tbody>
+            {senders.map((sender) => (
+              <tr key={sender.id} className="border-b border-line">
+                <td className="py-2 pr-4">{sender.email}</td>
+                <td className="py-2 pr-4 text-muted">{sender.domain}</td>
+                <td className="py-2 pr-4 text-muted">{sender.category}</td>
+                <td className="py-2 pr-4 text-muted">{sender.trustStatus}</td>
+                <td className="py-2 text-right tabular-nums">{sender.totalEmails}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    ) : null;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8">
+    <div className={`mx-auto flex flex-col gap-6 px-4 py-8 ${desktop ? "max-w-6xl" : "max-w-3xl"}`}>
       <section className="grid grid-cols-3 gap-3" aria-label="Summary">
         <Stat label="Senders" value={senders.length} />
         <Stat label="Domains" value={domains.length} />
         <Stat label="Pending" value={openPrompts.length} />
       </section>
 
-      {openPrompts.length > 0 && (
-        <section className="space-y-3" aria-label="Pending decisions">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Pending decisions</h2>
-            <Button onClick={onStartWorkflow}>Review {openPrompts.length}</Button>
-          </div>
-          <ul className="space-y-2">
-            {topPending.map((sender) => (
-              <li
-                key={sender.id}
-                className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm"
-              >
-                <span className="truncate font-medium text-ink">{sender.email}</span>
-                <ScoreIndicator score={computeTrustScore(senderToSnapshot(sender)).score} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {senders.length > 0 && (
-        <section aria-label="Senders">
-          <h2 className="mb-2 text-lg font-semibold">Senders</h2>
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-muted">
-                <th className="py-2 pr-4 font-medium">Sender</th>
-                <th className="py-2 pr-4 font-medium">Domain</th>
-                <th className="py-2 pr-4 font-medium">Category</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2 text-right font-medium">Emails</th>
-              </tr>
-            </thead>
-            <tbody>
-              {senders.map((sender) => (
-                <tr key={sender.id} className="border-b border-line">
-                  <td className="py-2 pr-4">{sender.email}</td>
-                  <td className="py-2 pr-4 text-muted">{sender.domain}</td>
-                  <td className="py-2 pr-4 text-muted">{sender.category}</td>
-                  <td className="py-2 pr-4 text-muted">{sender.trustStatus}</td>
-                  <td className="py-2 text-right tabular-nums">{sender.totalEmails}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+      {desktop && pendingSection !== null ? (
+        <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] items-start gap-6">
+          {sendersSection}
+          {pendingSection}
+        </div>
+      ) : (
+        <>
+          {pendingSection}
+          {sendersSection}
+        </>
       )}
     </div>
   );

@@ -16,6 +16,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ProgressBar } from "../components/ui/ProgressBar";
+import { useLayout } from "../layout/context";
 
 export interface AnalyticsProps {
   store: Store;
@@ -44,6 +45,8 @@ function downloadText(filename: string, text: string, type: string): void {
 export function Analytics({ store }: AnalyticsProps) {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [shareNote, setShareNote] = useState<string | null>(null);
+  const { layout } = useLayout();
+  const desktop = layout === "desktop";
 
   useEffect(() => {
     let active = true;
@@ -83,7 +86,7 @@ export function Analytics({ store }: AnalyticsProps) {
   const health = healthTone(summary.inboxHealthScore);
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8">
+    <div className={`mx-auto flex flex-col gap-6 px-4 py-8 ${desktop ? "max-w-5xl" : "max-w-3xl"}`}>
       <h2 className="text-2xl font-bold tracking-tight">Analytics</h2>
 
       <Card aria-label="Inbox health score" className="space-y-3">
