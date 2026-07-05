@@ -15,6 +15,7 @@ export interface DashboardProps {
   onSync: () => void;
   onStartWorkflow: () => void;
   onOpenAnalytics: () => void;
+  onOpenSettings: () => void;
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
@@ -37,6 +38,7 @@ export function Dashboard({
   onSync,
   onStartWorkflow,
   onOpenAnalytics,
+  onOpenSettings,
 }: DashboardProps) {
   const { data } = useStoreSnapshot(store);
 
@@ -63,6 +65,9 @@ export function Dashboard({
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={onOpenAnalytics}>
             Analytics
+          </Button>
+          <Button variant="secondary" onClick={onOpenSettings}>
+            Settings
           </Button>
           <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
             {syncing ? "Syncing…" : "Sync"}

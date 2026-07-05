@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 
 import { App } from "./App";
+import { BrowserDriveClient } from "./backup/BrowserDriveClient";
 import { BrowserGmailClient } from "./gmail/BrowserGmailClient";
 import "./index.css";
 
@@ -15,11 +16,12 @@ if (!rootElement) {
 // Public OAuth client id (no secret). Absent in CI/build; required only to sign in.
 const clientId = import.meta.env.VITE_OAUTH_CLIENT_ID ?? "";
 const gmail = new BrowserGmailClient(clientId);
+const backup = new BrowserDriveClient(clientId);
 const store = createDexieStore();
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App gmail={gmail} store={store} />
+    <App gmail={gmail} store={store} backup={backup} />
   </StrictMode>,
 );
 

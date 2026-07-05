@@ -1,6 +1,7 @@
 import {
   createInMemoryStore,
   messageMetaBuilder,
+  MockBackupClient,
   MockGmailClient,
 } from "@inboxclinic/core/testing";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -20,29 +21,30 @@ function setup() {
     "owner@gmail.com",
   );
   const store = createInMemoryStore();
-  return { gmail, store };
+  const backup = new MockBackupClient();
+  return { gmail, store, backup };
 }
 
 describe("App", () => {
   it("renders the product name and tagline", () => {
-    const { gmail, store } = setup();
-    render(<App gmail={gmail} store={store} />);
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
 
     expect(screen.getByRole("heading", { name: /inbox clinic/i })).toBeInTheDocument();
     expect(screen.getByText(/take back control of your inbox/i)).toBeInTheDocument();
   });
 
   it("offers sign-in and a request-access link before authentication", () => {
-    const { gmail, store } = setup();
-    render(<App gmail={gmail} store={store} />);
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
 
     expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /request access/i })).toBeInTheDocument();
   });
 
   it("syncs on open: populates senders right after sign-in, no scan click (mock only)", async () => {
-    const { gmail, store } = setup();
-    render(<App gmail={gmail} store={store} />);
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
@@ -56,8 +58,8 @@ describe("App", () => {
   });
 
   it("lists scanned senders after sign-in and scan (no real Google)", async () => {
-    const { gmail, store } = setup();
-    render(<App gmail={gmail} store={store} />);
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
