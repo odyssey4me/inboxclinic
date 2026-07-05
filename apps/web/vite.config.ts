@@ -3,8 +3,9 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-// Public base path: "/inboxclinic/" for the GitHub project-Pages URL, "/" for self-host
-// at a domain root (design-deployment.md — Build inputs / BASE_PATH).
+// Public base path. Defaults to "/" — Cloudflare Pages (and the custom domain) serve at
+// the root. Set BASE_PATH=/sub/ only when self-hosting under a sub-path
+// (design-deployment.md — Build inputs / BASE_PATH).
 const base = process.env.BASE_PATH ?? "/";
 
 // https://vite.dev/config/
@@ -31,7 +32,7 @@ export default defineConfig({
         theme_color: "#0f172a",
         background_color: "#0f172a",
         display: "standalone",
-        // Relative so the installed PWA works under any base (root or /inboxclinic/).
+        // Relative so the installed PWA works under any base (root, or a sub-path).
         start_url: ".",
         scope: base,
         icons: [

@@ -54,7 +54,7 @@ non-secret** build inputs (see [docs/design-deployment.md](docs/design-deploymen
 |----------|----------|---------|---------|
 | `VITE_OAUTH_CLIENT_ID` | to sign in | – | Your public Google OAuth (PKCE) client id. |
 | `VITE_REQUEST_ACCESS_URL` | no | repo issues | Request-access (waitlist) form URL. |
-| `BASE_PATH` | no | `/` | Public base path (`/inboxclinic/` for GitHub project Pages). |
+| `BASE_PATH` | no | `/` | Public base path; default `/` (Cloudflare Pages / custom-domain root). Set `/sub/` only for sub-path self-hosting. |
 
 e.g. `VITE_OAUTH_CLIENT_ID=xxx npm run dev`. There is **no `.env` with secrets** — the
 client id is public by design (PKCE), and nothing secret is ever stored.
