@@ -167,7 +167,18 @@ It reuses the same read paths as `enforce` (`listMessageIdsForSender`, `listFilt
 **no** mutating endpoint (`createFilter` / `deleteFilter` / `batchModifyMessages`). Future-volume
 extrapolation is computed in `packages/core` from the sender's frequency / recency.
 
-**Rationale:** Reuses the enforcement query paths for an honest count with zero side effects.
+**A filter's criteria _is_ a Gmail search**, so the preview **dry-runs the rule read-only**:
+running `from:<criteria>` (e.g. `from:*@retailco.com`) via `messages.list` returns the exact
+message set the filter would act on — counts plus a metadata-only sample (sender / subject /
+date) of what would be archived/deleted. This is the **validation**: Gmail has no filter dry-run
+endpoint, but the search validates *what the rule matches* with zero side effects. Only the final
+**commit** (`createFilter` → verify via `listFilters` → then message actions) mutates anything; a
+failed create aborts **before** any deletion, and a created filter is rolled back on a later-phase
+failure. For filter **optimisation** (Decision 9) the same search shows the delta between an old
+per-address rule and a consolidated `*@domain` rule before the user agrees.
+
+**Rationale:** Reuses the enforcement query paths for an honest, side-effect-free count that
+doubles as the pre-apply validation; the destructive commit is gated on it.
 
 ### Decision 9: Filter-optimisation suggestions (confirm-first)
 
