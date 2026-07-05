@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
-import { messageMetaBuilder } from "../testing/builders";
+import { messageMetaBuilder } from "../testing";
 import {
   categorise,
   extractSenders,

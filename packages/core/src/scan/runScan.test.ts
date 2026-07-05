@@ -2,9 +2,12 @@
 import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
-import { inboxFromSender, messageMetaBuilder } from "../testing/builders";
-import { createInMemoryStore } from "../testing/inMemoryStore";
-import { MockGmailClient } from "../testing/MockGmailClient";
+import {
+  createInMemoryStore,
+  inboxFromSender,
+  messageMetaBuilder,
+  MockGmailClient,
+} from "../testing";
 import { buildScanQuery, runScan } from "./runScan";
 
 describe("buildScanQuery", () => {

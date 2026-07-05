@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * In-memory, fixture-backed `GmailClient` for tests.
+ * In-memory, fixture-backed `GmailClient`.
  *
- * See docs/design-testing.md (Decision 3: mock Google at the `GmailClient` port).
- * Nothing reaches the network. Seed it with `MessageMeta[]` and it serves ids and
- * per-message metadata exactly as the browser adapter would, minus the transport.
+ * A complete `GmailClient` port with no transport: seed it with `MessageMeta[]` and it
+ * serves ids and per-message metadata exactly as the browser adapter would. It backs
+ * both **demo mode** (`@inboxclinic/core/demo`, shippable) and the **tests**
+ * (`@inboxclinic/core/testing` re-exports it as `MockGmailClient`).
  *
- * The enforcement surface (M4) is modelled with real in-memory state: created filters
- * are retained so `listFilters` reflects them (giving `enforce` genuine idempotency),
- * and filter/batch-modify calls are recorded for assertions.
+ * The enforcement surface is modelled with real in-memory state: created filters are
+ * retained so `listFilters` reflects them (giving `enforce` genuine idempotency), and
+ * filter/batch-modify calls are recorded (useful for demo introspection and test
+ * assertions).
  */
 
 import type {
@@ -30,7 +32,7 @@ export interface BatchModifyCall {
   edit: MessageLabelEdit;
 }
 
-export class MockGmailClient implements GmailClient {
+export class InMemoryGmailClient implements GmailClient {
   private messages: MessageMeta[];
   private accountEmail: string;
   private filters: NativeFilter[] = [];
@@ -119,7 +121,7 @@ export class MockGmailClient implements GmailClient {
   getMessageMeta(id: string): Promise<MessageMeta> {
     const found = this.messages.find((m) => m.id === id);
     if (found === undefined) {
-      return Promise.reject(new Error(`MockGmailClient: no message with id ${id}`));
+      return Promise.reject(new Error(`InMemoryGmailClient: no message with id ${id}`));
     }
     return Promise.resolve(found);
   }

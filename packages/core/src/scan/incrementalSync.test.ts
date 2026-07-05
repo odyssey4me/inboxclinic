@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { incrementalSync } from "./incrementalSync";
 import { keyFor } from "../keys";
-import { messageMetaBuilder } from "../testing/builders";
-import { createInMemoryStore } from "../testing/inMemoryStore";
-import { MockGmailClient } from "../testing/MockGmailClient";
+import { createInMemoryStore, messageMetaBuilder, MockGmailClient } from "../testing";
 import type { HistoryRecord, MessageMeta } from "../ports/GmailClient";
 
 const NOW = Date.UTC(2026, 5, 28);

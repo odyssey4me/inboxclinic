@@ -2,9 +2,13 @@
 import { describe, expect, it } from "vitest";
 
 import { enforce, FILTER_SYNC_KEY } from "./enforce";
-import { messageMetaBuilder, senderBuilder, domainBuilder } from "../testing/builders";
-import { createInMemoryStore } from "../testing/inMemoryStore";
-import { MockGmailClient } from "../testing/MockGmailClient";
+import {
+  createInMemoryStore,
+  domainBuilder,
+  messageMetaBuilder,
+  MockGmailClient,
+  senderBuilder,
+} from "../testing";
 import type { FilterSpec, MessageMeta } from "../ports/GmailClient";
 
 const NOW = 1_700_000_000_000;

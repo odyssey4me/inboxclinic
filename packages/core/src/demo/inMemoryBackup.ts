@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * In-memory, fixture-backed `BackupClient` for tests.
+ * In-memory, fixture-backed `BackupClient`.
  *
- * See docs/design-testing.md (mock Google at the port) and docs/design-backup-restore.md.
- * Nothing reaches the network: it models the single-file backup with real in-memory
- * state, so `backupToDrive` / `restoreFromDrive` exercise the genuine find-or-create,
- * overwrite, and download paths. `authorize` and download calls are recorded for
- * assertions. `modifiedTime` is a deterministic counter (RFC-3339-shaped) so tests need
- * no wall clock.
+ * A complete `BackupClient` port with no transport: it models the single-file backup
+ * with real in-memory state, so `backupToDrive` / `restoreFromDrive` exercise the
+ * genuine find-or-create, overwrite, and download paths. It backs both **demo mode**
+ * (`@inboxclinic/core/demo`, shippable) and the **tests** (`@inboxclinic/core/testing`
+ * re-exports it as `MockBackupClient`). `modifiedTime` is a deterministic counter
+ * (RFC-3339-shaped) so no wall clock is needed.
  */
 
 import type { BackupClient, BackupFile } from "../ports/BackupClient";
@@ -15,7 +15,7 @@ import { BackupNotFoundError } from "../ports/BackupClient";
 
 const FIXED_FILE_ID = "backup-file";
 
-export class MockBackupClient implements BackupClient {
+export class InMemoryBackupClient implements BackupClient {
   private file: { meta: BackupFile; data: Uint8Array } | undefined;
   private writeSeq = 0;
   /** True once `authorize()` has succeeded — for consent/opt-in assertions. */
@@ -60,7 +60,7 @@ export class MockBackupClient implements BackupClient {
 
   updateBackupFile(id: string, blob: Uint8Array): Promise<void> {
     if (this.file === undefined || this.file.meta.id !== id) {
-      return Promise.reject(new BackupNotFoundError(`MockBackupClient: no file with id ${id}`));
+      return Promise.reject(new BackupNotFoundError(`InMemoryBackupClient: no file with id ${id}`));
     }
     this.file = { meta: this.nextMeta(), data: new Uint8Array(blob) };
     return Promise.resolve();
@@ -69,12 +69,12 @@ export class MockBackupClient implements BackupClient {
   downloadBackupFile(id: string): Promise<Uint8Array> {
     this.downloads.push(id);
     if (this.file === undefined || this.file.meta.id !== id) {
-      return Promise.reject(new BackupNotFoundError(`MockBackupClient: no file with id ${id}`));
+      return Promise.reject(new BackupNotFoundError(`InMemoryBackupClient: no file with id ${id}`));
     }
     return Promise.resolve(new Uint8Array(this.file.data));
   }
 
-  /** Test helper: the currently stored backup bytes, or `undefined` if none. */
+  /** The currently stored backup bytes, or `undefined` if none. */
   currentData(): Uint8Array | undefined {
     return this.file !== undefined ? new Uint8Array(this.file.data) : undefined;
   }

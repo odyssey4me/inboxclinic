@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Fixture builders for tests (core and web).
+ * Fixture builders for entities and message metadata.
  *
- * See docs/design-testing.md ("builders.ts"). These produce typed `MessageMeta`
- * fixtures for the metadata scan; they never touch the network or a real store.
+ * Pure factories that produce typed `MessageMeta` / `Sender` / `Domain` fixtures; they
+ * never touch the network or a real store. Used by the **demo** fixtures
+ * (`@inboxclinic/core/demo`) and re-exported to the **tests**
+ * (`@inboxclinic/core/testing`).
  */
 
 import { keyFor } from "../keys";

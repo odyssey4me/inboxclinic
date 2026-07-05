@@ -11,9 +11,7 @@ import {
   setBackupEnabled,
 } from "./backup";
 import { BackupNotFoundError } from "../ports/BackupClient";
-import { senderBuilder } from "../testing/builders";
-import { createInMemoryStore } from "../testing/inMemoryStore";
-import { MockBackupClient } from "../testing/MockBackupClient";
+import { createInMemoryStore, MockBackupClient, senderBuilder } from "../testing";
 
 const NOW = 1_700_000_000_000;
 

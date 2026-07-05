@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
-import { createInMemoryStore } from "../testing/inMemoryStore";
+import { createInMemoryStore } from "../testing";
 import type { Domain, Prompt, Sender, Store } from "../store";
 import { applyDecision, DEFER_DECAY } from "./applyDecision";
 import { resolveEffectiveDecision } from "./resolveEffectiveDecision";

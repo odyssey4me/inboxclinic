@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * In-memory `Store` fake for tests.
+ * Dependency-free in-memory `Store` implementation.
  *
- * See docs/design-testing.md. A dependency-free implementation of the `Store` port
- * (no Dexie, no IndexedDB) so pure orchestration like `runScan` can be exercised in
- * a plain node environment. `packages/store` provides the real Dexie adapter.
+ * A complete `Store` port with no Dexie/IndexedDB, so pure orchestration (`runScan`,
+ * `enforce`, …) can run in a plain node environment. It backs both **demo mode**
+ * (`@inboxclinic/core/demo`, shippable) and the **tests** (`@inboxclinic/core/testing`
+ * re-exports it). `packages/store` provides the real Dexie adapter.
  */
 
 import type {
@@ -150,7 +151,7 @@ class InMemorySingletonStore<T> implements SingletonStore<T> {
   }
 }
 
-/** A dependency-free `Store` implementation for tests. */
+/** A dependency-free `Store` implementation (demo mode + tests). */
 export class InMemoryStore implements Store {
   readonly profile = new InMemoryProfileStore();
   readonly senders = new InMemoryRepo<Sender>((s) => s.id);
