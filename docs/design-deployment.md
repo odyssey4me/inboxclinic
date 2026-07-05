@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-05
 
 ## Overview
 
@@ -97,11 +97,15 @@ onto them at build time. All are **public, non-secret**.
 
 ### CI pipeline (conceptual)
 
-`lint → typecheck → test → build (static) → publish`. No secrets in the build. Realised as
-**`ci.yml`** (lint/typecheck/test/coverage/build + a **zero-secrets** grep) on every
-push/PR as the quality gate; **publishing** is handled by **Cloudflare Pages** — either its
-Git integration (Cloudflare builds on push) or `wrangler pages deploy` from CI with a
-Cloudflare API token.
+`lint → typecheck → test → build (static) → e2e → publish`. No secrets in the build.
+Realised as one **`ci.yml`** with three jobs: **build** (lint/typecheck/test/coverage/build
++ a **zero-secrets** grep), **e2e** (Tier-3 Playwright across chromium/firefox/webkit/mobile
+against demo mode — see [design-testing.md](design-testing.md) Decision 7), and **deploy**.
+Both `build` and `e2e` run on every push/PR as the quality gate. **Publishing** is a
+`deploy` job that runs only on `main` and **`needs: [build, e2e]`**, so a broken build or a
+failing E2E run can never publish — it deploys `apps/web/dist` to **Cloudflare Pages** via
+`wrangler pages deploy` with a minimal Cloudflare API token. `build` and `e2e` are also the
+**required status checks** on `main`.
 
 ### Dependency updates (Dependabot)
 
@@ -169,3 +173,4 @@ not a peer violation. Reconcile with the relevant Dependabot group + `npm dedupe
 | 2026-07-05 | M8: resolve open questions (host = GitHub Pages via OIDC; manual allowlist runbook); align build inputs to `VITE_`-prefixed names + `BASE_PATH`; note the SPDX per-file header convention; split CI/deploy workflows with a zero-secrets check. | Claude |
 | 2026-07-05 | Switch hosting to **Cloudflare Pages** (root domain, base `/`): single-vendor DNS+CDN+TLS + cookieless edge analytics; drop the GitHub Pages deploy workflow + CNAME; add `_redirects`/`_headers`. GitHub Pages could not front-with-Cloudflare-proxy (cert conflict) and gave no site stats/custom headers. | Claude |
 | 2026-07-05 | Document the Dependabot strategy: "can it reach users?" auto-merge policy (minor/patch + Actions + non-shipping dev-tooling majors; bundle/runtime majors manual), atomic ecosystem grouping (vite/eslint/types) with CI as the compatibility gate, and the duplicate-major guard. | Claude |
+| 2026-07-05 | Consolidate CI/E2E/deploy into one `ci.yml` (jobs `build`, `e2e`, `deploy`); **deploy now `needs: [build, e2e]`** and runs only on `main`, so a broken build or failing E2E can never publish. | Claude |
