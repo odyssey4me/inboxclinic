@@ -214,7 +214,9 @@ output and must not re-derive them.
 
 Once signed in, **every screen renders inside a persistent application shell** — the
 `Inbox Clinic` brand (a link home), the signed-in account, primary navigation
-(**Dashboard · Analytics · Settings**), the global **Sync/Scan** actions, and the offline
+(**Dashboard · Analytics · Settings**), a single **Refresh** action (incremental sync,
+with a last-synced indicator + result summary; the heavier full **Rescan** lives in
+Settings), and the offline
 indicator stay fixed while only the content area swaps. This gives a stable anchor — who
 you are, where you are, how to get home — across all views, instead of each screen
 re-declaring its own header. Screens are therefore **content-only** (no per-screen brand
@@ -393,4 +395,5 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Add **Decision 7: the "Vitals" design system** — semantic CSS-variable tokens exposed through Tailwind v4 `@theme inline`; calm clinical teal palette; light + dark by `prefers-color-scheme` (system-detected). All components re-tokenised off raw palette colours. | Claude |
 | 2026-07-05 | Split the shell into **two distinct layouts** (touch-first mobile top-bar vs. desktop **sidebar**), chosen by `useLayout` and **user-pinnable** via `LayoutSwitch` (Auto / Desktop / Mobile, persisted on-device; forced-desktop widens the viewport on small screens). Dashboard/Analytics go multi-column on desktop. | Claude |
 | 2026-07-05 | Add **demo mode** — a no-Google `?demo` / "Explore the demo" entry that builds an ephemeral in-memory client trio from `@inboxclinic/core/demo` (seeded fixtures), with a persistent Demo banner + Exit. Doubles as the Tier-3 Playwright substrate. | Claude |
+| 2026-07-05 | Functional pass: replace the ambiguous **Sync/Scan** pair with one **Refresh** (incremental sync) + a last-synced/result indicator; move the full **Rescan** to Settings; add Settings **export / delete-all** data controls. | Claude |
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |

@@ -105,21 +105,21 @@ describe("App", () => {
     localStorage.clear();
   });
 
-  it("lists scanned senders after sign-in and scan (no real Google)", async () => {
+  it("lists senders with their category after sign-in (mock only)", async () => {
     const { gmail, store, backup } = setup();
     render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
-    const scanButton = await screen.findByRole("button", { name: /^scan$/i });
     expect(await screen.findByText("owner@gmail.com")).toBeInTheDocument();
 
-    fireEvent.click(scanButton);
-
-    // Senders surface both in the pending list and the senders table.
+    // sync-on-open populates the senders table (no manual scan needed).
     expect((await screen.findAllByText("jane@acme.com")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("news@promo.com")).length).toBeGreaterThan(0);
     // The promotional sender is categorised from its CATEGORY_PROMOTIONS label.
     expect(screen.getByText("promotional")).toBeInTheDocument();
+
+    // Refresh replaces the old Sync/Scan pair.
+    expect(screen.getByRole("button", { name: /^refresh$/i })).toBeInTheDocument();
   });
 });

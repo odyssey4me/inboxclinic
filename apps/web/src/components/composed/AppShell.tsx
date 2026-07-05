@@ -2,6 +2,7 @@
 import type { ReactNode } from "react";
 
 import { useLayout } from "../../layout/context";
+import { relativeTime } from "../../lib/relativeTime";
 import { Button } from "../ui/Button";
 import { Footer } from "./Footer";
 import { LayoutSwitch } from "./LayoutSwitch";
@@ -16,10 +17,12 @@ export interface AppShellProps {
   /** Current view — used to highlight the active nav tab. */
   view: string;
   onNavigate: (view: ShellView) => void;
-  onSync: () => void;
-  onScan: () => void;
-  syncing: boolean;
-  scanning: boolean;
+  onRefresh: () => void;
+  refreshing: boolean;
+  /** Epoch ms of the last successful sync/scan, or null before the first. */
+  lastSyncedAt: number | null;
+  /** One-line result of the most recent refresh (e.g. "3 new senders"), or null. */
+  syncSummary: string | null;
   error: string | null;
   /** Demo mode: show the demo banner with an exit action. */
   demo?: boolean;
@@ -89,22 +92,26 @@ function Brand({ onNavigate }: { onNavigate: (view: ShellView) => void }) {
   );
 }
 
-function SyncScan({
-  onSync,
-  onScan,
-  syncing,
-  scanning,
+function RefreshControl({
+  onRefresh,
+  refreshing,
   online,
-}: Pick<AppShellProps, "onSync" | "onScan" | "syncing" | "scanning" | "online">) {
+  lastSyncedAt,
+  syncSummary,
+}: Pick<AppShellProps, "onRefresh" | "refreshing" | "online" | "lastSyncedAt" | "syncSummary">) {
+  const status =
+    syncSummary ?? (lastSyncedAt !== null ? `Synced ${relativeTime(lastSyncedAt)}` : null);
   return (
-    <>
-      <Button variant="secondary" onClick={onSync} disabled={syncing || !online}>
-        {syncing ? "Syncing…" : "Sync"}
+    <div className="flex items-center gap-2">
+      {status !== null && (
+        <span className="hidden text-xs text-muted sm:inline" aria-live="polite">
+          {status}
+        </span>
+      )}
+      <Button variant="secondary" onClick={onRefresh} disabled={refreshing || !online}>
+        {refreshing ? "Refreshing…" : "Refresh"}
       </Button>
-      <Button variant="secondary" onClick={onScan} disabled={scanning || !online}>
-        {scanning ? "Scanning…" : "Scan"}
-      </Button>
-    </>
+    </div>
   );
 }
 
@@ -115,10 +122,10 @@ function MobileShell({
   online,
   view,
   onNavigate,
-  onSync,
-  onScan,
-  syncing,
-  scanning,
+  onRefresh,
+  refreshing,
+  lastSyncedAt,
+  syncSummary,
   error,
   demo,
   onExitDemo,
@@ -172,12 +179,12 @@ function MobileShell({
               })}
             </nav>
             <span className="mx-1 hidden h-5 w-px bg-line sm:inline-block" aria-hidden="true" />
-            <SyncScan
-              onSync={onSync}
-              onScan={onScan}
-              syncing={syncing}
-              scanning={scanning}
+            <RefreshControl
+              onRefresh={onRefresh}
+              refreshing={refreshing}
               online={online}
+              lastSyncedAt={lastSyncedAt}
+              syncSummary={syncSummary}
             />
           </div>
         </div>
@@ -198,10 +205,10 @@ function DesktopShell({
   online,
   view,
   onNavigate,
-  onSync,
-  onScan,
-  syncing,
-  scanning,
+  onRefresh,
+  refreshing,
+  lastSyncedAt,
+  syncSummary,
   error,
   demo,
   onExitDemo,
@@ -245,12 +252,12 @@ function DesktopShell({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-end gap-1 border-b border-line bg-surface px-6 py-3">
-            <SyncScan
-              onSync={onSync}
-              onScan={onScan}
-              syncing={syncing}
-              scanning={scanning}
+            <RefreshControl
+              onRefresh={onRefresh}
+              refreshing={refreshing}
               online={online}
+              lastSyncedAt={lastSyncedAt}
+              syncSummary={syncSummary}
             />
           </div>
           <main className="flex-1">{children}</main>

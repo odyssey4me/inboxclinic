@@ -13,7 +13,16 @@ function setup(): { store: Store; backup: MockBackupClient } {
 describe("Settings view", () => {
   it("enables backup (requesting drive.file consent) via the toggle", async () => {
     const { store, backup } = setup();
-    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
 
     const toggle = await screen.findByRole("checkbox", { name: /enable google drive backup/i });
     expect(toggle).not.toBeChecked();
@@ -28,7 +37,16 @@ describe("Settings view", () => {
   it("backs up to Drive when enabled and reports the result", async () => {
     const { store, backup } = setup();
     await store.senders.put(senderBuilder("a@x.com"));
-    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
     await screen.findByText(/backup enabled/i);
@@ -42,7 +60,16 @@ describe("Settings view", () => {
 
   it("gates actions until backup is enabled", async () => {
     const { store, backup } = setup();
-    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
 
     expect(await screen.findByRole("button", { name: /back up now/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /restore from backup/i })).toBeDisabled();
@@ -51,7 +78,16 @@ describe("Settings view", () => {
   it("restores only after confirming the replace-local warning", async () => {
     const { store, backup } = setup();
     await store.senders.put(senderBuilder("keep@x.com"));
-    render(<Settings store={store} backup={backup} online onRestored={vi.fn()} />);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
 
     // Enable + back up so a restore target exists.
     fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
@@ -78,7 +114,16 @@ describe("Settings view", () => {
   it("calls onRestored after a successful restore", async () => {
     const { store, backup } = setup();
     const onRestored = vi.fn();
-    render(<Settings store={store} backup={backup} online onRestored={onRestored} />);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        online
+        onRestored={onRestored}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
     await screen.findByText(/backup enabled/i);

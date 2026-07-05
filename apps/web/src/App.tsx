@@ -4,6 +4,7 @@ import {
   runScan,
   type BackupClient,
   type GmailClient,
+  type IncrementalSyncResult,
   type Store,
 } from "@inboxclinic/core";
 import { useCallback, useEffect, useState } from "react";
@@ -41,6 +42,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** One-line summary of what a refresh changed. */
+function summariseSync(result: IncrementalSyncResult): string {
+  if (result.sendersAdded > 0) {
+    return `${result.sendersAdded} new sender${result.sendersAdded === 1 ? "" : "s"}`;
+  }
+  if (result.sendersUpdated > 0) {
+    return `${result.sendersUpdated} sender${result.sendersUpdated === 1 ? "" : "s"} updated`;
+  }
+  return "Up to date";
+}
+
 export function App(props: AppProps) {
   return (
     <LayoutProvider>
@@ -54,6 +66,8 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
   const [view, setView] = useState<View>("dashboard");
   const [scanning, setScanning] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncSummary, setSyncSummary] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const online = useOnlineStatus();
@@ -63,7 +77,9 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     setError(null);
     setSyncing(true);
     try {
-      await incrementalSync(gmail, store, { windowDays: 30 });
+      const result = await incrementalSync(gmail, store, { windowDays: 30 });
+      setLastSyncedAt(Date.now());
+      setSyncSummary(summariseSync(result));
       setReloadKey((k) => k + 1);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -83,11 +99,16 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     }
   }, [gmail, sync]);
 
+  // Full rescan — the heavier "rebuild from scratch" path, offered in Settings.
   const scan = useCallback(async () => {
     setError(null);
     setScanning(true);
     try {
-      await runScan(gmail, store, { windowDays: 30 });
+      const result = await runScan(gmail, store, { windowDays: 30 });
+      setLastSyncedAt(Date.now());
+      setSyncSummary(
+        `Rescanned ${result.senderCount} sender${result.senderCount === 1 ? "" : "s"}`,
+      );
       setReloadKey((k) => k + 1);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -102,7 +123,10 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     let active = true;
     void (async () => {
       const profile = await store.profile.get();
-      if (active && profile !== undefined) setEmail((prev) => prev ?? profile.googleEmail);
+      if (active && profile !== undefined) {
+        setEmail((prev) => prev ?? profile.googleEmail);
+        setLastSyncedAt((prev) => prev ?? profile.lastScanAt);
+      }
     })();
     void registerPeriodicSync();
     return () => {
@@ -186,6 +210,8 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
         backup={backup}
         online={online}
         onRestored={() => setReloadKey((k) => k + 1)}
+        onRescan={() => void scan()}
+        rescanning={scanning}
       />
     ) : (
       <Dashboard key={reloadKey} store={store} onStartWorkflow={() => setView("workflow")} />
@@ -197,10 +223,10 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       online={online}
       view={view}
       onNavigate={setView}
-      onSync={() => void sync()}
-      onScan={() => void scan()}
-      syncing={syncing}
-      scanning={scanning}
+      onRefresh={() => void sync()}
+      refreshing={syncing}
+      lastSyncedAt={lastSyncedAt}
+      syncSummary={syncSummary}
       error={error}
       demo={demo}
       onExitDemo={() => {

@@ -20,6 +20,9 @@ export interface SettingsProps {
   online: boolean;
   /** Called after a successful restore so the app can reload its view of the store. */
   onRestored: () => void;
+  /** Trigger a full inbox rescan (the heavier rebuild path). */
+  onRescan: () => void;
+  rescanning: boolean;
 }
 
 function errorMessage(error: unknown): string {
@@ -44,7 +47,14 @@ function downloadJson(filename: string, json: string): void {
 }
 
 /** Settings: opt-in Google Drive backup, manual back-up-now, and replace-local restore. */
-export function Settings({ store, backup, online, onRestored }: SettingsProps) {
+export function Settings({
+  store,
+  backup,
+  online,
+  onRestored,
+  onRescan,
+  rescanning,
+}: SettingsProps) {
   const [state, setState] = useState<BackupState | null>(null);
   const [busy, setBusy] = useState<"backup" | "restore" | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
@@ -282,6 +292,20 @@ export function Settings({ store, backup, online, onRestored }: SettingsProps) {
             </div>
           </div>
         )}
+      </Card>
+
+      <Card aria-label="Rescan inbox" className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Rescan inbox</h2>
+          <p className="text-sm text-muted">
+            Rebuild your sender list from a fresh full scan of the last 30 days. Inbox Clinic
+            normally keeps up automatically with <strong>Refresh</strong> — use this only if
+            something looks out of date.
+          </p>
+        </div>
+        <Button variant="secondary" onClick={onRescan} disabled={rescanning || !online}>
+          {rescanning ? "Rescanning…" : "Rescan inbox"}
+        </Button>
       </Card>
 
       {note !== null && (
