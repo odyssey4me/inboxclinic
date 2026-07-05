@@ -40,8 +40,9 @@ jobs:
 
       - name: Build (static PWA)
         env:
-          # Project-page sub-path; public build inputs from repo variables (never secrets).
-          BASE_PATH: /inboxclinic/
+          # Served at the root of the custom domain (inboxclinic.com), so base = "/".
+          # Public build inputs come from repo variables (never secrets).
+          BASE_PATH: /
           VITE_OAUTH_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
           VITE_REQUEST_ACCESS_URL: ${{ vars.REQUEST_ACCESS_URL }}
         run: npm run build
