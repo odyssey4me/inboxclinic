@@ -9,8 +9,8 @@ and your Google credentials never leave your device, and there are no servers.
 
 ## Status
 
-**Alpha — in active development (rebuild in progress).** Access is invite-only via a
-Google test-user allowlist; self-hosting is supported.
+**Alpha — v1 feature-complete; open-source and self-hostable.** Access to the hosted
+instance is invite-only via a Google test-user allowlist; self-hosting is supported.
 
 ## What it does
 
@@ -52,15 +52,37 @@ A static **TypeScript** Progressive Web App (React + Vite) over framework-agnost
 logic. No backend, no database, no infrastructure beyond static hosting. Details are in
 the design docs ([docs/](docs/README.md)).
 
-## Repository structure (target)
+## Repository structure
 
 ```
 inboxclinic/
 ├── apps/web/        # the PWA (React + Vite + Tailwind)
 ├── packages/core/   # framework-agnostic logic (provider client, scoring, store, filters)
+├── packages/store/  # Dexie (IndexedDB) adapter for the core store port
 └── docs/            # architecture, design docs, roadmap
 ```
-> The repository is being rebuilt to this shape — see [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Deploy & self-host
+
+The app is static files with **no secrets** — anyone can build and host their own.
+
+**Deploy to GitHub Pages (the hosted setup):**
+
+1. Fork the repo. In **Settings → Pages**, set *Source* to **GitHub Actions**.
+2. Add repository **variables** (Settings → Secrets and variables → Actions →
+   *Variables*): `OAUTH_CLIENT_ID` (your public Google OAuth client id) and, optionally,
+   `REQUEST_ACCESS_URL` (your request-access form). These are **public**, not secrets.
+3. Push to `main` — `.github/workflows/deploy.yml` builds and publishes to Pages via OIDC
+   (no deploy key). The project-page build uses `BASE_PATH=/inboxclinic/`.
+
+**Self-host at your own domain/root:** build locally or in your own CI with
+`BASE_PATH=/` and `VITE_OAUTH_CLIENT_ID=<your client id>`, then serve `apps/web/dist/` on
+any static host. Use your **own** Google OAuth client (add yourself as the only test
+user) — see [CONTRIBUTING.md](CONTRIBUTING.md) for the build-time variables.
+
+> **Access:** the hosted instance runs in Google "testing" mode with a maintainer
+> allowlist — see the [access runbook](docs/runbook-access.md). Self-hosters are their own
+> allowlist.
 
 ## Support the project
 

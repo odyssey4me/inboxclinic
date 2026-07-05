@@ -20,6 +20,7 @@ scope/decision trail in [descope-plan.md](descope-plan.md).
 | [ROADMAP.md](ROADMAP.md) | Developers | Build milestones, order, and per-milestone design-doc review |
 | The design docs (`design-*.md`) | Developers | Implementation interfaces and conventions |
 | [descope-plan.md](descope-plan.md) | Maintainer | The decisions and rationale behind the client-only rebuild |
+| [runbook-access.md](runbook-access.md) | Maintainer | Operational runbook: allowlist (test-user) onboarding & removal |
 | [../README.md](../README.md) | End users | Project overview, features, quick start |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Contributors | Dev setup, testing, PR process, vulnerability reporting |
 | [../CLAUDE.md](../CLAUDE.md) | AI assistants | Claude Code behaviour rules and quick reference |
