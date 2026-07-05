@@ -1,5 +1,11 @@
 # Inbox Clinic
 
+[![CI](https://github.com/odyssey4me/inboxclinic/actions/workflows/ci.yml/badge.svg)](https://github.com/odyssey4me/inboxclinic/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/odyssey4me/inboxclinic/actions/workflows/codeql.yml/badge.svg)](https://github.com/odyssey4me/inboxclinic/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/odyssey4me/inboxclinic/badge)](https://securityscorecards.dev/viewer/?uri=github.com/odyssey4me/inboxclinic)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Live](https://img.shields.io/badge/live-inboxclinic.com-brightgreen)](https://inboxclinic.com)
+
 **Privacy-first Gmail inbox management that runs entirely in your browser.**
 
 Inbox Clinic helps you regain control of your inbox — it analyses your email patterns,
