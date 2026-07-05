@@ -117,6 +117,9 @@ jobs:
           # Public build inputs from repo variables (never secrets). Base defaults to "/".
           VITE_OAUTH_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
           VITE_REQUEST_ACCESS_URL: ${{ vars.REQUEST_ACCESS_URL }}
+          # Build stamp: the deployed commit, shown in the footer and in diagnostic reports
+          # (design-error-reporting.md). Truncated to a short SHA in the build.
+          VITE_APP_COMMIT: ${{ github.sha }}
         run: npm run build
 
       - name: Deploy to Cloudflare Pages

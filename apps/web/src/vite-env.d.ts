@@ -11,3 +11,8 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Build-stamp constants injected via Vite `define` (vite.config.ts). Short commit SHA… */
+declare const __APP_COMMIT__: string;
+/** …and the ISO build time. */
+declare const __APP_BUILT_AT__: string;

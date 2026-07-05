@@ -8,9 +8,20 @@ import { VitePWA } from "vite-plugin-pwa";
 // (design-deployment.md — Build inputs / BASE_PATH).
 const base = process.env.BASE_PATH ?? "/";
 
+// Build stamp (design-error-reporting.md Decision 4 / Configuration): the deployed commit
+// and build time, injected as compile-time constants so the footer and diagnostic reports
+// can say exactly what was live. CI sets VITE_APP_COMMIT=${{ github.sha }}; falls back to
+// GITHUB_SHA or "dev" for local builds. Declared in src/vite-env.d.ts.
+const commit = (process.env.VITE_APP_COMMIT ?? process.env.GITHUB_SHA ?? "dev").slice(0, 7);
+const builtAt = process.env.VITE_APP_BUILT_AT ?? new Date().toISOString();
+
 // https://vite.dev/config/
 export default defineConfig({
   base,
+  define: {
+    __APP_COMMIT__: JSON.stringify(commit),
+    __APP_BUILT_AT__: JSON.stringify(builtAt),
+  },
   plugins: [
     react(),
     tailwindcss(),
