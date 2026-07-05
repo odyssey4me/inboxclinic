@@ -1,0 +1,49 @@
+# Builds the static PWA in CI (deterministic — pinned Node via .nvmrc, npm ci, the same
+# environment as ci.yml) and deploys it to Cloudflare Pages via wrangler (Direct Upload).
+# See docs/design-deployment.md (Hosting target: Cloudflare Pages).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (static PWA)
+        env:
+          # Public build inputs from repo variables (never secrets). Base defaults to "/".
+          VITE_OAUTH_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
+          VITE_REQUEST_ACCESS_URL: ${{ vars.REQUEST_ACCESS_URL }}
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          # A MINIMAL token (Account → Cloudflare Pages → Edit only) — not the local
+          # management token. Account id is public, kept as a repo variable.
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/web/dist --project-name=inboxclinic --branch=main
