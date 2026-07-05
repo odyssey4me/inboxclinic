@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Periodic Background Sync registration — feature-detected, graceful no-op.
  *

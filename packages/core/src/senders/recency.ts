@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Recency bucketing and weighting — pure helpers shared by extraction and scoring.
  *

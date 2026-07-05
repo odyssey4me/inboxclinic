@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { computeTrustScore, senderToSnapshot, type Sender } from "@inboxclinic/core";
 
 import { Card } from "../ui/Card";

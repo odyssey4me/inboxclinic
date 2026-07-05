@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `computeTrustScore` — pure trust scoring (no I/O).
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { trustTier, type TrustTierColour } from "@inboxclinic/core";
 
 const TEXT_COLOUR: Record<TrustTierColour, string> = {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Stable, collision-free key encoding for senders and domains.
  *

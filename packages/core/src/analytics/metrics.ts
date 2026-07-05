@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Analytics metrics — pure, deterministic functions over store data (no I/O).
  *

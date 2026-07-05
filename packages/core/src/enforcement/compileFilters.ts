@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Native-filter compilation and reconciliation — pure (no I/O).
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { recordDailyAnalytics, type Store } from "@inboxclinic/core";
 import { createInMemoryStore, senderBuilder, domainBuilder } from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";

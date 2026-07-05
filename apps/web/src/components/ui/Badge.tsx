@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { HTMLAttributes } from "react";
 
 type Tone = "neutral" | "green" | "red" | "amber" | "blue";

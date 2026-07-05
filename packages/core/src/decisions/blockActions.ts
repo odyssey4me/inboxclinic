@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Smart-default Block actions by category — pure (no I/O).
  *

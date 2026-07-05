@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `GmailClient` port — the provider-client interface for Inbox Clinic.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Analytics summary — on-demand monthly rollup and derived metrics.
  *

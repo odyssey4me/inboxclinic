@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { getBackupState, type Store } from "@inboxclinic/core";
 import { createInMemoryStore, MockBackupClient, senderBuilder } from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";

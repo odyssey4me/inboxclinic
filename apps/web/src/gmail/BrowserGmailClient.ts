@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Browser `GmailClient` adapter — GIS token flow + Gmail REST (metadata only).
  *

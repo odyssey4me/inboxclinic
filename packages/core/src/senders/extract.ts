@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Sender / domain extraction and categorisation — pure, no I/O.
  *

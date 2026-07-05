@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { computeTrustScore, senderToSnapshot, type Sender, type Store } from "@inboxclinic/core";
 
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";

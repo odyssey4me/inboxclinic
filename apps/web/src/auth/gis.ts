@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Shared Google Identity Services (GIS) token-client helper.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Test-support entry point — exposed as `@inboxclinic/core/testing`.
  *

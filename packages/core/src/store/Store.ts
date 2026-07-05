@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `Store` and `Repo<T>` ports — on-device persistence interface.
  *

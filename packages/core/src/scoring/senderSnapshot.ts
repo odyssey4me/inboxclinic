@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `SenderSnapshot` — the read-only projection the pure scorers consume.
  *

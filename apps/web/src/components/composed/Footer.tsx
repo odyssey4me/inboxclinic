@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 const REPO_URL = "https://github.com/odyssey4me/inboxclinic";
 const SPONSOR_URL = "https://github.com/sponsors/odyssey4me";
 

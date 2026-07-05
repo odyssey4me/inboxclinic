@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { TrustSignal } from "@inboxclinic/core";
 
 /** Friendly text for each signal label emitted by `computeTrustScore`. */

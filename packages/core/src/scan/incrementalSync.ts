@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Incremental sync orchestration — pure over the ports.
  *

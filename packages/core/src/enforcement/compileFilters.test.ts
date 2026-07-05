@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
 import { compileFilters, reconcileFilters, DEFAULT_FILTER_SOFT_CAP } from "./compileFilters";

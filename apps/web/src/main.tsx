@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createDexieStore } from "@inboxclinic/store";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

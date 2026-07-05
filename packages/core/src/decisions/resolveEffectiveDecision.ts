@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `resolveEffectiveDecision` — pure precedence rule (no I/O).
  *

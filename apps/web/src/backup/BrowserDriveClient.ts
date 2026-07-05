@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Browser `BackupClient` adapter — GIS `drive.file` token + Drive REST v3.
  *

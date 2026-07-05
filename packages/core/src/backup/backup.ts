@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Backup / restore orchestration (pure over the `BackupClient` and `Store` ports).
  *

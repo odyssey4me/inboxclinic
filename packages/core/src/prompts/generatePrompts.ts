@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `generatePrompts` — turn undecided senders into persistable trust prompts. Pure.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { Domain, Prompt, Profile, Sender, Store } from "@inboxclinic/core";
 import { useCallback, useEffect, useState } from "react";
 

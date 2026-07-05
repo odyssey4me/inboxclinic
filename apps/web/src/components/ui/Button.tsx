@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { ButtonHTMLAttributes } from "react";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";

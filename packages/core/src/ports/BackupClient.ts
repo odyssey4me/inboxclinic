@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `BackupClient` port — the opt-in backup transport for Inbox Clinic.
  *

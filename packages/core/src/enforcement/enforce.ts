@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Enforcement orchestration — applies on-device decisions to Gmail.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Shared constants for the page ⇄ service-worker sync handshake.
  *

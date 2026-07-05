@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Minimal ambient types for the Google Identity Services (GIS) token-client flow.
  *

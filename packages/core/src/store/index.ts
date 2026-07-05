@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /** On-device store ports and entity types. See design-local-store-schema.md. */
 
 export type {

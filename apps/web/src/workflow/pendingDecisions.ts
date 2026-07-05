@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { BlockAction, Decision, DecisionScope } from "@inboxclinic/core";
 
 /**

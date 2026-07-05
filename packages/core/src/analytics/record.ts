@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Analytics recording — thin accumulation of daily counters over the `Store` port.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * `prioritisePrompts` — pure prompt prioritisation (no I/O).
  *

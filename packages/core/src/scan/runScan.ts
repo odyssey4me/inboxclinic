@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Bounded metadata scan orchestration — pure over the ports.
  *
