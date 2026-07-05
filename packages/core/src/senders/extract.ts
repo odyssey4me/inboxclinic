@@ -64,8 +64,6 @@ export interface ParsedAddress {
  */
 export const HIGH_VOLUME_THRESHOLD = 10;
 
-const ANGLE_ADDR = /<([^>]+)>/;
-
 /**
  * Parse a `From` header into a normalised address.
  *
@@ -80,10 +78,14 @@ export function parseFromHeader(raw: string | undefined): ParsedAddress | null {
   let displayName: string | null = null;
   let address = trimmed;
 
-  const angle = ANGLE_ADDR.exec(trimmed);
-  if (angle?.[1] !== undefined) {
-    address = angle[1].trim();
-    const name = trimmed.slice(0, angle.index).trim().replace(/^"|"$/g, "").trim();
+  // Extract a `<address>` with linear string ops. The From header is untrusted, so a
+  // greedy unanchored regex like /<([^>]+)>/ is a polynomial-ReDoS risk (js/polynomial
+  // -redos); indexOf is O(n) and matches the same first-`<address>` semantics.
+  const open = trimmed.indexOf("<");
+  const close = open === -1 ? -1 : trimmed.indexOf(">", open + 1);
+  if (close > open + 1) {
+    address = trimmed.slice(open + 1, close).trim();
+    const name = trimmed.slice(0, open).trim().replace(/^"|"$/g, "").trim();
     displayName = name === "" ? null : name;
   }
 
