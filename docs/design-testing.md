@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-05
 
 ## Overview
 
@@ -11,8 +11,9 @@ This design document establishes testing conventions for Inbox Clinic in its
 backend**, so testing is **entirely TypeScript** on a single toolchain (Vitest for
 test running, with the same lint/format/typecheck/test pipeline used everywhere).
 
-It owns **test structure, mocking patterns, and fixture conventions**. It defines two
-test tiers, a mocked Google-API boundary, fixture builders, and the coverage gate.
+It owns **test structure, mocking patterns, and fixture conventions**. It defines three
+test tiers (core unit, web component/integration, and end-to-end), a mocked Google-API
+boundary, fixture builders, and the coverage gate.
 
 **Goals:**
 
@@ -77,13 +78,15 @@ gives one config story across packages. A single toolchain suits a solo maintain
 
 **Alternatives considered:**
 - Jest: rejected — extra config to align with Vite/ESM; Vitest is the natural fit.
-- Playwright/Cypress E2E against real Google: rejected — non-deterministic, needs
-  credentials, contradicts the offline-test principle.
+- Playwright/Cypress E2E against **real Google**: rejected — non-deterministic, needs
+  credentials, contradicts the offline-test principle. (Playwright *is* adopted for Tier 3,
+  but it drives the offline **demo build** — no Google, no network; see Decision 7.)
 
-### Decision 2: Two Test Tiers
+### Decision 2: Three Test Tiers
 
 **Context:** Core logic is reused by a future mobile client; UI is web-specific.
-Keeping them separate keeps the reusable logic fast and DOM-free.
+Keeping them separate keeps the reusable logic fast and DOM-free. Above them, a thin
+end-to-end tier verifies the whole app actually runs in real browsers.
 
 **Decision:**
 
@@ -91,10 +94,13 @@ Keeping them separate keeps the reusable logic fast and DOM-free.
 |------|----------|-------------|----------------|-----------|
 | **1. Core unit (priority)** | `packages/core` | `node` (no DOM, no network) | Trust scoring, prompt prioritisation, native-filter compilation, sender/domain extraction, the **store repository** | Pure functions + ports; fully deterministic |
 | **2. Web component/integration** | `apps/web` | jsdom/happy-dom | React components and the **trust-decision workflow** (Discovery → Decision → Review → Execution) | Mocked `GmailClient`; in-memory IndexedDB via `fake-indexeddb` |
+| **3. End-to-end (Playwright)** | `apps/web/e2e` | real browsers (chromium, firefox, webkit, mobile viewport) | The built app driven through **demo mode**: full workflow, backup/restore, layout switch, theming | The **demo build** — in-memory store + demo `GmailClient`/backup; **no Google, no network** (Decision 7) |
 
 **Rationale:** Tier 1 is the priority because it is portable and where the product's
 correctness lives (architecture.md §6). Tier 2 verifies wiring and UX against
-realistic-but-fake data.
+realistic-but-fake data. Tier 3 is a thin, high-value smoke tier that catches
+integration/rendering regressions the jsdom tiers can't (real layout, service worker,
+cross-browser) without ever touching Google.
 
 ### Decision 3: Mock Google at the `GmailClient` Port
 
@@ -193,6 +199,38 @@ pre-push / CI check fails if core coverage drops below 80% or an exclusion lacks
 **Rationale:** Concentrates the gate on the portable, high-value logic; avoids
 brittle coverage targets on presentational React.
 
+### Decision 7: End-to-End Tier via Playwright against demo mode
+
+**Context:** The whole signed-in product (shell, dashboard, four-phase workflow,
+analytics, backup/restore) is only reachable after a real Google OAuth sign-in. The
+jsdom tiers verify component wiring but never run the built app in a real browser, so
+real-layout, service-worker, and cross-browser regressions can slip through. We want
+end-to-end coverage **without** the non-determinism of real Google.
+
+**Decision:** Ship a **demo mode** — a no-Google, fully in-memory build path (an
+`?demo` entry, a demo `GmailClient`/backup, and an in-memory store seeded with curated
+fixtures) — and run **Playwright** against it. The demo fixtures and in-memory engines
+are **production-shippable** and live in **`@inboxclinic/core/demo`** (distinct from the
+test-only `@inboxclinic/core/testing`; the two share private in-memory engines so nothing
+is duplicated and no test code ships).
+
+- **Browsers:** chromium, firefox, webkit, plus a mobile-viewport project (both shells).
+- **CI:** a **required** gate (`.github/workflows/e2e.yml`) — build, install browsers,
+  run against `vite preview`; upload the HTML report + traces on failure.
+- **Determinism:** demo mode makes **zero network calls**; the store is ephemeral and
+  re-seeded per run, so E2E is as reproducible as the unit tiers.
+
+**Rationale:** Demo mode is independently valuable (anyone can explore the product with
+no account), and reusing it as the E2E substrate keeps end-to-end tests offline and
+deterministic — honouring Decision 1's rejection of E2E against *real* Google while still
+getting real-browser coverage.
+
+**Alternatives considered:**
+- E2E against a mocked network layer (MSW) instead of demo mode: rejected — demo mode is
+  a real product feature we want anyway, and driving it avoids maintaining a parallel
+  transport-level mock.
+- Component-tier only (no Playwright): rejected — never exercises real layout/SW/browsers.
+
 ## Interfaces
 
 ### Test File Layout
@@ -214,9 +252,12 @@ packages/core/
 │   │   └── repository.test.ts        # exercised with fake-indexeddb
 │   ├── ports/
 │   │   └── GmailClient.ts            # the boundary tests mock
-│   └── testing/
-│       ├── builders.ts              # senderBuilder, domainBuilder, promptBuilder, inboxBuilder
-│       └── fakeGmailClient.ts       # in-memory GmailClient adapter
+│   ├── testing/                      # test-only fakes/builders (@inboxclinic/core/testing)
+│   │   ├── builders.ts              # senderBuilder, domainBuilder, messageMetaBuilder
+│   │   └── MockGmailClient.ts       # in-memory GmailClient adapter (with spies)
+│   └── demo/                         # shippable demo engine + fixtures (@inboxclinic/core/demo)
+│       ├── demoData.ts              # curated senders/inbox/history fixtures
+│       └── seedDemoStore.ts         # populate an in-memory store for demo mode
 │
 apps/web/
 ├── src/
@@ -226,8 +267,11 @@ apps/web/
 │   └── workflow/
 │       └── decisionWorkflow.test.tsx  # Discovery → Decision → Review → Execution
 ├── src/testing/
-│   ├── setup.ts                      # jsdom + fake-indexeddb + MSW server lifecycle
-│   └── handlers.ts                   # MSW handlers for Google transport paths
+│   └── setup.ts                      # jsdom + fake-indexeddb lifecycle
+├── e2e/                              # Tier 3 — Playwright specs, run against the demo build
+│   ├── workflow.spec.ts
+│   ├── backup-restore.spec.ts
+│   └── layout.spec.ts
 └── vitest.config.ts
 ```
 
@@ -337,12 +381,11 @@ it("applies a block decision and records a compiled filter", async () => {
 
 ## Open Questions
 
-- [ ] **PWA / service-worker & offline behaviour.** Service workers and `periodicSync`
-      are awkward under jsdom. Proposal: unit-test the cache/sync **logic** in
-      `packages/core` (pure, Tier 1) behind a platform interface, and **defer**
-      full service-worker registration/offline verification to a thin manual or
-      Playwright smoke check outside this doc. Decide whether to adopt
-      `@vitest/web-worker` or Workbox's testing helpers, or defer entirely.
+- [x] **PWA / service-worker & offline behaviour.** Resolved: cache/sync **logic** is
+      unit-tested in `packages/core` (pure, Tier 1) behind a platform interface, and
+      service-worker registration / real-browser behaviour is exercised by the **Tier 3
+      Playwright** suite (Decision 7) against the demo build. `@vitest/web-worker` /
+      Workbox test helpers are not needed.
 - [ ] **`apps/web` coverage threshold.** Core is gated at ≥80%; what (if any) blocking
       threshold applies to UI? Default: report-only until the UI stabilises.
 - [ ] **Fixture realism.** Do we snapshot a small set of anonymised real Gmail
@@ -355,3 +398,4 @@ it("applies a block decision and records a compiled filter", async () => {
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
+| 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |

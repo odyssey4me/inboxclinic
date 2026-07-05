@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-05
 
 ## Overview
 
@@ -243,6 +243,22 @@ wouldn't otherwise choose, screens branch on the JS `layout` value (not `lg:` ut
 Pinning **Desktop** on a small screen also widens the `viewport` meta to `width=1024` so the
 desktop layout has room (mobile browsers zoom to fit; desktop browsers ignore it).
 
+### Demo mode
+
+The landing page offers **"Explore the demo"** (also reachable at `?demo=1`) — a no-Google
+path so anyone can try the full product without an allowlisted account, and the substrate
+for the Tier-3 Playwright suite (see [design-testing.md](design-testing.md) Decision 7).
+
+- **Ephemeral & in-memory.** Demo builds the client trio from `@inboxclinic/core/demo`: a
+  demo `GmailClient` over a curated fixture inbox, an **in-memory store** seeded with
+  ~15 realistic senders/domains/prompts + history (so Dashboard, the workflow, and Analytics
+  are populated immediately), and an **in-memory backup**. It never touches Google, the
+  network, or the user's real IndexedDB; real auth is bypassed with a demo identity.
+- **Signposted.** A persistent **Demo banner** ("sample data; nothing is sent to Google")
+  with an **Exit demo** action sits in the shell so demo state is never mistaken for real.
+- **Selection.** `main.tsx` reads `?demo` and constructs the demo trio instead of the
+  Browser adapters; the non-demo path is unchanged.
+
 ### Screens
 
 | Screen | Composed of | Notes |
@@ -376,3 +392,4 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Add the **persistent application shell**: signed-in views share one header (brand, account, Dashboard/Analytics/Settings nav, Sync/Scan, offline indicator); screens become content-only. Navigation stays in-memory view state (URL router deferred). | Claude |
 | 2026-07-05 | Add **Decision 7: the "Vitals" design system** — semantic CSS-variable tokens exposed through Tailwind v4 `@theme inline`; calm clinical teal palette; light + dark by `prefers-color-scheme` (system-detected). All components re-tokenised off raw palette colours. | Claude |
 | 2026-07-05 | Split the shell into **two distinct layouts** (touch-first mobile top-bar vs. desktop **sidebar**), chosen by `useLayout` and **user-pinnable** via `LayoutSwitch` (Auto / Desktop / Mobile, persisted on-device; forced-desktop widens the viewport on small screens). Dashboard/Analytics go multi-column on desktop. | Claude |
+| 2026-07-05 | Add **demo mode** — a no-Google `?demo` / "Explore the demo" entry that builds an ephemeral in-memory client trio from `@inboxclinic/core/demo` (seeded fixtures), with a persistent Demo banner + Exit. Doubles as the Tier-3 Playwright substrate. | Claude |

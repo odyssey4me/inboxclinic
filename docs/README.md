@@ -110,7 +110,7 @@ implements. Use [design-_template.md](design-_template.md) for new docs.
 | [design-backup-restore.md](design-backup-restore.md) | Draft | Opt-in Google Drive backup/restore: `BackupClient` port, `drive.file` scope, single user-visible backup file, replace-local restore | 5, 6, 8 |
 | [design-frontend.md](design-frontend.md) | Draft | Vite + React + Tailwind PWA, local-first state, 4-phase decision UX, components | 3, 6, 7, 8 |
 | [design-analytics.md](design-analytics.md) | Draft | On-device analytics: inbox health score, time-saved, breakdowns, achievements, opt-in local shareable snapshot | 5, 8 |
-| [design-testing.md](design-testing.md) | Draft | Vitest two-tier tests, mocked Gmail boundary, fixtures, coverage gate | 4, 6 |
+| [design-testing.md](design-testing.md) | Draft | Vitest three-tier tests (core unit, web component, Playwright E2E via demo mode), mocked Gmail boundary, fixtures, coverage gate | 4, 6 |
 | [design-deployment.md](design-deployment.md) | Draft | Hosting, no-secrets build, access/testing-mode, Tally waitlist, Sponsors, licence | 2, 7 |
 
 ### Status meaning
