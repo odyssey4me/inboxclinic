@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { HTMLAttributes } from "react";
 
-type Tone = "neutral" | "green" | "red" | "amber" | "blue";
+export type BadgeTone = "neutral" | "green" | "red" | "amber" | "blue";
 
-const TONES: Record<Tone, string> = {
+const TONES: Record<BadgeTone, string> = {
   neutral: "bg-surface-2 text-muted",
   green: "bg-trust/15 text-trust",
   red: "bg-block/15 text-block",
@@ -12,7 +12,7 @@ const TONES: Record<Tone, string> = {
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  tone?: Tone;
+  tone?: BadgeTone;
 }
 
 /** A small text label; colour is always paired with its text content (a11y). */

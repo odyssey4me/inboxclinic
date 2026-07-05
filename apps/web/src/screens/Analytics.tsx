@@ -17,15 +17,10 @@ import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { useLayout } from "../layout/context";
+import { healthTone } from "../lib/health";
 
 export interface AnalyticsProps {
   store: Store;
-}
-
-function healthTone(score: number): { tone: "green" | "amber" | "red"; label: string } {
-  if (score >= 80) return { tone: "green", label: "Healthy" };
-  if (score >= 50) return { tone: "amber", label: "Fair" };
-  return { tone: "red", label: "Needs attention" };
 }
 
 /** Trigger a local download of `text` as a named file (no network). */
@@ -92,13 +87,18 @@ export function Analytics({ store }: AnalyticsProps) {
       <Card aria-label="Inbox health score" className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-lg font-semibold">Inbox health</h2>
-          <Badge tone={health.tone}>{health.label}</Badge>
+          <Badge tone={health.badge}>{health.label}</Badge>
         </div>
         <p className="text-4xl font-bold tabular-nums text-ink">
           {summary.inboxHealthScore}
           <span className="text-lg font-normal text-muted"> / 100</span>
         </p>
-        <ProgressBar value={summary.inboxHealthScore} max={100} label="Inbox health score" />
+        <ProgressBar
+          value={summary.inboxHealthScore}
+          max={100}
+          tone={health.bar}
+          label="Inbox health score"
+        />
       </Card>
 
       <section aria-label="30-day summary" className="space-y-2">
