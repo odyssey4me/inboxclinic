@@ -29,6 +29,9 @@ jobs:
       - name: Zero-secrets check
         run: ./scripts/check-no-secrets.sh
 
+      - name: No duplicate major versions
+        run: ./scripts/check-no-dup-majors.sh
+
       - name: Lint
         run: npm run lint
 

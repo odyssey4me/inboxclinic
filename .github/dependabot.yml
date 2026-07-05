@@ -14,12 +14,27 @@ updates:
     labels:
       - "dependencies"
     groups:
-      # Batch low-risk minor/patch bumps into a single PR to cut noise…
+      # The Vite/Vitest build ecosystem shares peer ranges, so a lone `vite` bump
+      # leaves a duplicate major behind (caught by check-no-dup-majors.sh). Batch the
+      # whole ecosystem — including majors — into ONE coordinated PR so it moves together.
+      vite:
+        patterns:
+          - "vite"
+          - "vitest"
+          - "vite-plugin-*"
+          - "@vitejs/*"
+          - "@vitest/*"
+          - "@tailwindcss/vite"
+        update-types:
+          - "major"
+          - "minor"
+          - "patch"
+      # Batch other low-risk minor/patch bumps into a single PR to cut noise…
       minor-and-patch:
         update-types:
           - "minor"
           - "patch"
-      # …while major bumps still get their own PR for careful review.
+      # …while other major bumps still get their own PR for careful review.
 
   # Keep the GitHub Actions used in CI up to date too.
   - package-ecosystem: "github-actions"
