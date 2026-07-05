@@ -22,6 +22,15 @@ export {
   type ScopeTier,
 } from "./ports/GmailClient";
 
+// Backup-transport port (Google Drive today).
+export {
+  BACKUP_FILE_NAME,
+  BackupNotFoundError,
+  DRIVE_FILE_SCOPE,
+  type BackupClient,
+  type BackupFile,
+} from "./ports/BackupClient";
+
 // On-device store ports and entity types.
 export type {
   AnalyticsStore,

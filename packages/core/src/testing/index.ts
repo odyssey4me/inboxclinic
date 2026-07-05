@@ -14,4 +14,5 @@ export {
   type MessageMetaOverrides,
 } from "./builders";
 export { MockGmailClient, type BatchModifyCall } from "./MockGmailClient";
+export { MockBackupClient } from "./MockBackupClient";
 export { InMemoryStore, createInMemoryStore } from "./inMemoryStore";
