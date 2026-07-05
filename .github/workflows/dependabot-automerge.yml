@@ -1,10 +1,17 @@
-# Auto-merge Dependabot PRs once CI passes:
-#   - npm: MINOR and PATCH only (library majors can pass build but break at runtime →
-#     left for manual review);
-#   - GitHub Actions: ALL updates including MAJORS — an action major runs inside the CI
-#     that gates the merge, so green CI is direct proof it works. (A bad deploy-only
-#     action just fails the next deploy; Cloudflare Pages keeps serving the last good one.)
-# Auto-merge waits for the required status check (branch protection on main), then rebases.
+# Auto-merge Dependabot PRs once CI passes.
+#
+# Guiding rule: a MAJOR is safe to auto-merge only if it CANNOT reach users — i.e. it
+# never ships in the bundle and CI fully exercises it, so the worst case is a red CI
+# (which blocks the merge), never a broken app. See docs/design-deployment.md
+# ("Dependency updates") for the full reasoning.
+#
+#   - npm minor/patch ............ always (low risk)
+#   - GitHub Actions (any) ....... incl. majors — the action runs inside the gating CI
+#   - npm majors ................. ONLY for non-shipping dev tooling + type defs (the
+#                                  SAFE list below): linters, jsdom, prettier, @types/*,
+#                                  @testing-library/*
+#   - everything else ............ manual review (vite/typescript affect the bundle;
+#                                  react/dexie are runtime)
 name: Dependabot auto-merge
 
 on: pull_request
@@ -24,11 +31,29 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge (npm minor/patch, or any GitHub Actions update)
+      - name: Classify — are ALL bumped deps non-shipping dev tooling?
+        id: safe
+        env:
+          NAMES: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          # Dev-only, never-shipped, CI-gated tooling + type-only packages. A bad bump
+          # here can only turn CI red (blocking the merge); it can never reach users.
+          safe='^(@types/.*|jsdom|eslint|@eslint/.*|eslint-plugin-.*|typescript-eslint|@typescript-eslint/.*|globals|prettier|@testing-library/.*)$'
+          all=true
+          [ -z "${NAMES// /}" ] && all=false
+          IFS=',' read -ra pkgs <<< "$NAMES"
+          for p in "${pkgs[@]}"; do
+            p="$(echo "$p" | xargs)"; [ -z "$p" ] && continue
+            [[ "$p" =~ $safe ]] || all=false
+          done
+          echo "all_safe=$all" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge
         if: >-
           steps.meta.outputs.update-type == 'version-update:semver-minor' ||
           steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.package-ecosystem == 'github_actions'
+          steps.meta.outputs.package-ecosystem == 'github_actions' ||
+          steps.safe.outputs.all_safe == 'true'
         run: gh pr merge --auto --rebase "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

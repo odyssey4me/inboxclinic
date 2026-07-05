@@ -14,10 +14,12 @@ updates:
     labels:
       - "dependencies"
     groups:
-      # The Vite/Vitest build ecosystem shares peer ranges, so a lone `vite` bump
-      # leaves a duplicate major behind (caught by check-no-dup-majors.sh). Batch the
-      # whole ecosystem — including majors — into ONE coordinated PR so it moves together.
-      vite:
+      # Coupled ecosystems share peer ranges, so a lone bump leaves an incompatible /
+      # duplicate-major tree (caught by check-no-dup-majors.sh). Batch each ecosystem —
+      # ALL update types — into ONE atomic PR so it moves together or not at all.
+      # (Grouping = atomicity; CI is the compatibility gate.) Groups are matched in
+      # order, so these specific ones win before the minor-and-patch catch-all.
+      vite: # affects the shipped bundle → reviewed manually
         patterns:
           - "vite"
           - "vitest"
@@ -25,16 +27,26 @@ updates:
           - "@vitejs/*"
           - "@vitest/*"
           - "@tailwindcss/vite"
-        update-types:
-          - "major"
-          - "minor"
-          - "patch"
+        update-types: ["major", "minor", "patch"]
+      eslint: # lint-only, never ships → auto-merges on green (even majors)
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "eslint-plugin-*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+          - "globals"
+        update-types: ["major", "minor", "patch"]
+      types: # type defs only, erased at build → auto-merges on green
+        patterns:
+          - "@types/*"
+        update-types: ["major", "minor", "patch"]
       # Batch other low-risk minor/patch bumps into a single PR to cut noise…
       minor-and-patch:
         update-types:
           - "minor"
           - "patch"
-      # …while other major bumps still get their own PR for careful review.
+      # …while other major bumps (e.g. typescript, runtime deps) still get their own PR.
 
   # Keep the GitHub Actions used in CI up to date too.
   - package-ecosystem: "github-actions"

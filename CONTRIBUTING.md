@@ -71,6 +71,14 @@ npm run typecheck    # tsc --noEmit
 Test structure, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
 Coverage gate: **≥80%** on `packages/core` logic.
 
+### Dependency updates
+
+Dependabot opens update PRs; CI gates every merge. Coupled ecosystems (vite, eslint, types)
+are **grouped** so they move atomically, and low-risk updates **auto-merge on green** — while
+bundle-affecting and runtime majors are held for manual review. The policy and its reasoning
+("can it reach users?") live in
+[docs/design-deployment.md](docs/design-deployment.md#dependency-updates-dependabot).
+
 ## Working with the documentation
 
 One authoritative location per fact. **architecture.md** owns durable principles and
