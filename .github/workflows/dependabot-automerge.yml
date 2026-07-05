@@ -1,6 +1,10 @@
-# Auto-merge Dependabot PRs for MINOR and PATCH updates once CI passes. Major bumps are
-# left for manual review (they can break despite green tests). Auto-merge waits for the
-# required status check (branch protection on main) before merging via rebase.
+# Auto-merge Dependabot PRs once CI passes:
+#   - npm: MINOR and PATCH only (library majors can pass build but break at runtime →
+#     left for manual review);
+#   - GitHub Actions: ALL updates including MAJORS — an action major runs inside the CI
+#     that gates the merge, so green CI is direct proof it works. (A bad deploy-only
+#     action just fails the next deploy; Cloudflare Pages keeps serving the last good one.)
+# Auto-merge waits for the required status check (branch protection on main), then rebases.
 name: Dependabot auto-merge
 
 on: pull_request
@@ -20,10 +24,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge for minor/patch
+      - name: Enable auto-merge (npm minor/patch, or any GitHub Actions update)
         if: >-
           steps.meta.outputs.update-type == 'version-update:semver-minor' ||
-          steps.meta.outputs.update-type == 'version-update:semver-patch'
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          steps.meta.outputs.package-ecosystem == 'github_actions'
         run: gh pr merge --auto --rebase "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
