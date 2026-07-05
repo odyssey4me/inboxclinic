@@ -174,6 +174,33 @@ consistent from one source.
 - Emphasis buttons use `bg-ink text-bg` (always high-contrast in both themes); the
   destructive **Block** action is the only coloured fill (`bg-block`).
 
+### Decision 8: Dashboard senders are actionable in place via a detail drawer
+
+**Context:** The dashboard invites clicking — senders, domains, and pending-decision rows
+all *look* like they lead somewhere — but originally none were interactive: the only way to
+act on a sender was to enter the guided workflow. That mismatch between affordance and
+behaviour is a UX dead-end.
+
+**Decision:** Every sender surface on the dashboard opens a **detail drawer**
+(`SenderDetail`) — a right-side panel on desktop, a bottom sheet on mobile. It is opened by
+clicking a sender (table row on desktop, card on mobile), a pending-decision row, or the
+**Pending** summary tile (which routes to the workflow). The drawer is a labelled modal
+dialog (`role="dialog"`, `aria-modal`) closed by Escape or backdrop click; rows are
+keyboard-openable (`tabIndex` + Enter).
+
+- **Reuses the workflow surfaces**, not a parallel implementation: `PromptCard` for
+  evidence/score, `TrustActions` for the decision (with domain-scope widening), and the
+  shared `ImpactPreview` for Block.
+- **Safety mirrors the workflow (see [design-trust-decisions.md](design-trust-decisions.md)
+  Decision 7):** Trust and Defer apply immediately; **Block** first simulates and shows the
+  impact (archive/delete counts, weekly volume) and requires an explicit **Confirm block**.
+- The drawer is presentation-only: it calls `applyDecision` + `enforce` and notifies the
+  dashboard to refresh via an `onChanged` callback. It holds no business rules (Decision 2).
+
+**Rationale:** One reusable detail+action surface makes any sender actionable without a mode
+switch, closes the affordance/behaviour gap, and keeps decision behaviour identical across
+the dashboard and the guided workflow.
+
 ## Interfaces
 
 ### Repository interface (UI ⇄ store)
@@ -405,5 +432,6 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Settings gains a **Filter cleanup** card (`suggestFilterOptimisations` / `applyFilterOptimisations`): consolidate per-address rules into `*@domain`, drop duplicate/redundant filters — confirm-first. Extract shared filter-shape helpers; demo seeds messy legacy filters. | Claude |
 | 2026-07-05 | Decisions view gains the **confirm-first import** of learned prior decisions (`learnPriorDecisions` → `importLearnedDecisions`): "Found N prior decisions" from existing filters + read-weighted Spam/Trash, imported as Blocked on request. Demo seeds Spam/Trash-only senders (the in-memory Gmail inbox scan now excludes Spam/Trash). | Claude |
 | 2026-07-05 | Workflow optimisation: merge **Discovery + Decision → Triage** (actions inline; one tap or `T`/`B`/`D`/`S` per sender), **one-tap Block** with smart defaults + a Customize expander, and the **impact preview** in Review. Decision 6 is now three phases. | Claude |
+| 2026-07-05 | Add **Decision 8: dashboard senders actionable in place via a `SenderDetail` drawer** (desktop right panel / mobile bottom sheet). Clicking any sender, pending row, or the Pending tile opens it; reuses `PromptCard` / `TrustActions` / `ImpactPreview` so Trust/Defer apply immediately and Block previews + confirms — closing the affordance/behaviour gap on the dashboard. | Claude |
 | 2026-07-05 | Functional pass: replace the ambiguous **Sync/Scan** pair with one **Refresh** (incremental sync) + a last-synced/result indicator; move the full **Rescan** to Settings; add Settings **export / delete-all** data controls. | Claude |
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |
