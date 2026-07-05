@@ -16,7 +16,13 @@ import { applyDecision } from "../decisions/applyDecision";
 import { keyFor } from "../keys";
 import { runScan } from "../scan/runScan";
 import type { Store } from "../store";
-import { DEMO_ACCOUNT_EMAIL, DEMO_DECISIONS, DEMO_HISTORY_ID, demoInbox } from "./demoData";
+import {
+  DEMO_ACCOUNT_EMAIL,
+  DEMO_DECISIONS,
+  DEMO_HISTORY_ID,
+  DEMO_LEGACY_FILTERS,
+  demoInbox,
+} from "./demoData";
 import { InMemoryBackupClient } from "./inMemoryBackup";
 import { InMemoryGmailClient } from "./inMemoryGmail";
 import { createInMemoryStore, InMemoryStore } from "./inMemoryStore";
@@ -65,6 +71,8 @@ export async function seedDemoStore(
 
   gmail.seedInbox(demoInbox(now));
   gmail.setLatestHistoryId(DEMO_HISTORY_ID);
+  // Pre-existing user filters (messy) for the filter-optimisation demo.
+  gmail.seedFilters(DEMO_LEGACY_FILTERS);
 
   await runScan(gmail, store, { now, accountEmail: DEMO_ACCOUNT_EMAIL });
 

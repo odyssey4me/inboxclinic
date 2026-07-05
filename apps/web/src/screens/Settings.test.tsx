@@ -1,22 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 import { getBackupState, type Store } from "@inboxclinic/core";
-import { createInMemoryStore, MockBackupClient, senderBuilder } from "@inboxclinic/core/testing";
+import {
+  createInMemoryStore,
+  MockBackupClient,
+  MockGmailClient,
+  senderBuilder,
+} from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Settings } from "./Settings";
 
-function setup(): { store: Store; backup: MockBackupClient } {
-  return { store: createInMemoryStore(), backup: new MockBackupClient() };
+function setup(): { store: Store; backup: MockBackupClient; gmail: MockGmailClient } {
+  return {
+    store: createInMemoryStore(),
+    backup: new MockBackupClient(),
+    gmail: new MockGmailClient(),
+  };
 }
 
 describe("Settings view", () => {
   it("enables backup (requesting drive.file consent) via the toggle", async () => {
-    const { store, backup } = setup();
+    const { store, backup, gmail } = setup();
     render(
       <Settings
         store={store}
         backup={backup}
+        gmail={gmail}
         online
         onRestored={vi.fn()}
         onRescan={vi.fn()}
@@ -35,12 +45,13 @@ describe("Settings view", () => {
   });
 
   it("backs up to Drive when enabled and reports the result", async () => {
-    const { store, backup } = setup();
+    const { store, backup, gmail } = setup();
     await store.senders.put(senderBuilder("a@x.com"));
     render(
       <Settings
         store={store}
         backup={backup}
+        gmail={gmail}
         online
         onRestored={vi.fn()}
         onRescan={vi.fn()}
@@ -59,11 +70,12 @@ describe("Settings view", () => {
   });
 
   it("gates actions until backup is enabled", async () => {
-    const { store, backup } = setup();
+    const { store, backup, gmail } = setup();
     render(
       <Settings
         store={store}
         backup={backup}
+        gmail={gmail}
         online
         onRestored={vi.fn()}
         onRescan={vi.fn()}
@@ -76,12 +88,13 @@ describe("Settings view", () => {
   });
 
   it("restores only after confirming the replace-local warning", async () => {
-    const { store, backup } = setup();
+    const { store, backup, gmail } = setup();
     await store.senders.put(senderBuilder("keep@x.com"));
     render(
       <Settings
         store={store}
         backup={backup}
+        gmail={gmail}
         online
         onRestored={vi.fn()}
         onRescan={vi.fn()}
@@ -112,12 +125,13 @@ describe("Settings view", () => {
   });
 
   it("calls onRestored after a successful restore", async () => {
-    const { store, backup } = setup();
+    const { store, backup, gmail } = setup();
     const onRestored = vi.fn();
     render(
       <Settings
         store={store}
         backup={backup}
+        gmail={gmail}
         online
         onRestored={onRestored}
         onRescan={vi.fn()}

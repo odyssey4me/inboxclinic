@@ -188,6 +188,16 @@ export {
   type SimulatedImpact,
 } from "./enforcement/simulate";
 
+// Existing-filter optimisation suggestions (consolidate / dedupe / redundant).
+export {
+  suggestFilterOptimisations,
+  applyFilterOptimisations,
+  type FilterOptimisation,
+  type OptimisationKind,
+  type OptimiseFiltersOptions,
+  type OptimiseApplyResult,
+} from "./enforcement/optimiseFilters";
+
 // Analytics metrics (pure) — health, time-saved, breakdowns, achievements (M6).
 export {
   achievements,

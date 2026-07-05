@@ -13,8 +13,9 @@
  * these as a confirm-first import; nothing is destructive (Gmail already handled them).
  */
 
+import { isBlockFilter, parseFilterSubjects } from "../enforcement/filterShape";
 import { keyFor } from "../keys";
-import type { GmailClient, NativeFilter } from "../ports/GmailClient";
+import type { GmailClient } from "../ports/GmailClient";
 import { extractSenders } from "../senders/extract";
 import type { DecisionScope, Store } from "../store";
 
@@ -43,27 +44,6 @@ export interface LearnPriorOptions {
 }
 
 const REASON_RANK: Record<LearnReason, number> = { filter: 3, spam: 2, trash: 1 };
-
-/** A filter that removes the mail from the inbox (trash / spam / archive) is a block. */
-function isBlockShaped(filter: NativeFilter): boolean {
-  return (
-    filter.addLabelIds.includes("TRASH") ||
-    filter.addLabelIds.includes("SPAM") ||
-    filter.removeLabelIds.includes("INBOX")
-  );
-}
-
-/** Parse a filter `from` ("a@x.com", "*@x.com", or "*@a.com OR *@b.com") into subjects. */
-function parseFilterSubjects(from: string): { scope: DecisionScope; value: string }[] {
-  const out: { scope: DecisionScope; value: string }[] = [];
-  for (const token of from.split(/\s+OR\s+/i)) {
-    const value = token.trim().toLowerCase();
-    if (value === "") continue;
-    if (value.startsWith("*@")) out.push({ scope: "domain", value: value.slice(2) });
-    else if (value.includes("@")) out.push({ scope: "address", value });
-  }
-  return out;
-}
 
 export async function learnPriorDecisions(
   client: GmailClient,
@@ -106,7 +86,7 @@ export async function learnPriorDecisions(
   // 1. Existing native filters → block suggestions.
   try {
     for (const filter of await client.listFilters()) {
-      if (!isBlockShaped(filter)) continue;
+      if (!isBlockFilter(filter)) continue;
       for (const subject of parseFilterSubjects(filter.from)) {
         add({
           subjectId: keyFor(subject.value),

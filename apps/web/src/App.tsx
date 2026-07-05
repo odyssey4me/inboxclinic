@@ -234,6 +234,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       <Settings
         store={store}
         backup={backup}
+        gmail={gmail}
         online={online}
         onRestored={() => setReloadKey((k) => k + 1)}
         onRescan={() => void scan()}

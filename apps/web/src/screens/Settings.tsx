@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
+  applyFilterOptimisations,
   backupToDrive,
   BackupNotFoundError,
   getBackupState,
   restoreFromDrive,
   setBackupEnabled,
+  suggestFilterOptimisations,
   type BackupClient,
   type BackupState,
+  type FilterOptimisation,
+  type GmailClient,
   type Store,
 } from "@inboxclinic/core";
 import { useEffect, useState } from "react";
@@ -17,6 +21,7 @@ import { Card } from "../components/ui/Card";
 export interface SettingsProps {
   store: Store;
   backup: BackupClient;
+  gmail: GmailClient;
   online: boolean;
   /** Called after a successful restore so the app can reload its view of the store. */
   onRestored: () => void;
@@ -50,6 +55,7 @@ function downloadJson(filename: string, json: string): void {
 export function Settings({
   store,
   backup,
+  gmail,
   online,
   onRestored,
   onRescan,
@@ -61,6 +67,39 @@ export function Settings({
   const [confirmingWipe, setConfirmingWipe] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [optimisations, setOptimisations] = useState<FilterOptimisation[] | null>(null);
+  const [filterBusy, setFilterBusy] = useState<"checking" | "applying" | null>(null);
+
+  const onCheckFilters = async (): Promise<void> => {
+    setNote(null);
+    setError(null);
+    setFilterBusy("checking");
+    try {
+      setOptimisations(await suggestFilterOptimisations(gmail));
+    } catch (caught) {
+      setError(`Could not read filters: ${errorMessage(caught)}`);
+    } finally {
+      setFilterBusy(null);
+    }
+  };
+
+  const onApplyOptimisations = async (): Promise<void> => {
+    if (optimisations === null) return;
+    setNote(null);
+    setError(null);
+    setFilterBusy("applying");
+    try {
+      const result = await applyFilterOptimisations(gmail, optimisations);
+      setNote(
+        `Tidied your filters: ${result.filtersCreated} created, ${result.filtersDeleted} removed.`,
+      );
+      setOptimisations([]);
+    } catch (caught) {
+      setError(`Could not update filters: ${errorMessage(caught)}`);
+    } finally {
+      setFilterBusy(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -306,6 +345,43 @@ export function Settings({
         <Button variant="secondary" onClick={onRescan} disabled={rescanning || !online}>
           {rescanning ? "Rescanning…" : "Rescan inbox"}
         </Button>
+      </Card>
+
+      <Card aria-label="Filter cleanup" className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Tidy up Gmail filters</h2>
+          <p className="text-sm text-muted">
+            Consolidate several per-address block filters into one <code>*@domain</code> rule, and
+            remove duplicate or redundant rules. Suggested only — nothing changes without your OK.
+          </p>
+        </div>
+        {optimisations === null ? (
+          <Button
+            variant="secondary"
+            onClick={() => void onCheckFilters()}
+            disabled={!online || filterBusy !== null}
+          >
+            {filterBusy === "checking" ? "Checking…" : "Check my filters"}
+          </Button>
+        ) : optimisations.length === 0 ? (
+          <p className="text-sm text-muted">Your filters look tidy — nothing to optimise.</p>
+        ) : (
+          <>
+            <ul className="ml-4 list-disc space-y-1 text-sm text-muted">
+              {optimisations.map((optimisation, index) => (
+                <li key={index}>{optimisation.description}</li>
+              ))}
+            </ul>
+            <Button
+              onClick={() => void onApplyOptimisations()}
+              disabled={!online || filterBusy !== null}
+            >
+              {filterBusy === "applying"
+                ? "Applying…"
+                : `Apply ${optimisations.length} change${optimisations.length === 1 ? "" : "s"}`}
+            </Button>
+          </>
+        )}
       </Card>
 
       {note !== null && (

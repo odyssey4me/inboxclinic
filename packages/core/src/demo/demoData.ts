@@ -13,7 +13,7 @@
  * and frequency stay sensible whenever the demo is opened.
  */
 
-import type { MessageMeta } from "../ports/GmailClient";
+import type { MessageMeta, NativeFilter } from "../ports/GmailClient";
 import type { BlockAction } from "../store/types";
 
 /** The signed-in identity shown in demo mode (never a real account). */
@@ -99,6 +99,43 @@ export const DEMO_DECISIONS: {
   { email: "notifications@github.com", decision: "trust", actions: [] },
   { email: "deals@retailco.com", decision: "block", actions: ["create_filter", "archive"] },
   { email: "security@paypa1-alert.com", decision: "block", actions: ["create_filter", "delete"] },
+];
+
+/**
+ * Pre-existing "legacy" Gmail filters seeded for the filter-optimisation demo: three
+ * per-address rules on one domain (consolidate → `*@oldshop.example`) and a duplicate.
+ */
+export const DEMO_LEGACY_FILTERS: NativeFilter[] = [
+  {
+    id: "legacy-1",
+    from: "sale@oldshop.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+  {
+    id: "legacy-2",
+    from: "deals@oldshop.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+  {
+    id: "legacy-3",
+    from: "news@oldshop.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+  {
+    id: "legacy-4",
+    from: "spammer@junk.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+  {
+    id: "legacy-5",
+    from: "spammer@junk.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
 ];
 
 function authHeader(posture: AuthPosture): string {
