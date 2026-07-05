@@ -1,0 +1,3 @@
+# Cloudflare Pages redirects. SPA fallback: serve the app shell for any path that
+# isn't a static asset (the app resolves views client-side). Assets are matched first.
+/*    /index.html   200

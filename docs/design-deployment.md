@@ -36,14 +36,22 @@ public** and ships in the build. No client secret, no refresh token stored on we
 secrets. **Future cloud:** if any cloud resource is ever added, GitHub→cloud auth uses
 **Workload Identity Federation (OIDC)** — no long-lived keys.
 
-### Hosting target: GitHub Pages
-**Decision (M8):** the primary hosted instance ships to **GitHub Pages** via the official
-Pages Action, publishing on push to `main` with **OIDC** (`id-token`/`pages` permissions)
-— **no deploy secret**. As a GitHub *project* page it is served under a sub-path, so the
-build sets **`BASE_PATH=/inboxclinic/`**; self-host/root builds use the default `/`.
-**Rationale:** the repo already lives on GitHub; zero extra accounts or tokens; portable
-static output. Cloudflare Pages remains a drop-in alternative (needs a CF account + API
-token) if a root-path URL or custom domain is wanted later.
+### Hosting target: Cloudflare Pages
+**Decision (M8):** the primary hosted instance ships to **Cloudflare Pages**, served at the
+**root** of the custom domain (`inboxclinic.com`), so the build uses the default base `/`
+(no `BASE_PATH`). **Rationale:** DNS already lives on Cloudflare, so Cloudflare Pages
+collapses DNS + CDN + automatic TLS + **edge request analytics** (cookieless, no client
+tracker — fits the privacy-first posture) into one place, and avoids the
+GitHub-Pages-behind-a-Cloudflare-proxy conflict (a proxied domain blocks GitHub's cert
+provisioning). Static output stays portable — any static host works for self-host.
+**Superseded:** an earlier M8 iteration targeted **GitHub Pages** (Pages Action + OIDC,
+`BASE_PATH=/inboxclinic/`); it was dropped because GitHub Pages exposes no site analytics
+and cannot set custom HTTP headers (e.g. CSP), and stacking Cloudflare's proxy in front
+broke HTTPS. GitHub Pages remains a viable no-analytics fallback.
+**Deploy:** Cloudflare Pages builds are configured with build command `npm run build`,
+output `apps/web/dist`, and env `VITE_OAUTH_CLIENT_ID` (+ optional `VITE_REQUEST_ACCESS_URL`).
+Hosting config lives in `apps/web/public/_redirects` (SPA fallback) and `_headers`
+(security headers). GitHub Actions (`ci.yml`) stays as the test/build/zero-secrets gate.
 
 ### Access: Google OAuth project in "testing" mode
 **Decision:** one Google Cloud OAuth project in **"testing" mode** with a **test-user
@@ -89,11 +97,11 @@ onto them at build time. All are **public, non-secret**.
 
 ### CI pipeline (conceptual)
 
-`lint → typecheck → test → build (static) → publish to Pages`. No secrets are required
-to build; publishing uses the host's native deploy token/OIDC, not a committed key.
-Realised as two workflows: **`ci.yml`** (lint/typecheck/test/coverage/build + a
-**zero-secrets** grep) on every push/PR, and **`deploy.yml`** (build + GitHub Pages via
-OIDC) on push to `main`.
+`lint → typecheck → test → build (static) → publish`. No secrets in the build. Realised as
+**`ci.yml`** (lint/typecheck/test/coverage/build + a **zero-secrets** grep) on every
+push/PR as the quality gate; **publishing** is handled by **Cloudflare Pages** — either its
+Git integration (Cloudflare builds on push) or `wrangler pages deploy` from CI with a
+Cloudflare API token.
 
 ## Configuration
 
@@ -115,8 +123,9 @@ OIDC) on push to `main`.
 
 ## Open Questions
 
-- ~~GitHub Pages vs Cloudflare Pages as the primary host.~~ **Resolved (M8): GitHub
-  Pages** (see *Hosting target*); Cloudflare remains a drop-in alternative.
+- ~~GitHub Pages vs Cloudflare Pages as the primary host.~~ **Resolved (M8): Cloudflare
+  Pages** (see *Hosting target*) — single-vendor DNS+CDN+TLS+analytics; GitHub Pages was
+  tried first and dropped (no site analytics, no custom headers, proxy-vs-cert conflict).
 - ~~Automate the allowlist-add step or keep a manual runbook.~~ **Resolved (M8): manual
   runbook** ([runbook-access.md](runbook-access.md)) — fine at ≤100 users.
 
@@ -128,3 +137,4 @@ OIDC) on push to `main`.
 |------|--------|--------|
 | 2026-06-28 | Initial draft — hosting, no-secrets, access/testing-mode, Tally waitlist, Sponsors, licence, moved out of the re-levelled architecture.md. | Claude |
 | 2026-07-05 | M8: resolve open questions (host = GitHub Pages via OIDC; manual allowlist runbook); align build inputs to `VITE_`-prefixed names + `BASE_PATH`; note the SPDX per-file header convention; split CI/deploy workflows with a zero-secrets check. | Claude |
+| 2026-07-05 | Switch hosting to **Cloudflare Pages** (root domain, base `/`): single-vendor DNS+CDN+TLS + cookieless edge analytics; drop the GitHub Pages deploy workflow + CNAME; add `_redirects`/`_headers`. GitHub Pages could not front-with-Cloudflare-proxy (cert conflict) and gave no site stats/custom headers. | Claude |

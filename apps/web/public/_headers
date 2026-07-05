@@ -1,0 +1,10 @@
+# Cloudflare Pages response headers. Baseline security headers for all responses.
+# NOTE: a full Content-Security-Policy is intentionally deferred — it must be crafted
+# and tested against the Google Identity Services + Gmail/Drive API calls (and the
+# service worker) so it doesn't break sign-in. Track that as a follow-up.
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
