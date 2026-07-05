@@ -40,7 +40,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           # A MINIMAL token (Account → Cloudflare Pages → Edit only) — not the local
           # management token. Account id is public, kept as a repo variable.
