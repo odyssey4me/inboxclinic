@@ -143,7 +143,8 @@ Each class of data has an **allowed location**, enforced by where the software r
 | Inbox metadata, senders, decisions, analytics | **The user's device only.** |
 | Email message bodies / contents | **Never read or stored** (metadata only). |
 | User credentials | **Never persisted by the service** (short-lived, held only in memory while active). |
-| Anonymous aggregate signal (deferred) | The only data that may leave the device — and **only if the user opts in**, contributed one-way and non-identifiably. |
+| Anonymous aggregate signal (deferred) | Leaves the device **only if the user opts in**, contributed one-way and non-identifiably. |
+| Opt-in diagnostic report | Leaves the device **only when the user explicitly submits one**, after **on-screen review** of a **redacted** payload. Carries no message content, credentials, or the user's address. |
 
 **Durability.** Because the user's data lives on their device, the app treats local
 persistence as durable but evictable. Most data is reconstructible by re-analysing
@@ -168,6 +169,7 @@ decisions.
 | **Store** | Persist and query the user's data on-device; **export**, **import** (restore), and **wipe** it. | The contract is stable; the storage technology is not. |
 | **Scoring & prioritisation** | Pure, deterministic functions: subject → trust score; set of subjects → ordered prompts. No I/O. | Signatures stable; constants tunable in design. |
 | **Aggregate contribution** *(deferred)* | One-way, anonymous, opt-out submission of a subject signal. | Defined now; no implementation in v1. |
+| **Reporting client** | One-way submission of an opt-in, redacted diagnostic report. | Cloud-neutral; adapter is a design choice. |
 
 Authorisation follows a **least-permission** principle: the app requests the minimum
 provider permission for what the user is doing, escalating only as features require
@@ -235,6 +237,7 @@ later as an extension rather than a rewrite.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.1 | 2026-07-05 | §5: add a **second opt-in egress class** — *opt-in diagnostic report* (user-submitted, on-screen-reviewed, redacted; no content/credentials/address) alongside the deferred anonymous aggregate. §6: add the **Reporting client** interface (one-way, cloud-neutral). See [design-error-reporting.md](design-error-reporting.md). |
 | 3.0 | 2026-06-28 | Re-levelled to a **technology-agnostic** spec — principles, constraints, and stable interfaces only. Moved technology choices, implementation detail, and algorithm constants to the design docs. |
 | 2.0 | 2026-06-28 | Rewrote for the solo, client-only local-first PWA model (superseded the hybrid-cloud commercial spec). |
 | 1.x | (prior) | Hybrid GCP + home-Kubernetes commercial architecture (superseded). |

@@ -30,25 +30,15 @@ architecture amendment that permits a second (opt-in, reviewed) egress path.
 
 | Section | Title | Relevance |
 |---------|-------|-----------|
-| 5 | Data Ownership & Boundaries | Introduces a **second egress class** (opt-in, redacted, user-reviewed diagnostics) alongside the deferred aggregate — requires the amendment proposed below. |
-| 6 | Core Interfaces | Adds a **Reporting client** port (adapter behind it), mirroring `Provider client` / `Store` / `Aggregate contribution`. |
+| 5 | Data Ownership & Boundaries | Permitted by the **§5 second egress class** (opt-in, redacted, user-reviewed diagnostics), added in architecture **v3.1**. |
+| 6 | Core Interfaces | Implements the **Reporting client** port added to §6 in architecture **v3.1** (adapter behind it), mirroring `Provider client` / `Store` / `Aggregate contribution`. |
 | 7 | Access, Openness & Funding | Reproducible static build; the edge function is optional and cloud-neutral behind the port. |
 | 9 | Deferred Capabilities & Seams | This is the **first concrete use** of the edge backend + anti-abuse foundation the aggregate contribution will reuse. |
 
-> **Proposed architecture amendment (needs sign-off — architecture.md is not edited here).**
-> §5's data table says the anonymous aggregate is *"the only data that may leave the device."*
-> This design adds a second egress. Proposed replacement row + addition:
->
-> | Data | Allowed location |
-> |------|------------------|
-> | Anonymous aggregate signal *(deferred)* | Leaves the device **only on opt-in**, one-way and non-identifiably. |
-> | **Opt-in diagnostic report** | Leaves the device **only when the user explicitly submits one**, after **on-screen review** of a **redacted** payload. Carries no message content, credentials, or address. |
->
-> And §6 gains one interface row:
->
-> | Interface | Responsibility | Stability note |
-> |-----------|----------------|----------------|
-> | **Reporting client** | One-way submission of an opt-in, redacted diagnostic report. | Cloud-neutral; adapter is a design choice. |
+> **Architecture amendment — applied (v3.1).** §5's privacy table gained an *opt-in diagnostic
+> report* egress row (user-submitted, on-screen-reviewed, redacted; no content/credentials/
+> address) alongside the deferred aggregate, and §6 gained the **Reporting client** interface
+> (one-way, cloud-neutral). This design implements those; it no longer proposes them.
 
 ## Design Decisions
 
@@ -222,7 +212,7 @@ they are the **no-backend fallback** (Decision 2 alternative).
 ## Migration Notes
 
 - Adds one on-device field (`installId`); no destructive change (alpha, no back-compat needed).
-- Requires the §5/§6 architecture amendment above to be **approved** before implementation.
+- The §5/§6 egress amendment is **approved and applied** (architecture v3.1) — no blocker remains here.
 - The edge function is additive; the static client works unchanged without it (falls back to copy/download).
 
 ## Open Questions
@@ -239,3 +229,4 @@ they are the **no-backend fallback** (Decision 2 alternative).
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-07-05 | Initial draft — opt-in, anonymous, user-reviewed feedback → GitHub issue via a Cloudflare Pages Function; on-device redaction; anonymous install ID for abuse-correlation (distinct from aggregate identity); Turnstile + KV rate-limiting; proposed §5/§6 architecture amendment for a second (opt-in, reviewed) egress path. Scoped as the first service of the deferred aggregate backend (§9). | Claude |
+| 2026-07-05 | §5/§6 architecture amendment **approved and applied** (architecture v3.1); doc updated from "proposed" to "implements". | Claude |
