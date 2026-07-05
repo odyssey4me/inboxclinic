@@ -15,6 +15,12 @@ dev-dist/
 # Test & coverage
 coverage/
 
+# Playwright (Tier-3 E2E) — reports, traces, and downloaded browsers
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # Environment & local config (the app holds no secrets — never commit local env)
 .env
 .env.local
