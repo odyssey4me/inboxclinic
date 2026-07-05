@@ -118,8 +118,8 @@ so the worst case is a red CI (merge blocked), never a broken app. Encoded in
 |--------|----------------------|-----|
 | npm **minor/patch** | ✅ | Low risk. |
 | **GitHub Actions** (incl. majors) | ✅ | The action runs *inside* the gating CI — green = proof. A bad deploy-only action just fails the next deploy (Pages keeps serving the last good build). Actions are SHA-pinned; Dependabot maintains the hash + `# vX` comment. |
-| npm **majors** — non-shipping dev tooling + type defs | ✅ | `@types/*`, `jsdom`, `eslint`/`@eslint/*`/`eslint-plugin-*`/`typescript-eslint`, `prettier`, `@testing-library/*`, `globals`. These never ship; a break only turns CI red. |
-| npm **majors** — everything else | ❌ manual | Bundle-affecting build tools (`vite`, `vite-plugin-*`, `@vitejs/*`, `typescript`) can pass the build yet change runtime output; runtime deps (`react`, `dexie`, …) can pass build and break at runtime. |
+| npm **majors** — non-shipping dev tooling + type defs | ✅ | `@types/*`, `jsdom`, `eslint`/`@eslint/*`/`eslint-plugin-*`/`typescript-eslint`, `prettier`, `@testing-library/*`, `globals`, and **`typescript`** (used only for `tsc --noEmit` — vite/esbuild transpiles, so a TS major never touches the shipped bundle). These never ship; a break only turns CI red. |
+| npm **majors** — everything else | ❌ manual | Bundle-affecting build tools (`vite`, `vite-plugin-*`, `@vitejs/*`) can pass the build yet change runtime output; runtime deps (`react`, `dexie`, …) can pass build and break at runtime. |
 
 **2. Grouping — coupled ecosystems move atomically.** Packages that share peer ranges must
 version together or npm leaves a duplicate/incompatible major (e.g. a lone `vite` bump

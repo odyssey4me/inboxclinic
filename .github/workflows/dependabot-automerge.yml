@@ -9,8 +9,10 @@
 #   - GitHub Actions (any) ....... incl. majors — the action runs inside the gating CI
 #   - npm majors ................. ONLY for non-shipping dev tooling + type defs (the
 #                                  SAFE list below): linters, jsdom, prettier, @types/*,
-#                                  @testing-library/*
-#   - everything else ............ manual review (vite/typescript affect the bundle;
+#                                  @testing-library/*, and `typescript` (used here only
+#                                  for `tsc --noEmit` checking — vite/esbuild transpiles,
+#                                  so a TS major never touches the shipped bundle)
+#   - everything else ............ manual review (vite affects the bundle;
 #                                  react/dexie are runtime)
 name: Dependabot auto-merge
 
@@ -38,7 +40,7 @@ jobs:
         run: |
           # Dev-only, never-shipped, CI-gated tooling + type-only packages. A bad bump
           # here can only turn CI red (blocking the merge); it can never reach users.
-          safe='^(@types/.*|jsdom|eslint|@eslint/.*|eslint-plugin-.*|typescript-eslint|@typescript-eslint/.*|globals|prettier|@testing-library/.*)$'
+          safe='^(@types/.*|jsdom|eslint|@eslint/.*|eslint-plugin-.*|typescript-eslint|@typescript-eslint/.*|globals|prettier|typescript|@testing-library/.*)$'
           all=true
           [ -z "${NAMES// /}" ] && all=false
           IFS=',' read -ra pkgs <<< "$NAMES"
