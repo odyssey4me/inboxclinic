@@ -117,7 +117,8 @@ empty static PWA shell.
 
 | Item | Notes |
 |------|-------|
-| **Collective trust intelligence** | Anonymous, opt-out aggregate (a user setting). Build behind the `packages/core` contribution interface; choose backend/datastore then (architecture §9). |
+| **Collective trust intelligence** | Anonymous, opt-out aggregate (a user setting). Build behind the `packages/core` contribution interface; choose backend/datastore then (architecture §9). The **edge backend + anti-abuse foundation** (Cloudflare Workers, Turnstile, KV rate-limiting, cloud-neutral reporting port) is established first by [design-error-reporting.md](design-error-reporting.md) and reused here — with **distinct identity handling** (aggregate stays non-identifiable). |
+| **Opt-in feedback / error reporting** | User-initiated, redacted, anonymous diagnostic report → GitHub issue via a Cloudflare edge function. Designed in [design-error-reporting.md](design-error-reporting.md) (Draft); needs the §5/§6 egress amendment approved before build. |
 | **Mobile apps (iOS/Android)** | Capacitor wrap of the SPA first; React Native fallback. Kept open via platform-capability + repository interfaces. |
 | **Server-side real-time triage** | Deliberately avoided (would reintroduce a backend + token custody). |
 

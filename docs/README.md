@@ -112,6 +112,7 @@ implements. Use [design-_template.md](design-_template.md) for new docs.
 | [design-analytics.md](design-analytics.md) | Draft | On-device analytics: inbox health score, time-saved, breakdowns, achievements, opt-in local shareable snapshot | 5, 8 |
 | [design-testing.md](design-testing.md) | Draft | Vitest three-tier tests (core unit, web component, Playwright E2E via demo mode), mocked Gmail boundary, fixtures, coverage gate | 4, 6 |
 | [design-deployment.md](design-deployment.md) | Draft | Hosting, no-secrets build, access/testing-mode, Tally waitlist, Sponsors, licence | 2, 7 |
+| [design-error-reporting.md](design-error-reporting.md) | Draft | Opt-in, anonymous, user-reviewed feedback → GitHub issue via a Cloudflare edge function; on-device redaction; anonymous install ID; Turnstile + rate-limit; first service of the deferred aggregate backend | 5, 6, 7, 9 |
 
 ### Status meaning
 
