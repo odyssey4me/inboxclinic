@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { ButtonHTMLAttributes } from "react";
 
-type Variant = "primary" | "secondary" | "danger" | "ghost";
+type Variant = "primary" | "secondary" | "danger" | "ghost" | "trust";
 
 const VARIANTS: Record<Variant, string> = {
   primary: "bg-ink text-bg hover:opacity-90",
   secondary: "border border-line bg-surface text-ink hover:bg-surface-2",
   danger: "bg-block text-on-solid hover:opacity-90",
   ghost: "text-muted hover:bg-surface-2",
+  trust: "bg-trust text-on-solid hover:opacity-90",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

@@ -68,7 +68,7 @@ export function TrustActions({
       </fieldset>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" onClick={() => onDecide("trust", [])}>
+        <Button variant="trust" onClick={() => onDecide("trust", [])}>
           Trust
         </Button>
         <Button variant="danger" onClick={() => setBlockOpen((v) => !v)} aria-expanded={blockOpen}>

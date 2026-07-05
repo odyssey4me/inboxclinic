@@ -26,7 +26,7 @@ export function LayoutSwitch({ className = "" }: { className?: string }) {
               type="button"
               aria-pressed={active}
               onClick={() => setPref(option.id)}
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
+              className={`min-h-9 rounded px-3 text-xs font-medium transition-colors ${
                 active ? "bg-ink text-bg" : "text-muted hover:bg-surface-2"
               }`}
             >
