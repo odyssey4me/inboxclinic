@@ -31,6 +31,10 @@ export interface AppProps {
   gmail: GmailClient;
   store: Store;
   backup: BackupClient;
+  /** Demo mode: an ephemeral in-memory environment; shows the demo banner, skips auth. */
+  demo?: boolean;
+  /** Pre-set signed-in identity (demo mode seeds this so the shell renders immediately). */
+  initialEmail?: string | null;
 }
 
 function errorMessage(error: unknown): string {
@@ -45,8 +49,8 @@ export function App(props: AppProps) {
   );
 }
 
-function AppInner({ gmail, store, backup }: AppProps) {
-  const [email, setEmail] = useState<string | null>(null);
+function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: AppProps) {
+  const [email, setEmail] = useState<string | null>(initialEmail);
   const [view, setView] = useState<View>("dashboard");
   const [scanning, setScanning] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -127,6 +131,19 @@ function AppInner({ gmail, store, backup }: AppProps) {
           <Button onClick={() => void signIn()} disabled={!online}>
             Sign in with Google
           </Button>
+          <div className="flex flex-col items-center gap-1">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                window.location.search = "?demo=1";
+              }}
+            >
+              Explore the demo
+            </Button>
+            <p className="text-xs text-muted">
+              No account needed — sample data, never sent to Google.
+            </p>
+          </div>
           {!online && (
             <p role="status" className="text-sm text-defer">
               {OFFLINE_NOTICE}
@@ -185,6 +202,10 @@ function AppInner({ gmail, store, backup }: AppProps) {
       syncing={syncing}
       scanning={scanning}
       error={error}
+      demo={demo}
+      onExitDemo={() => {
+        window.location.search = "";
+      }}
     >
       {content}
     </AppShell>

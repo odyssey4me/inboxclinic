@@ -21,6 +21,9 @@ export interface AppShellProps {
   syncing: boolean;
   scanning: boolean;
   error: string | null;
+  /** Demo mode: show the demo banner with an exit action. */
+  demo?: boolean;
+  onExitDemo?: () => void;
   children: ReactNode;
 }
 
@@ -48,6 +51,22 @@ function OfflineBanner() {
   return (
     <p role="status" className="bg-defer/10 px-4 py-2 text-center text-sm text-defer">
       {OFFLINE_NOTICE}
+    </p>
+  );
+}
+
+function DemoBanner({ onExit }: { onExit: (() => void) | undefined }) {
+  return (
+    <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-accent-soft px-4 py-2 text-center text-sm text-accent-ink">
+      <span>
+        <strong className="font-semibold">Demo mode</strong> — sample data, nothing is sent to
+        Google.
+      </span>
+      {onExit !== undefined && (
+        <button type="button" onClick={onExit} className="font-medium underline">
+          Exit demo
+        </button>
+      )}
     </p>
   );
 }
@@ -101,10 +120,13 @@ function MobileShell({
   syncing,
   scanning,
   error,
+  demo,
+  onExitDemo,
   children,
 }: AppShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
+      {demo === true && <DemoBanner onExit={onExitDemo} />}
       {!online && <OfflineBanner />}
 
       <header className="border-b border-line bg-surface">
@@ -181,10 +203,13 @@ function DesktopShell({
   syncing,
   scanning,
   error,
+  demo,
+  onExitDemo,
   children,
 }: AppShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
+      {demo === true && <DemoBanner onExit={onExitDemo} />}
       {!online && <OfflineBanner />}
 
       <div className="mx-auto flex w-full max-w-7xl flex-1">

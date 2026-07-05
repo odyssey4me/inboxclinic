@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createDemoEnvironment, DEMO_ACCOUNT_EMAIL } from "@inboxclinic/core/demo";
 import {
   createInMemoryStore,
   messageMetaBuilder,
@@ -9,6 +10,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { App } from "./App";
+
+const DEMO_NOW = Date.UTC(2026, 6, 5);
 
 function setup() {
   const gmail = new MockGmailClient(
@@ -66,6 +69,22 @@ describe("App", () => {
     // The History-API marker is seeded so subsequent syncs are incremental.
     const profile = await store.profile.get();
     expect(profile?.lastHistoryId).not.toBeNull();
+  });
+
+  it("demo mode renders a populated dashboard, the demo banner, and an exit", async () => {
+    const { gmail, store, backup } = await createDemoEnvironment({ now: DEMO_NOW });
+    render(
+      <App gmail={gmail} store={store} backup={backup} demo initialEmail={DEMO_ACCOUNT_EMAIL} />,
+    );
+
+    // Signed-in as the demo identity, with a clearly-labelled demo banner + exit.
+    expect(await screen.findByText(DEMO_ACCOUNT_EMAIL)).toBeInTheDocument();
+    expect(screen.getByText(/demo mode/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /exit demo/i })).toBeInTheDocument();
+
+    // The dashboard is populated from the seeded store (no sign-in, no network).
+    expect((await screen.findAllByText("jane.cooper@gmail.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("deals@retailco.com")).length).toBeGreaterThan(0);
   });
 
   it("pins the mobile layout from the switch and remembers it on-device", async () => {
