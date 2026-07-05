@@ -19,9 +19,12 @@ test("dashboard: act on a sender directly from the detail drawer", async ({ page
 test("dashboard: explore domains and act on a whole domain", async ({ page }) => {
   await gotoDemo(page);
 
-  // Switch the list to Domains, open a domain that has multiple senders.
+  // Switch the list to Domains, open a domain that has multiple senders. Scope the click
+  // to the Domains region and match exactly so it can't hit a sender address like
+  // news@retailco.com (which also contains "retailco.com").
   await page.getByRole("tab", { name: /domains/i }).click();
-  await page.getByText("retailco.com").first().click();
+  const domainsRegion = page.getByRole("region", { name: "Domains" });
+  await domainsRegion.getByText("retailco.com", { exact: true }).first().click();
 
   const drawer = page.getByRole("dialog", { name: /actions for retailco\.com/i });
   await expect(drawer).toBeVisible();
