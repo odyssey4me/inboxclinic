@@ -171,6 +171,14 @@ export {
   type FilterReconcileOutcome,
 } from "./enforcement/enforce";
 
+// Count-only enforcement simulation for the impact preview (no mutations).
+export {
+  simulateEnforcement,
+  estimateWeeklyVolume,
+  type PreviewDecision,
+  type SimulatedImpact,
+} from "./enforcement/simulate";
+
 // Analytics metrics (pure) — health, time-saved, breakdowns, achievements (M6).
 export {
   achievements,
