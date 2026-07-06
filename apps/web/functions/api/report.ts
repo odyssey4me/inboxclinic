@@ -65,15 +65,19 @@ async function withinLimit(kv: KVNamespace, key: string, limit: number): Promise
   return true;
 }
 
-async function verifyTurnstile(secret: string, token: string, ip: string | null): Promise<boolean> {
+async function verifyTurnstile(
+  secret: string,
+  token: string,
+  ip: string | null,
+): Promise<{ ok: boolean; codes: string[] }> {
   const form = new URLSearchParams({ secret, response: token });
   if (ip !== null) form.set("remoteip", ip);
   const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
     method: "POST",
     body: form,
   });
-  const outcome = (await response.json()) as { success?: boolean };
-  return outcome.success === true;
+  const outcome = (await response.json()) as { success?: boolean; "error-codes"?: string[] };
+  return { ok: outcome.success === true, codes: outcome["error-codes"] ?? [] };
 }
 
 export async function onRequestPost(context: PagesContext): Promise<Response> {
@@ -94,14 +98,14 @@ export async function onRequestPost(context: PagesContext): Promise<Response> {
   const { report, turnstileToken } = validation.submission;
 
   // Turnstile is the primary human-proof gate.
-  if (
-    !(await verifyTurnstile(
-      env.TURNSTILE_SECRET,
-      turnstileToken,
-      request.headers.get("CF-Connecting-IP"),
-    ))
-  ) {
-    return json(403, { error: "verification failed" });
+  const verdict = await verifyTurnstile(
+    env.TURNSTILE_SECRET,
+    turnstileToken,
+    request.headers.get("CF-Connecting-IP"),
+  );
+  if (!verdict.ok) {
+    // Surface the Turnstile error codes (non-sensitive) so a failure is diagnosable.
+    return json(403, { error: "verification failed", codes: verdict.codes });
   }
 
   // Rate-limit on a hashed IP and on the install ID (defence in depth).

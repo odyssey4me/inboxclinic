@@ -19,7 +19,16 @@ export class CloudflareReportingClient implements ReportingClient {
       body: JSON.stringify({ report, turnstileToken: humanToken }),
     });
     if (!response.ok) {
-      throw new Error(`Report submission failed (${response.status})`);
+      let detail = "";
+      try {
+        const body = (await response.json()) as { error?: string; codes?: string[] };
+        if (body.codes !== undefined && body.codes.length > 0)
+          detail = `: ${body.codes.join(", ")}`;
+        else if (body.error !== undefined) detail = `: ${body.error}`;
+      } catch {
+        /* non-JSON body — status alone */
+      }
+      throw new Error(`Report submission failed (${response.status})${detail}`);
     }
     const data = (await response.json()) as { ref?: string };
     return { ref: data.ref ?? "" };
