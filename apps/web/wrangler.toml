@@ -1,0 +1,19 @@
+# -----------------------------------------------------------------------------
+# Cloudflare Pages configuration
+# -----------------------------------------------------------------------------
+# Declares the runtime binding the feedback intake Function needs
+# (functions/api/report.ts — design-error-reporting.md Phase 5). The KV namespace
+# id is an identifier, not a secret. Runtime secrets (GITHUB_TOKEN,
+# TURNSTILE_SECRET) live ONLY in the Pages project, never here.
+#
+# See docs/design-error-reporting.md and docs/design-deployment.md.
+# -----------------------------------------------------------------------------
+name = "inboxclinic"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-11-01"
+
+# Rate-limit counters + install-ID correlation for /api/report.
+[[kv_namespaces]]
+binding = "REPORT_KV"
+id = "9867a85b239142e59e1904ff53ce5b55"
+preview_id = "9867a85b239142e59e1904ff53ce5b55"
