@@ -120,6 +120,9 @@ jobs:
           # Build stamp: the deployed commit, shown in the footer and in diagnostic reports
           # (design-error-reporting.md). Truncated to a short SHA in the build.
           VITE_APP_COMMIT: ${{ github.sha }}
+          # Public Turnstile site key — enables the feedback panel's Send action
+          # (design-error-reporting.md). The matching secret lives only in the Pages project.
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
         run: npm run build
 
       - name: Deploy to Cloudflare Pages

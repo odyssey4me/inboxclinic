@@ -95,6 +95,7 @@ onto them at build time. All are **public, non-secret**.
 | `VITE_REQUEST_ACCESS_URL` | No | repo issues | URL of the Tally request-access form; the link falls back to the repo issues page when unset. |
 | `VITE_APP_COMMIT` | No | `dev` | Deployed commit SHA (CI sets `${{ github.sha }}`); truncated to a short SHA and shown in the footer + diagnostic reports (see [design-error-reporting.md](design-error-reporting.md)). |
 | `VITE_APP_BUILT_AT` | No | build time | ISO build date for the build stamp; defaults to `new Date().toISOString()` at config time. |
+| `VITE_TURNSTILE_SITE_KEY` | No | – | Public Cloudflare Turnstile site key (deploy maps `vars.TURNSTILE_SITE_KEY`); enables the feedback panel's Send action. Secret lives only in the Pages project (see [design-error-reporting.md](design-error-reporting.md)). |
 | `BASE_PATH` | No | `/` | Public base path; `/inboxclinic/` for the GitHub *project* Pages URL, `/` for self-host at a domain root. |
 
 ### CI pipeline (conceptual)
@@ -174,6 +175,7 @@ not a peer violation. Reconcile with the relevant Dependabot group + `npm dedupe
 | 2026-06-28 | Initial draft — hosting, no-secrets, access/testing-mode, Tally waitlist, Sponsors, licence, moved out of the re-levelled architecture.md. | Claude |
 | 2026-07-05 | M8: resolve open questions (host = GitHub Pages via OIDC; manual allowlist runbook); align build inputs to `VITE_`-prefixed names + `BASE_PATH`; note the SPDX per-file header convention; split CI/deploy workflows with a zero-secrets check. | Claude |
 | 2026-07-05 | Add build-stamp inputs `VITE_APP_COMMIT` / `VITE_APP_BUILT_AT` (deploy sets commit from `github.sha`); shown in the footer + diagnostic reports (design-error-reporting.md). | Claude |
+| 2026-07-06 | Add build input `VITE_TURNSTILE_SITE_KEY` (deploy maps `vars.TURNSTILE_SITE_KEY`) to enable the feedback panel's Send action; the Turnstile secret stays in the Pages project. | Claude |
 | 2026-07-05 | Switch hosting to **Cloudflare Pages** (root domain, base `/`): single-vendor DNS+CDN+TLS + cookieless edge analytics; drop the GitHub Pages deploy workflow + CNAME; add `_redirects`/`_headers`. GitHub Pages could not front-with-Cloudflare-proxy (cert conflict) and gave no site stats/custom headers. | Claude |
 | 2026-07-05 | Document the Dependabot strategy: "can it reach users?" auto-merge policy (minor/patch + Actions + non-shipping dev-tooling majors; bundle/runtime majors manual), atomic ecosystem grouping (vite/eslint/types) with CI as the compatibility gate, and the duplicate-major guard. | Claude |
 | 2026-07-05 | Consolidate CI/E2E/deploy into one `ci.yml` (jobs `build`, `e2e`, `deploy`); **deploy now `needs: [build, e2e]`** and runs only on `main`, so a broken build or failing E2E can never publish. | Claude |
