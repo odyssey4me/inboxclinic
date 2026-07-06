@@ -21,10 +21,16 @@ export class CloudflareReportingClient implements ReportingClient {
     if (!response.ok) {
       let detail = "";
       try {
-        const body = (await response.json()) as { error?: string; codes?: string[] };
-        if (body.codes !== undefined && body.codes.length > 0)
-          detail = `: ${body.codes.join(", ")}`;
-        else if (body.error !== undefined) detail = `: ${body.error}`;
+        const body = (await response.json()) as {
+          stage?: string;
+          error?: string;
+          codes?: string[];
+        };
+        const parts: string[] = [];
+        if (body.stage !== undefined) parts.push(`[${body.stage}]`);
+        if (body.error !== undefined) parts.push(body.error);
+        if (body.codes !== undefined && body.codes.length > 0) parts.push(body.codes.join(", "));
+        if (parts.length > 0) detail = ` ${parts.join(" ")}`;
       } catch {
         /* non-JSON body — status alone */
       }

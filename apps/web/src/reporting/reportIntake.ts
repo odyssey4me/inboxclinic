@@ -28,10 +28,11 @@ export interface IssueSpec {
 }
 
 /**
- * A short, non-reversible correlation label for an install ID (FNV-1a → base36). Not
+ * A short, non-reversible correlation ref for an install ID (FNV-1a → base36). Not
  * cryptographic — it only groups an honest reporter's issues without publishing the raw ID.
+ * Placed in the issue body (not a label) so per-reporter refs don't explode the label list.
  */
-export function clientLabel(installId: string): string {
+export function clientRef(installId: string): string {
   let hash = 0x811c9dc5;
   for (let i = 0; i < installId.length; i++) {
     hash ^= installId.charCodeAt(i);
@@ -59,15 +60,16 @@ export function validateSubmission(
   return { ok: true, submission: { report: r as unknown as DiagnosticReport, turnstileToken } };
 }
 
-/** Build the GitHub issue from a validated report — never includes the install ID or IP. */
+/**
+ * Build the GitHub issue from a validated report — never includes the raw install ID or IP.
+ * Uses only the static `feedback` label (created out-of-band); the per-install correlation
+ * ref lives in the body so unique reporters don't create unbounded labels.
+ */
 export function issueFromReport(report: DiagnosticReport): IssueSpec {
   const firstLine = report.message.trim().split("\n")[0] ?? "";
   const title = `Report: ${firstLine}`.slice(0, 120).trim() || "Report: (no message)";
-  return {
-    title,
-    body: reportMarkdown(report),
-    labels: ["feedback", clientLabel(report.installId)],
-  };
+  const body = `${reportMarkdown(report)}\n\n---\nref: \`${clientRef(report.installId)}\``;
+  return { title, body, labels: ["feedback"] };
 }
 
 /** KV key for a rate-limit bucket (namespaced by kind so IP and install-ID buckets differ). */

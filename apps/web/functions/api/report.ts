@@ -48,6 +48,16 @@ function json(status: number, body: unknown): Response {
   });
 }
 
+/**
+ * A staged error response. `stage` pinpoints where the path failed and `error` is a short,
+ * human-readable reason. These are deliberately **non-sensitive**: no secrets/tokens, no
+ * client IP, no install ID, no report content — only pipeline stage, HTTP status, and
+ * category reasons (e.g. a Turnstile code or GitHub's own status message).
+ */
+function fail(status: number, stage: string, error: string): Response {
+  return json(status, { stage, error });
+}
+
 /** SHA-256 → first 16 hex chars. Used so the client IP is never stored raw in KV. */
 async function hashIp(ip: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip));
@@ -82,57 +92,77 @@ async function verifyTurnstile(
 
 export async function onRequestPost(context: PagesContext): Promise<Response> {
   const { request, env } = context;
-
-  const raw = await request.text();
-  if (raw.length > MAX_BODY_BYTES) return json(413, { error: "payload too large" });
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return json(400, { error: "invalid json" });
+    // 0. Configuration — report *which* binding/secret is missing, never its value.
+    const kv = env.REPORT_KV as KVNamespace | undefined;
+    const missing: string[] = [];
+    if (!env.TURNSTILE_SECRET) missing.push("TURNSTILE_SECRET");
+    if (!env.GITHUB_TOKEN) missing.push("GITHUB_TOKEN");
+    if (kv === undefined || typeof kv.get !== "function") missing.push("REPORT_KV");
+    if (missing.length > 0) {
+      return fail(500, "config", `server not configured: missing ${missing.join(", ")}`);
+    }
+
+    // 1. Size cap.
+    const raw = await request.text();
+    if (raw.length > MAX_BODY_BYTES) return fail(413, "size", "payload too large");
+
+    // 2. Parse.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return fail(400, "parse", "invalid JSON body");
+    }
+
+    // 3. Validate shape.
+    const validation = validateSubmission(parsed);
+    if (!validation.ok) return fail(400, "validate", validation.error);
+    const { report, turnstileToken } = validation.submission;
+
+    // 4. Turnstile — the primary human-proof gate. Codes are non-sensitive categories.
+    const clientIp = request.headers.get("CF-Connecting-IP");
+    const verdict = await verifyTurnstile(env.TURNSTILE_SECRET, turnstileToken, clientIp);
+    if (!verdict.ok) {
+      return json(403, {
+        stage: "turnstile",
+        error: "verification failed",
+        codes: verdict.codes,
+      });
+    }
+
+    // 5. Rate-limit on a hashed IP and on the install ID (neither is echoed back).
+    const ipKey = rateLimitKey("ip", await hashIp(clientIp ?? "unknown"));
+    if (!(await withinLimit(env.REPORT_KV, ipKey, IP_LIMIT))) {
+      return fail(429, "ratelimit-ip", "too many reports from this network; try later");
+    }
+    if (!(await withinLimit(env.REPORT_KV, rateLimitKey("id", report.installId), ID_LIMIT))) {
+      return fail(429, "ratelimit-id", "too many reports from this app; try later");
+    }
+
+    // 6. Create the GitHub issue. Surface only GitHub's status + its own message.
+    const repo = env.GITHUB_REPO ?? DEFAULT_REPO;
+    const created = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "inboxclinic-feedback",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(issueFromReport(report)),
+    });
+    if (!created.ok) {
+      const body = (await created.json().catch(() => ({}))) as { message?: string };
+      const reason = typeof body.message === "string" ? body.message : "unknown error";
+      return fail(502, "github", `GitHub API ${created.status}: ${reason}`);
+    }
+
+    const data = (await created.json()) as { html_url?: string };
+    return json(200, { stage: "ok", ref: data.html_url ?? "" });
+  } catch (error) {
+    // 7. Last-resort: an unexpected runtime error. Message only — never a stack or secret.
+    const message = error instanceof Error ? error.message : "unexpected error";
+    return fail(500, "exception", message.slice(0, 200));
   }
-
-  const validation = validateSubmission(parsed);
-  if (!validation.ok) return json(400, { error: validation.error });
-  const { report, turnstileToken } = validation.submission;
-
-  // Turnstile is the primary human-proof gate.
-  const verdict = await verifyTurnstile(
-    env.TURNSTILE_SECRET,
-    turnstileToken,
-    request.headers.get("CF-Connecting-IP"),
-  );
-  if (!verdict.ok) {
-    // Surface the Turnstile error codes (non-sensitive) so a failure is diagnosable.
-    return json(403, { error: "verification failed", codes: verdict.codes });
-  }
-
-  // Rate-limit on a hashed IP and on the install ID (defence in depth).
-  const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-  const ipKey = rateLimitKey("ip", await hashIp(ip));
-  const idKey = rateLimitKey("id", report.installId);
-  if (!(await withinLimit(env.REPORT_KV, ipKey, IP_LIMIT))) {
-    return json(429, { error: "rate limited" });
-  }
-  if (!(await withinLimit(env.REPORT_KV, idKey, ID_LIMIT))) {
-    return json(429, { error: "rate limited" });
-  }
-
-  const repo = env.GITHUB_REPO ?? DEFAULT_REPO;
-  const issue = issueFromReport(report);
-  const created = await fetch(`https://api.github.com/repos/${repo}/issues`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.GITHUB_TOKEN}`,
-      Accept: "application/vnd.github+json",
-      "User-Agent": "inboxclinic-feedback",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(issue),
-  });
-  if (!created.ok) return json(502, { error: "could not create issue" });
-
-  const data = (await created.json()) as { html_url?: string };
-  return json(200, { ref: data.html_url ?? "" });
 }

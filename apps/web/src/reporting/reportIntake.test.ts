@@ -2,7 +2,7 @@
 import type { DiagnosticReport } from "@inboxclinic/core";
 import { describe, expect, it } from "vitest";
 
-import { clientLabel, issueFromReport, rateLimitKey, validateSubmission } from "./reportIntake";
+import { clientRef, issueFromReport, rateLimitKey, validateSubmission } from "./reportIntake";
 
 const report: DiagnosticReport = {
   message: "Gmail API responded 429",
@@ -11,15 +11,15 @@ const report: DiagnosticReport = {
   installId: "11111111-2222-3333-4444-555555555555",
 };
 
-describe("clientLabel", () => {
+describe("clientRef", () => {
   it("is stable for the same id and differs across ids", () => {
-    expect(clientLabel(report.installId)).toBe(clientLabel(report.installId));
-    expect(clientLabel("a")).not.toBe(clientLabel("b"));
-    expect(clientLabel(report.installId)).toMatch(/^client:[0-9a-z]{1,7}$/);
+    expect(clientRef(report.installId)).toBe(clientRef(report.installId));
+    expect(clientRef("a")).not.toBe(clientRef("b"));
+    expect(clientRef(report.installId)).toMatch(/^client:[0-9a-z]{1,7}$/);
   });
 
   it("does not reveal the raw id", () => {
-    expect(clientLabel(report.installId)).not.toContain(report.installId);
+    expect(clientRef(report.installId)).not.toContain(report.installId);
   });
 });
 
@@ -38,11 +38,13 @@ describe("validateSubmission", () => {
 });
 
 describe("issueFromReport", () => {
-  it("builds a titled, labelled issue that never contains the install ID", () => {
+  it("builds a titled issue with only the static feedback label; ref in body, never the raw id", () => {
     const issue = issueFromReport(report);
     expect(issue.title).toBe("Report: Gmail API responded 429");
-    expect(issue.labels).toContain("feedback");
-    expect(issue.labels).toContain(clientLabel(report.installId));
+    // Only the pre-existing static label — no unbounded per-install labels.
+    expect(issue.labels).toEqual(["feedback"]);
+    // The correlation ref lives in the body, not a label.
+    expect(issue.body).toContain(clientRef(report.installId));
     expect(issue.body).not.toContain(report.installId);
     expect(issue.title).not.toContain(report.installId);
   });
