@@ -110,6 +110,7 @@ empty static PWA shell.
 | Item | Notes |
 |------|-------|
 | **Demo mode + Tier-3 E2E** — ✅ COMPLETE | A no-Google `?demo` path with curated in-memory data (`@inboxclinic/core/demo`) so anyone can explore the full product, plus **Playwright** end-to-end tests driving it (Discovery → Decision → Review → Execution, backup/restore, layout switch) across chromium/firefox/webkit/mobile as a required CI gate. See [design-testing.md](design-testing.md) Decision 7 and [design-frontend.md](design-frontend.md) (Demo mode). |
+| **Opt-in feedback / error reporting** — ✅ COMPLETE | User-initiated, redacted, anonymous diagnostic report → GitHub issue via a Cloudflare Pages Function (Turnstile + KV rate-limiting, anonymous install ID). Copy/download works with no backend; the edge submit is live on inboxclinic.com. Establishes the shared edge + anti-abuse foundation for the deferred aggregate. See [design-error-reporting.md](design-error-reporting.md) (Approved) and architecture v3.1 (§5 second egress, §6 Reporting client). |
 
 ---
 
@@ -117,8 +118,7 @@ empty static PWA shell.
 
 | Item | Notes |
 |------|-------|
-| **Collective trust intelligence** | Anonymous, opt-out aggregate (a user setting). Build behind the `packages/core` contribution interface; choose backend/datastore then (architecture §9). The **edge backend + anti-abuse foundation** (Cloudflare Workers, Turnstile, KV rate-limiting, cloud-neutral reporting port) is established first by [design-error-reporting.md](design-error-reporting.md) and reused here — with **distinct identity handling** (aggregate stays non-identifiable). |
-| **Opt-in feedback / error reporting** | User-initiated, redacted, anonymous diagnostic report → GitHub issue via a Cloudflare edge function. Designed in [design-error-reporting.md](design-error-reporting.md) (Draft); needs the §5/§6 egress amendment approved before build. |
+| **Collective trust intelligence** | Anonymous, opt-out aggregate (a user setting). Build behind the `packages/core` contribution interface; choose backend/datastore then (architecture §9). The **edge backend + anti-abuse foundation** (Cloudflare Workers, Turnstile, KV rate-limiting, cloud-neutral reporting port) is now established by [design-error-reporting.md](design-error-reporting.md) and reused here — with **distinct identity handling** (aggregate stays non-identifiable). |
 | **Mobile apps (iOS/Android)** | Capacitor wrap of the SPA first; React Native fallback. Kept open via platform-capability + repository interfaces. |
 | **Server-side real-time triage** | Deliberately avoided (would reintroduce a backend + token custody). |
 

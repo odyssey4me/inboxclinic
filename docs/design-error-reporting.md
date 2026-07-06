@@ -1,8 +1,8 @@
 # Design: Error Reporting & Feedback
 
-> **Status:** Draft (Alpha)
+> **Status:** Approved (Alpha)
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-07-06
 
 ## Overview
 
@@ -251,3 +251,4 @@ unit-tested; the live Turnstile widget + issue creation need this setup to verif
 | 2026-07-05 | §5/§6 architecture amendment **approved and applied** (architecture v3.1); doc updated from "proposed" to "implements". | Claude |
 | 2026-07-05 | Implemented Phases 1–5: core redactor/install-ID/port; build-stamp footer; error boundary + recent-errors buffer; "Report a problem" panel (copy/download, no backend) + reset identifier; Cloudflare edge intake (`functions/api/report.ts`) with Turnstile + KV rate-limiting and anonymous GitHub issue; deploy wiring + setup runbook. | Claude |
 | 2026-07-06 | Declare the `REPORT_KV` binding in `apps/web/wrangler.toml` (namespace id is not a secret) so the deploy applies it reproducibly; deploy now reads the config (`pages deploy` with `pages_build_output_dir`). Site key wired via `VITE_TURNSTILE_SITE_KEY`; secrets (`GITHUB_TOKEN`, `TURNSTILE_SECRET`) set in the Pages project. | Claude |
+| 2026-07-06 | Full-path staged, leak-safe error tracing in the edge function; drop the per-install `client:<hash>` label (unbounded) in favour of the static `feedback` label + a body ref. **Verified end-to-end** (live report → GitHub issue #11, correctly redacted). Status → **Approved**. | Claude |
