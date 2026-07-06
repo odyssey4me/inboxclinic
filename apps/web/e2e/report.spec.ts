@@ -3,18 +3,18 @@ import { expect, test } from "@playwright/test";
 
 import { gotoDemo } from "./helpers";
 
-test("Settings: open the report panel and see the redacted, no-backend payload", async ({
-  page,
-}) => {
+test("global Feedback drawer shows the redacted, no-backend payload", async ({ page }) => {
   await gotoDemo(page);
 
-  await page.getByRole("button", { name: /^Settings$/ }).click();
-  await page.getByRole("button", { name: /^Report a problem$/ }).click();
+  // The app advertises alpha and offers feedback from anywhere via the header.
+  await expect(page.getByText("Alpha", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Feedback" }).click();
 
-  // The transparent preview and the no-backend actions are present.
-  await expect(page.getByText(/exactly what will be sent/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Copy$/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Download$/ })).toBeVisible();
+  const drawer = page.getByRole("dialog", { name: /send feedback/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText(/exactly what will be sent/i)).toBeVisible();
+  await expect(drawer.getByRole("button", { name: /^Copy$/ })).toBeVisible();
+  await expect(drawer.getByRole("button", { name: /^Download$/ })).toBeVisible();
   // Without a Turnstile site key configured, submission is not offered.
-  await expect(page.getByRole("button", { name: /send report/i })).toHaveCount(0);
+  await expect(drawer.getByRole("button", { name: /send report/i })).toHaveCount(0);
 });

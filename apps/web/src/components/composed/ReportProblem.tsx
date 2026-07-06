@@ -129,7 +129,7 @@ export function ReportProblem({ store, initial, client, getHumanToken }: ReportP
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
           rows={2}
-          placeholder="What happened?"
+          placeholder="What happened, or what would make this better?"
           className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         />
       </label>

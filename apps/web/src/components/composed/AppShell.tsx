@@ -1,17 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { ReactNode } from "react";
+import type { Store } from "@inboxclinic/core";
+import { useState, type ReactNode } from "react";
 
 import { useLayout } from "../../layout/context";
 import { relativeTime } from "../../lib/relativeTime";
+import { reportingIntegration } from "../../reporting/integration";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { Drawer } from "../ui/Drawer";
 import { Footer } from "./Footer";
 import { LayoutSwitch } from "./LayoutSwitch";
+import { ReportProblem } from "./ReportProblem";
 
 /** Views reachable from the primary nav. `App`'s View union may include more (e.g. the
  *  workflow sub-flow), which simply leaves no tab highlighted. */
 export type ShellView = "dashboard" | "decisions" | "analytics" | "settings";
 
 export interface AppShellProps {
+  /** On-device store — the global feedback panel reads it (install id, redaction). */
+  store: Store;
   email: string;
   online: boolean;
   /** Current view — used to highlight the active nav tab. */
@@ -48,9 +55,36 @@ const OFFLINE_NOTICE = "Offline — Gmail sync paused; local data is available."
  * sidebar + wide content). The active layout comes from `useLayout`, which the account
  * area lets the user pin. Screens render content only.
  */
+/** Shell-internal props: the two layouts also receive a handle to open the feedback panel. */
+type ShellProps = AppShellProps & { onOpenFeedback: () => void };
+
 export function AppShell(props: AppShellProps) {
   const { layout } = useLayout();
-  return layout === "desktop" ? <DesktopShell {...props} /> : <MobileShell {...props} />;
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const shellProps: ShellProps = { ...props, onOpenFeedback: () => setFeedbackOpen(true) };
+  return (
+    <>
+      {layout === "desktop" ? <DesktopShell {...shellProps} /> : <MobileShell {...shellProps} />}
+      {feedbackOpen && (
+        <Drawer label="Send feedback" title="Feedback" onClose={() => setFeedbackOpen(false)}>
+          <p className="text-sm text-muted">
+            Inbox Clinic is in <strong className="text-ink">alpha</strong> — tell us about a problem
+            or what would make it better. Your report is anonymous and you see exactly what’s sent.
+          </p>
+          <ReportProblem store={props.store} {...(reportingIntegration() ?? {})} />
+        </Drawer>
+      )}
+    </>
+  );
+}
+
+/** Shared "Feedback" trigger placed alongside the refresh control in both shells. */
+function FeedbackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" onClick={onClick}>
+      Feedback
+    </Button>
+  );
 }
 
 function OfflineBanner() {
@@ -106,11 +140,16 @@ function AccountControls({ email, onDisconnect }: { email: string; onDisconnect:
 
 function Brand({ onNavigate }: { onNavigate: (view: ShellView) => void }) {
   return (
-    <h1 className="text-xl font-bold tracking-tight">
-      <button type="button" onClick={() => onNavigate("dashboard")} className="text-ink">
-        Inbox Clinic
-      </button>
-    </h1>
+    <div className="flex items-center gap-2">
+      <h1 className="text-xl font-bold tracking-tight">
+        <button type="button" onClick={() => onNavigate("dashboard")} className="text-ink">
+          Inbox Clinic
+        </button>
+      </h1>
+      <Badge tone="amber" title="Early release — expect rough edges; feedback welcome.">
+        Alpha
+      </Badge>
+    </div>
   );
 }
 
@@ -149,11 +188,12 @@ function MobileShell({
   lastSyncedAt,
   syncSummary,
   onDisconnect,
+  onOpenFeedback,
   error,
   demo,
   onExitDemo,
   children,
-}: AppShellProps) {
+}: ShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
       {demo === true && <DemoBanner onExit={onExitDemo} />}
@@ -206,6 +246,7 @@ function MobileShell({
               lastSyncedAt={lastSyncedAt}
               syncSummary={syncSummary}
             />
+            <FeedbackButton onClick={onOpenFeedback} />
           </div>
         </div>
       </header>
@@ -230,11 +271,12 @@ function DesktopShell({
   lastSyncedAt,
   syncSummary,
   onDisconnect,
+  onOpenFeedback,
   error,
   demo,
   onExitDemo,
   children,
-}: AppShellProps) {
+}: ShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
       {demo === true && <DemoBanner onExit={onExitDemo} />}
@@ -270,6 +312,7 @@ function DesktopShell({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-center justify-end gap-1 border-b border-line bg-surface px-6 py-3">
+            <FeedbackButton onClick={onOpenFeedback} />
             <RefreshControl
               onRefresh={onRefresh}
               refreshing={refreshing}

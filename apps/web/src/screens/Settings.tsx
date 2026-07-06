@@ -402,11 +402,12 @@ export function Settings({
         )}
       </Card>
 
-      <Card aria-label="Report a problem" className="space-y-3">
+      <Card aria-label="Feedback" className="space-y-3">
         <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Report a problem</h2>
+          <h2 className="text-lg font-semibold">Feedback</h2>
           <p className="text-sm text-muted">
-            Send an anonymous, redacted report — you see exactly what it contains and can edit it
+            Inbox Clinic is in alpha — report a problem or tell us what would make it better. The
+            report is anonymous and redacted; you see exactly what it contains and can edit it
             before sending, copying, or downloading it. Nothing is sent automatically.
           </p>
         </div>
@@ -427,7 +428,7 @@ export function Settings({
         ) : (
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => setReporting(true)}>
-              Report a problem
+              Give feedback
             </Button>
             <Button
               variant="ghost"

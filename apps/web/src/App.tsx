@@ -260,6 +260,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
 
   return (
     <AppShell
+      store={store}
       email={email}
       online={online}
       view={view}
