@@ -1,0 +1,55 @@
+# Loop B — proactive review. On a schedule (and on demand), Claude reviews the repo and
+# opens ISSUES proposing changes for the maintainer to triage. It never modifies code or
+# opens PRs; approved proposals feed the label-triggered `claude-issue-implement.yml` loop.
+#
+# See the automation model in CONTRIBUTING.md and the invariant checklist it links.
+# Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription). Runs from the default branch (main).
+name: Proactive review (Claude)
+
+on:
+  schedule:
+    - cron: "0 8 * * 1" # Mondays 08:00 UTC
+  workflow_dispatch: {}
+
+# Least-privilege: read the code, file issues. No write to code, no PRs.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 1
+
+      - name: Proactive review → propose issues
+        uses: anthropics/claude-code-action@e90deca47693f9457b72f2b53c17d7c445a87342 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Proactively review the Inbox Clinic repository and propose improvements as
+            GitHub issues for the maintainer to triage. Two lenses:
+
+            1. Privacy/architecture invariants — act as the `inbox-clinic-auditor`
+               subagent: read `.claude/agents/inbox-clinic-auditor.md` and apply the
+               "Reviewing for privacy & architecture invariants" checklist in
+               CONTRIBUTING.md across the codebase.
+            2. General quality — notable bugs, correctness risks, missing tests, or
+               worthwhile simplifications, consistent with the conventions in CLAUDE.md.
+
+            Process:
+            - FIRST run `gh issue list --state open --limit 100` and do NOT open
+              duplicates of anything already tracked.
+            - For each substantive, actionable finding, open ONE issue with `gh issue
+              create`: state the problem, the evidence (file:line), and a concrete
+              proposed change. Group trivial nits into a single "cleanup" issue.
+            - Label every issue you open `claude-proposed`.
+            - Do NOT modify code, commit, or open pull requests — issues only. If nothing
+              substantive is found, do nothing.
+          # Read the repo + file issues via gh. contents:read means nothing can be pushed.
+          claude_args: |
+            --allowedTools Read,Grep,Glob,Bash
+            --max-turns 30

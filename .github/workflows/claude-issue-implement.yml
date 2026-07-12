@@ -1,0 +1,51 @@
+# Loop A — issue → PR. When the maintainer labels an issue `claude-approved`, Claude
+# implements the change on a branch and opens a PR that closes the issue. It NEVER pushes
+# to main. On this PUBLIC repo only the maintainer has write access, so only they can
+# apply the label — the trigger is inherently owner-gated.
+#
+# See the automation model in CONTRIBUTING.md. Auth: CLAUDE_CODE_OAUTH_TOKEN.
+name: Implement approved issue (Claude)
+
+on:
+  issues:
+    types: [labeled]
+
+# Implementing needs write to code + PRs; issues:write to comment/close.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  implement:
+    if: github.event.label.name == 'claude-approved'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # full history so Claude can branch and diff
+
+      - name: Implement issue → open PR
+        uses: anthropics/claude-code-action@e90deca47693f9457b72f2b53c17d7c445a87342 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            The maintainer approved issue #${{ github.event.issue.number }} for
+            implementation (they applied the `claude-approved` label).
+
+            - Read the issue and implement the requested change, following the repo
+              conventions: CLAUDE.md, docs/architecture.md and the design docs, and the
+              "Reviewing for privacy & architecture invariants" checklist in
+              CONTRIBUTING.md.
+            - Work on a NEW branch — never push to `main`. One focused problem per commit.
+            - Run the repo checks (lint, typecheck, tests) and fix any failures before
+              opening the PR.
+            - Open a pull request describing the change; include
+              "Closes #${{ github.event.issue.number }}" in the body.
+            - If the request is unclear, unsafe, or conflicts with an architectural
+              invariant, do NOT implement it — instead comment on the issue explaining why
+              and what you'd need to proceed.
+          claude_args: |
+            --allowedTools Read,Grep,Glob,Edit,Write,Bash
+            --max-turns 40
