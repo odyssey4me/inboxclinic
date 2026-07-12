@@ -329,8 +329,11 @@ async function applyLabelDelta(
 
 /** Derive a sender id (`keyFor(email)`) from a `From` header, or `null` if unparseable. */
 function parseSenderId(from: string): string | null {
-  const angle = /<([^>]+)>/.exec(from);
-  const address = (angle?.[1] ?? from).trim().toLowerCase();
+  // Extract the address inside the first <...> via indexOf (linear) rather than a
+  // regex whose `[^>]+` backtracks quadratically on unclosed '<' runs (ReDoS).
+  const lt = from.indexOf("<");
+  const gt = lt >= 0 ? from.indexOf(">", lt + 1) : -1;
+  const address = (gt > lt ? from.slice(lt + 1, gt) : from).trim().toLowerCase();
   const at = address.lastIndexOf("@");
   if (at <= 0 || at === address.length - 1) return null;
   return keyFor(address);

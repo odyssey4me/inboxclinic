@@ -18,13 +18,16 @@ name: Dependabot auto-merge
 
 on: pull_request
 
+# Least-privilege by default; the write scopes auto-merge needs are granted per-job.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   automerge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     if: github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
