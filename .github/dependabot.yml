@@ -28,8 +28,13 @@ updates:
           - "@vitest/*"
           - "@tailwindcss/vite"
         update-types: ["major", "minor", "patch"]
-      eslint: # lint-only, never ships → auto-merges on green (even majors)
+      typescript-toolchain: # typecheck/lint-only, never ships → auto-merges on green (even majors)
+        # typescript is peer-coupled to typescript-eslint (which pins `peer typescript
+        # <N`), so a lone `typescript` major leaves an unresolvable tree until the linter
+        # catches up. Batch them so a TS major only lands with a compatible
+        # typescript-eslint release — moves together or not at all.
         patterns:
+          - "typescript"
           - "eslint"
           - "@eslint/*"
           - "eslint-plugin-*"
@@ -46,7 +51,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # …while other major bumps (e.g. typescript, runtime deps) still get their own PR.
+      # …while other major bumps (runtime deps, e.g. react/dexie) still get their own PR.
 
   # Keep the GitHub Actions used in CI up to date too.
   - package-ecosystem: "github-actions"
