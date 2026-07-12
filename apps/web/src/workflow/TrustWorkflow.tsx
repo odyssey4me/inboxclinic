@@ -48,7 +48,7 @@ export interface TrustWorkflowProps {
 
 /** The four-phase trust-decision workflow (Discovery → Decision → Review → Execution). */
 export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
-  const { data, reload } = useStoreSnapshot(store);
+  const { data, error, reload } = useStoreSnapshot(store);
 
   const [queue, setQueue] = useState<Sender[] | null>(null);
   const [cursor, setCursor] = useState(0);
@@ -75,6 +75,17 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
       counts.set(sender.domain, (counts.get(sender.domain) ?? 0) + 1);
     return counts;
   }, [queue]);
+
+  if (data === null && error !== null) {
+    return (
+      <div className="flex flex-col items-center gap-3 p-6 text-center">
+        <p role="alert" className="text-sm text-block">
+          Couldn't load your senders: {error}
+        </p>
+        <Button onClick={reload}>Try again</Button>
+      </div>
+    );
+  }
 
   if (data === null || queue === null) {
     return <p className="p-6 text-center text-muted">Loading…</p>;
