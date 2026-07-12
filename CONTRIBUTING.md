@@ -78,7 +78,7 @@ npm run e2e:ui          # interactive runner while writing specs
 ```
 
 Test structure, tiers, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
-Coverage gate: **≥80%** on `packages/core` logic.
+Coverage gate: **≥80%** on `packages/core` and `packages/store` logic.
 
 ### Dependency updates
 
