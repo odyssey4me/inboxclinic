@@ -79,9 +79,17 @@ jobs:
               declined).
             - Do NOT re-report findings already covered by CodeQL, Scorecard, Dependabot,
               or the doc-sync hook — complement them, don't echo.
-            - Keep each issue ATOMIC — one self-contained, independently implementable
-              change (do NOT bundle several unrelated nits into one "cleanup" issue; a
-              bundled issue can't be cleanly implemented or approved on its own).
+            - Granularity (two tiers):
+              • SUBSTANTIVE findings — one issue each, where "one problem" = one coherent
+                change a single focused PR would deliver. Tightly-coupled fixes in the
+                SAME code unit may share one issue, but NEVER bundle unrelated concerns
+                across different files (an un-splittable bundle can't be cleanly
+                implemented or approved).
+              • TRIVIAL nits (one-line / cosmetic — a stray flag, a redundant step, a
+                wording tweak) — collect ALL of them into a SINGLE issue titled
+                "Cleanup: …" and add the `cleanup` label. This batch is handled directly
+                by the maintainer, NOT the implement loop; do not spread nits across many
+                issues.
             - Prioritise: open at most ~8 issues, highest user/admin impact first.
             - Label every issue `claude-proposed`. Do NOT modify code, commit, or open pull
               requests — issues only. If nothing substantive is found, do nothing.
