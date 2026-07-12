@@ -33,25 +33,44 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             Proactively review the Inbox Clinic repository and propose improvements as
-            GitHub issues for the maintainer to triage. Two lenses:
+            GitHub issues for the maintainer to triage. The goal is not just to find
+            defects, but to help advance the project toward its stated intent.
 
-            1. Privacy/architecture invariants — act as the `inbox-clinic-auditor`
-               subagent: read `.claude/agents/inbox-clinic-auditor.md` and apply the
-               "Reviewing for privacy & architecture invariants" checklist in
-               CONTRIBUTING.md across the codebase.
-            2. General quality — notable bugs, correctness risks, missing tests, or
-               worthwhile simplifications, consistent with the conventions in CLAUDE.md.
+            First build context — read and take these into account:
+            - docs/architecture.md — the vision, principles, and invariants (the intent).
+            - docs/ROADMAP.md — the build order and the current/next milestone.
+            - docs/README.md and the design docs it indexes — the intended implementation.
+            - CLAUDE.md and CONTRIBUTING.md — conventions and the invariant checklist.
+            - Existing issues via `gh issue list --state all --limit 200` — including
+              `feedback`-labelled reports from the app and prior `claude-proposed` issues
+              (open AND closed).
 
-            Process:
-            - FIRST run `gh issue list --state open --limit 100` and do NOT open
-              duplicates of anything already tracked.
-            - For each substantive, actionable finding, open ONE issue with `gh issue
-              create`: state the problem, the evidence (file:line), and a concrete
-              proposed change. Group trivial nits into a single "cleanup" issue.
-            - Label every issue you open `claude-proposed`.
-            - Do NOT modify code, commit, or open pull requests — issues only. If nothing
-              substantive is found, do nothing.
+            Then review through these lenses and propose the most valuable improvements:
+            1. Invariant/privacy audit — act as the `inbox-clinic-auditor` subagent
+               (.claude/agents/inbox-clinic-auditor.md), applying the CONTRIBUTING checklist.
+            2. Roadmap advancement — unstarted or partial work for the current/next
+               milestone that would move it forward.
+            3. Intent/vision alignment — where code or product drifts from architecture.md
+               §1–2, or an opportunity to realise a principle better.
+            4. Design-doc ↔ code drift — where an approved design doc and the code have
+               diverged, or a doc has gone stale.
+            5. Bugs, quality & test-coverage gaps — correctness risks and weak spots on
+               critical paths, consistent with CLAUDE.md.
+            6. Feedback synthesis — cluster open `feedback` issues, spot patterns, and
+               propose concrete fixes or roadmap items.
+
+            Rules:
+            - Deduplicate against ALL existing issues, and do NOT re-raise anything a prior
+              `claude-proposed` issue was CLOSED without action (a closed proposal =
+              declined).
+            - Do NOT re-report findings already covered by CodeQL, Scorecard, Dependabot,
+              or the doc-sync hook — complement them, don't echo.
+            - Prioritise: open at most ~8 issues, highest value first; group minor nits
+              into a single "cleanup" issue. Each issue states the problem, the evidence
+              (file:line or doc section), and a concrete proposed change.
+            - Label every issue `claude-proposed`. Do NOT modify code, commit, or open pull
+              requests — issues only. If nothing substantive is found, do nothing.
           # Read the repo + file issues via gh. contents:read means nothing can be pushed.
           claude_args: |
             --allowedTools Read,Grep,Glob,Bash
-            --max-turns 30
+            --max-turns 45
