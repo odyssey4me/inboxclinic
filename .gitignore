@@ -27,6 +27,11 @@ blob-report/
 .env.*.local
 *.local
 
+# Wrangler (Cloudflare Pages Functions) local secrets & state
+.dev.vars
+.dev.vars.*
+.wrangler/
+
 # OAuth tokens / credentials (should never exist; guard anyway)
 token.json
 credentials.json

@@ -24,7 +24,8 @@ patterns=(
   'client_secret'                       # OAuth client secret (we ship none)
   'aws_secret_access_key'               # AWS keys
   'xox[baprs]-[A-Za-z0-9-]+'            # Slack tokens
-  'ghp_[A-Za-z0-9]{36}'                 # GitHub personal access tokens
+  'ghp_[A-Za-z0-9]{36}'                 # GitHub personal access tokens (classic)
+  'github_pat_[A-Za-z0-9_]{20,}'        # GitHub personal access tokens (fine-grained)
   'AIza[0-9A-Za-z_-]{35}'               # Google API keys
 )
 
