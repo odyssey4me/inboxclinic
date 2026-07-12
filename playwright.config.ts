@@ -13,6 +13,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
+  // `fullyParallel` parallelises tests *within* a file; independently, CI pins to a
+  // single worker (process) for deterministic, resource-stable runs, while locally we
+  // let Playwright pick the worker count.
   workers: isCI ? 1 : undefined,
   reporter: isCI ? [["html", { open: "never" }], ["list"]] : "list",
   use: {
