@@ -13,7 +13,7 @@
 /** Ordered redaction rules; each is applied in turn. Order matters (tokens before emails). */
 const RULES: { pattern: RegExp; replacement: string }[] = [
   // OAuth bearer tokens and Google `ya29.` access tokens.
-  { pattern: /Bearer\s+[A-Za-z0-9._~+/-]+=*/g, replacement: "Bearer [token]" },
+  { pattern: /Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, replacement: "Bearer [token]" },
   { pattern: /ya29\.[A-Za-z0-9._~+/-]+/g, replacement: "[token]" },
   // `access_token=…`, `id_token=…`, `refresh_token=…`, `token=…` in query strings/JSON.
   {
