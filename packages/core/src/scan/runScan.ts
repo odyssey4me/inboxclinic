@@ -17,7 +17,7 @@
 import { recordDailyAnalytics } from "../analytics/record";
 import { generatePrompts } from "../prompts/generatePrompts";
 import { extractSenders } from "../senders/extract";
-import type { GmailClient } from "../ports/GmailClient";
+import type { GmailClient, MessageMeta } from "../ports/GmailClient";
 import type { Profile, Sender, Store } from "../store";
 
 export interface RunScanOptions {
@@ -73,7 +73,20 @@ export async function runScan(
 
   const query = buildScanQuery(windowDays, labelIds);
   const ids = await client.listMessageIds(query, maxMessages);
-  const metas = await Promise.all(ids.map((id) => client.getMessageMeta(id)));
+  // Best-effort per message: one that moved/was deleted since listing shouldn't abort
+  // the whole scan (mirrors incrementalSync.ts's per-message try/catch).
+  const settled = await Promise.allSettled(ids.map((id) => client.getMessageMeta(id)));
+  const metas = settled
+    .filter((r): r is PromiseFulfilledResult<MessageMeta> => r.status === "fulfilled")
+    .map((r) => r.value);
+  // Every fetch failing (e.g. an expired token) is a systemic problem, not a flaky
+  // message — surface it instead of silently reporting an empty scan as a success.
+  if (ids.length > 0 && metas.length === 0) {
+    const [firstFailure] = settled as PromiseRejectedResult[];
+    throw new Error("runScan: failed to fetch any message metadata", {
+      cause: firstFailure?.reason,
+    });
+  }
 
   const { senders, domains } = extractSenders(metas, now);
 
