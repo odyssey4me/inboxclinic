@@ -33,6 +33,11 @@ describe("redact", () => {
     expect(redact("token ya29.a0ARrdaM-xyz_123 expired")).toBe("token [token] expired");
   });
 
+  it("masks a differently-cased bearer token", () => {
+    expect(redact("Authorization: bearer abc.def-123")).toContain("Bearer [token]");
+    expect(redact("Authorization: BEARER abc.def-123")).toContain("Bearer [token]");
+  });
+
   it("masks token query/JSON values", () => {
     expect(redact("?access_token=abc.def-123&x=1")).toBe("?access_token=[token]&x=1");
     expect(redact('{"refresh_token":"secretvalue"}')).toContain("refresh_token=[token]");
