@@ -30,13 +30,13 @@
     "@playwright/test": "1.61.1",
     "@types/node": "^26.1.0",
     "@vitest/coverage-v8": "4.1.9",
-    "eslint": "10.6.0",
+    "eslint": "10.7.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "prettier": "^3.9.4",
     "typescript": "6.0.3",
-    "typescript-eslint": "^8.62.1",
+    "typescript-eslint": "^8.63.0",
     "vitest": "4.1.9"
   }
 }
