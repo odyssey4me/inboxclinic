@@ -1,0 +1,64 @@
+# Loop A follow-up — address my review. When the MAINTAINER submits a PR review that
+# mentions @claude, Claude reads the whole submitted review (summary + inline comments)
+# and pushes revision commits to the PR's branch, then replies.
+#
+# Timing: fires ONLY on review *submission*, so it can never react mid-review. Batch your
+# notes with GitHub's "Start a review" → "Submit review"; nothing happens until you submit.
+# Put @claude in the review summary.
+#
+# Hard-gated to you specifically:
+#   - github.event.review.user.login == 'odyssey4me'  (only YOUR review triggers it)
+#   - PR branch is in THIS repo, not a fork          (only Claude's own branches)
+#   - the review body must mention @claude            (explicit opt-in per review)
+# Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription).
+name: Address review (Claude)
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+# Revising the PR needs write to code + PRs. id-token: write for the OIDC exchange.
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  address:
+    if: >-
+      github.event.review.user.login == 'odyssey4me' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.review.body, '@claude')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the PR branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Address the submitted review
+        uses: anthropics/claude-code-action@e90deca47693f9457b72f2b53c17d7c445a87342 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            The maintainer submitted a review on PR
+            #${{ github.event.pull_request.number }} that mentions @claude. Address their
+            feedback.
+
+            - Read the FULL submitted review — the summary body and every inline comment
+              (use `gh pr view` / `gh api` to fetch the review and its review comments).
+            - Make the requested changes on the PR's existing branch
+              (`${{ github.event.pull_request.head.ref }}`) — do NOT open a new PR or push
+              to `main`. One focused commit per distinct piece of feedback.
+            - Follow the repo conventions: CLAUDE.md, docs/architecture.md and the design
+              docs, and the "Reviewing for privacy & architecture invariants" checklist in
+              CONTRIBUTING.md. Run the repo checks (lint, typecheck, tests) and fix any
+              failures before pushing.
+            - Push the commits to the PR branch, then reply to the review summarising what
+              you changed — and note anything you did NOT do and why.
+            - If a request is unclear, unsafe, or conflicts with an architectural invariant,
+              do NOT make that change; reply explaining why and what you'd need instead.
+          claude_args: |
+            --allowedTools Read,Grep,Glob,Edit,Write,Bash
+            --max-turns 40
