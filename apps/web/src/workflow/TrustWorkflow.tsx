@@ -484,7 +484,7 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
 }
 
 /** The Gmail enforcement result summary shown after Execution. */
-function EnforcementSummary({ result }: { result: EnforceResult }) {
+export function EnforcementSummary({ result }: { result: EnforceResult }) {
   const lines: string[] = [];
   if (result.filtersCreated > 0) lines.push(`${result.filtersCreated} filter(s) created`);
   if (result.filtersDeleted > 0) lines.push(`${result.filtersDeleted} filter(s) removed`);
@@ -495,11 +495,18 @@ function EnforcementSummary({ result }: { result: EnforceResult }) {
     lines.push(`${result.unsubscribeRequested} unsubscribe(s) requested`);
   }
 
+  const failed = result.failures.length;
+  // Distinct reasons, so N failures sharing one cause collapse to a single line.
+  const reasons = [...new Set(result.failures.map((f) => f.error))];
+
   return (
     <div className="space-y-1 rounded-md border border-line p-3 text-sm" aria-label="Enforcement">
       <p className="font-medium text-ink">Gmail enforcement</p>
       {lines.length > 0 ? (
         <p className="text-muted">{lines.join(" · ")}.</p>
+      ) : failed > 0 ? (
+        // Something was attempted and failed — don't claim there was nothing to do.
+        <p className="text-muted">No changes completed.</p>
       ) : (
         <p className="text-muted">No Gmail changes were needed.</p>
       )}
@@ -508,8 +515,17 @@ function EnforcementSummary({ result }: { result: EnforceResult }) {
           Filter limit reached — {result.skippedAtCap} block(s) not yet filtered.
         </p>
       )}
-      {result.failures.length > 0 && (
-        <p className="text-block">{result.failures.length} action(s) failed; will retry on sync.</p>
+      {failed > 0 && (
+        <div className="text-block">
+          <p>{failed} action(s) failed; will retry on sync.</p>
+          {reasons.length > 0 && (
+            <ul className="mt-1 list-disc pl-5 text-xs">
+              {reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );
