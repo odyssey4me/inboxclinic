@@ -67,8 +67,6 @@ export function computeTrustScore(sender: SenderSnapshot): TrustScoreResult {
   };
 
   if (sender.replyCount > 0) addUser("replied", 3);
-  // Deferred signal (ROADMAP.md "Deferred (post-v1)"): inContacts is always false
-  // until the Tier-3 People API lookup ships, so this branch never fires yet.
   if (sender.inContacts) addUser("inContacts", 2, false);
   if (sender.starredCount >= STARRED_FREQUENT) addUser("frequentlyStarred", 2);
   if (sender.readRate !== null && sender.readRate > OPENED_CONSISTENTLY) {
