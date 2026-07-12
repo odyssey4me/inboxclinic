@@ -6,7 +6,7 @@ import {
   type DecisionScope,
   type Sender,
 } from "@inboxclinic/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "../ui/Button";
 
@@ -35,6 +35,14 @@ export function TrustActions({
 }: TrustActionsProps) {
   const [blockOpen, setBlockOpen] = useState(false);
   const [actions, setActions] = useState<BlockAction[]>(() => defaultBlockActions(sender));
+
+  // This component instance is reused across senders (no remount on prop change), so
+  // reset the staged selection here — otherwise a prior sender's customized actions could
+  // be applied to this one.
+  useEffect(() => {
+    setBlockOpen(false);
+    setActions(defaultBlockActions(sender));
+  }, [sender]);
 
   const toggle = (id: BlockAction): void =>
     setActions((current) =>
