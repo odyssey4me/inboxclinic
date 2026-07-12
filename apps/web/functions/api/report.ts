@@ -103,7 +103,13 @@ export async function onRequestPost(context: PagesContext): Promise<Response> {
       return fail(500, "config", `server not configured: missing ${missing.join(", ")}`);
     }
 
-    // 1. Size cap.
+    // 1. Size cap — reject an oversized body by its declared length before reading it
+    //    into memory, then re-check the actual length (a missing/lying header can't slip
+    //    past the second check).
+    const declared = Number(request.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return fail(413, "size", "payload too large");
+    }
     const raw = await request.text();
     if (raw.length > MAX_BODY_BYTES) return fail(413, "size", "payload too large");
 
