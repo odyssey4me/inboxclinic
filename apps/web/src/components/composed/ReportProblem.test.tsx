@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import type { DiagnosticReport, ReportingClient } from "@inboxclinic/core";
+import type { ReportingClient } from "@inboxclinic/core";
 import { createInMemoryStore } from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,7 +45,7 @@ describe("ReportProblem", () => {
   });
 
   it("submits via the client and surfaces the returned reference", async () => {
-    const submit = vi.fn(async (_r: DiagnosticReport, _t: string) => ({
+    const submit = vi.fn<ReportingClient["submit"]>(async () => ({
       ref: "https://github.com/x/y/issues/1",
     }));
     const client: ReportingClient = { submit };
