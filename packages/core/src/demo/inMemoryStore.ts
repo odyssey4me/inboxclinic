@@ -70,7 +70,7 @@ class InMemoryPromptRepo extends InMemoryRepo<Prompt> implements PromptRepo {
 
   byPriority(limit: number): Promise<Prompt[]> {
     const sorted = [...this.items.values()].sort((a, b) => b.priorityScore - a.priorityScore);
-    return Promise.resolve(sorted.slice(0, limit));
+    return Promise.resolve(sorted.slice(0, Math.max(0, limit)));
   }
 }
 

@@ -82,7 +82,7 @@ class DexieRepo<T> implements Repo<T> {
 
 class DexiePromptRepo extends DexieRepo<Prompt> implements PromptRepo {
   byPriority(limit: number): Promise<Prompt[]> {
-    return this.table.orderBy("priorityScore").reverse().limit(limit).toArray();
+    return this.table.orderBy("priorityScore").reverse().limit(Math.max(0, limit)).toArray();
   }
 }
 
