@@ -59,15 +59,30 @@ jobs:
             6. Feedback synthesis — cluster open `feedback` issues, spot patterns, and
                propose concrete fixes or roadmap items.
 
+            Write each issue for a mixed audience — LEAD WITH IMPACT IN PLAIN LANGUAGE,
+            then supply the technical detail:
+            - Title: plain, impact-first language a non-engineer admin would understand —
+              name the user-visible symptom or risk, not the code construct. (e.g.
+              "Inbox analysis slows down as your mailbox grows", not "DexieRepo.query does
+              a full-table scan".)
+            - First section `## Impact` — who is affected and what they experience or risk,
+              in user- or admin-facing language. No code identifiers here. Every finding
+              has a consequence: data loss, a broken/blank screen, slowness that worsens
+              with scale, a privacy leak, a wrong number shown, or (for internal-only
+              issues) maintainer/operational risk — state it in those terms.
+            - Then `## Details` — the technical specifics for whoever fixes it: root cause,
+              evidence as file:line or doc section, and a concrete proposed change.
+
             Rules:
             - Deduplicate against ALL existing issues, and do NOT re-raise anything a prior
               `claude-proposed` issue was CLOSED without action (a closed proposal =
               declined).
             - Do NOT re-report findings already covered by CodeQL, Scorecard, Dependabot,
               or the doc-sync hook — complement them, don't echo.
-            - Prioritise: open at most ~8 issues, highest value first; group minor nits
-              into a single "cleanup" issue. Each issue states the problem, the evidence
-              (file:line or doc section), and a concrete proposed change.
+            - Keep each issue ATOMIC — one self-contained, independently implementable
+              change (do NOT bundle several unrelated nits into one "cleanup" issue; a
+              bundled issue can't be cleanly implemented or approved on its own).
+            - Prioritise: open at most ~8 issues, highest user/admin impact first.
             - Label every issue `claude-proposed`. Do NOT modify code, commit, or open pull
               requests — issues only. If nothing substantive is found, do nothing.
           # Read the repo + file issues via gh. contents:read means nothing can be pushed.

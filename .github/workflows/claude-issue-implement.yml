@@ -50,4 +50,4 @@ jobs:
               and what you'd need to proceed.
           claude_args: |
             --allowedTools Read,Grep,Glob,Edit,Write,Bash
-            --max-turns 40
+            --max-turns 100
