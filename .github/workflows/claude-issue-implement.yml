@@ -11,10 +11,12 @@ on:
     types: [labeled]
 
 # Implementing needs write to code + PRs; issues:write to comment/close.
+# id-token: write is required by claude-code-action for its OIDC token exchange.
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  id-token: write
 
 jobs:
   implement:

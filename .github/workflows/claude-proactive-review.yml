@@ -12,9 +12,11 @@ on:
   workflow_dispatch: {}
 
 # Least-privilege: read the code, file issues. No write to code, no PRs.
+# id-token: write is required by claude-code-action for its OIDC token exchange.
 permissions:
   contents: read
   issues: write
+  id-token: write
 
 jobs:
   review:
