@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
+import type { MessageMeta } from "../ports/GmailClient";
 import {
   createInMemoryStore,
   inboxFromSender,
@@ -9,6 +10,25 @@ import {
   MockGmailClient,
 } from "../testing";
 import { buildScanQuery, runScan } from "./runScan";
+
+/**
+ * Wraps a `MockGmailClient` so `getMessageMeta` rejects for one id while
+ * `listMessageIds` still lists it — simulating a message that moved/was deleted
+ * between listing and fetch.
+ */
+class FlakyGmailClient extends MockGmailClient {
+  constructor(
+    messages: MessageMeta[],
+    private readonly failingIds: ReadonlySet<string>,
+  ) {
+    super(messages);
+  }
+
+  override getMessageMeta(id: string): Promise<MessageMeta> {
+    if (this.failingIds.has(id)) return Promise.reject(new Error("message not found"));
+    return super.getMessageMeta(id);
+  }
+}
 
 describe("buildScanQuery", () => {
   it("maps INBOX and the window into a bounded Gmail query", () => {
@@ -142,6 +162,30 @@ describe("runScan", () => {
       expiresAt: NOW + 30 * 24 * 60 * 60 * 1000,
       resolvedAt: null,
     });
+  });
+
+  it("skips a message that fails to fetch instead of aborting the whole scan", async () => {
+    const ok = messageMetaBuilder({ headers: { from: "jane@acme.com" } });
+    const flaky = messageMetaBuilder({ headers: { from: "bob@acme.com" } });
+    const client = new FlakyGmailClient([ok, flaky], new Set([flaky.id]));
+    const store = createInMemoryStore();
+
+    const result = await runScan(client, store, { now: NOW });
+
+    expect(result).toEqual({ messageCount: 1, senderCount: 1, domainCount: 1, promptCount: 1 });
+    const senders = await store.senders.query({});
+    expect(senders.map((s) => s.email)).toEqual(["jane@acme.com"]);
+  });
+
+  it("throws instead of reporting an empty scan when every message fails to fetch", async () => {
+    const a = messageMetaBuilder({ headers: { from: "jane@acme.com" } });
+    const b = messageMetaBuilder({ headers: { from: "bob@acme.com" } });
+    const client = new FlakyGmailClient([a, b], new Set([a.id, b.id]));
+    const store = createInMemoryStore();
+
+    await expect(runScan(client, store, { now: NOW })).rejects.toThrow(
+      "runScan: failed to fetch any message metadata",
+    );
   });
 
   it("preserves prior decisions and skips prompts for decided senders on rescan", async () => {
