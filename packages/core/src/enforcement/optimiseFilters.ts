@@ -115,30 +115,67 @@ export async function suggestFilterOptimisations(
     }
   }
 
-  return suggestions;
+  // A filter id can be flagged by more than one pass (e.g. three identical
+  // single-address filters are both a "duplicate" set and a "consolidate"
+  // set). Claim each id for the first suggestion that references it so the
+  // accepted set never asks to delete the same filter twice.
+  const claimed = new Set<string>();
+  const deduped: FilterOptimisation[] = [];
+  for (const suggestion of suggestions) {
+    const removeFilterIds = suggestion.removeFilterIds.filter((id) => !claimed.has(id));
+    for (const id of removeFilterIds) claimed.add(id);
+    if (removeFilterIds.length === 0 && suggestion.createFilter === undefined) continue;
+    deduped.push({ ...suggestion, removeFilterIds });
+  }
+
+  return deduped;
+}
+
+export interface OptimiseApplyFailure {
+  subject: string;
+  error: string;
 }
 
 export interface OptimiseApplyResult {
   filtersCreated: number;
   filtersDeleted: number;
+  failures: OptimiseApplyFailure[];
 }
 
-/** Apply an accepted set of optimisations: create replacements first, then delete the old. */
+function errMsg(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Apply an accepted set of optimisations: create replacements first, then delete the
+ * old. Best-effort like `reconcileNativeFilters` — a failed create/delete is recorded
+ * and does not abort the remaining operations, so a transient failure partway through
+ * can't leave an already-applied suggestion re-appliable.
+ */
 export async function applyFilterOptimisations(
   client: GmailClient,
   optimisations: FilterOptimisation[],
 ): Promise<OptimiseApplyResult> {
   let filtersCreated = 0;
   let filtersDeleted = 0;
+  const failures: OptimiseApplyFailure[] = [];
   for (const opt of optimisations) {
     if (opt.createFilter !== undefined) {
-      await client.createFilter(opt.createFilter);
-      filtersCreated += 1;
+      try {
+        await client.createFilter(opt.createFilter);
+        filtersCreated += 1;
+      } catch (error) {
+        failures.push({ subject: `filter:${opt.createFilter.from}`, error: errMsg(error) });
+      }
     }
     for (const id of opt.removeFilterIds) {
-      await client.deleteFilter(id);
-      filtersDeleted += 1;
+      try {
+        await client.deleteFilter(id);
+        filtersDeleted += 1;
+      } catch (error) {
+        failures.push({ subject: `filter:${id}`, error: errMsg(error) });
+      }
     }
   }
-  return { filtersCreated, filtersDeleted };
+  return { filtersCreated, filtersDeleted, failures };
 }

@@ -196,6 +196,7 @@ export {
   type OptimisationKind,
   type OptimiseFiltersOptions,
   type OptimiseApplyResult,
+  type OptimiseApplyFailure,
 } from "./enforcement/optimiseFilters";
 
 // Analytics metrics (pure) — health, time-saved, breakdowns, achievements (M6).

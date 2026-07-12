@@ -111,6 +111,10 @@ export function Settings({
       setNote(
         `Tidied your filters: ${result.filtersCreated} created, ${result.filtersDeleted} removed.`,
       );
+      if (result.failures.length > 0) {
+        const reasons = [...new Set(result.failures.map((f) => f.error))];
+        setError(`${result.failures.length} filter change(s) failed: ${reasons.join("; ")}`);
+      }
       setOptimisations([]);
     } catch (caught) {
       setError(`Could not update filters: ${errorMessage(caught)}`);
