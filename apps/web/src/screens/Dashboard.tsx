@@ -14,13 +14,14 @@ import { useState } from "react";
 import { DomainDetail } from "../components/composed/DomainDetail";
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { SenderDetail } from "../components/composed/SenderDetail";
-import { Badge, type BadgeTone } from "../components/ui/Badge";
+import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 import { useLayout } from "../layout/context";
 import { healthTone } from "../lib/health";
+import { statusTone } from "../lib/statusTone";
 
 export interface DashboardProps {
   store: Store;
@@ -58,13 +59,6 @@ function Stat({
     );
   }
   return <Card className="text-center">{body}</Card>;
-}
-
-/** Trust status as a colour-coded chip (colour is always paired with the status word). */
-function statusTone(status: Sender["trustStatus"]): BadgeTone {
-  if (status === "trusted") return "green";
-  if (status === "blocked") return "red";
-  return "neutral";
 }
 
 /** Dashboard: inbox-health hero + next action, counts, top pending prompts, sender list. */

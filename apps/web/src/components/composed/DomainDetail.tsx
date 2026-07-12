@@ -15,12 +15,13 @@ import {
 } from "@inboxclinic/core";
 import { useEffect, useState } from "react";
 
-import { Badge, type BadgeTone } from "../ui/Badge";
+import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Drawer } from "../ui/Drawer";
 import { ImpactPreview } from "./ImpactPreview";
 import { ScoreIndicator } from "./ScoreIndicator";
+import { statusTone } from "../../lib/statusTone";
 
 export interface DomainDetailProps {
   /** The domain to act on, or null to close the drawer. */
@@ -42,12 +43,6 @@ const EXISTING_ACTIONS: { id: BlockAction; label: string }[] = [
   { id: "archive", label: "Archive existing" },
   { id: "delete", label: "Delete existing" },
 ];
-
-function statusTone(status: Domain["trustStatus"]): BadgeTone {
-  if (status === "trusted") return "green";
-  if (status === "blocked") return "red";
-  return "neutral";
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

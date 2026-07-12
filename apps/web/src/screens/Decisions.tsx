@@ -23,6 +23,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
+import { statusTone } from "../lib/statusTone";
 
 export interface DecisionsProps {
   store: Store;
@@ -273,9 +274,7 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge tone={subject.status === "trusted" ? "green" : "red"}>
-                  {subject.status}
-                </Badge>
+                <Badge tone={statusTone(subject.status)}>{subject.status}</Badge>
                 <Button
                   variant="secondary"
                   onClick={() =>
