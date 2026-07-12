@@ -17,8 +17,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Patterns that must never appear in the tree. Kept narrow to avoid false
-# positives (e.g. "client_secret" with an underscore, not the prose "client secret").
+# Patterns that must never appear in the tree. Matched case-insensitively (grep -i) so
+# upper-cased env-var forms like CLIENT_SECRET / AWS_SECRET_ACCESS_KEY are caught too;
+# kept narrow to avoid false positives (e.g. "client_secret" with an underscore, not the
+# prose "client secret").
 patterns=(
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'  # PEM private keys
   'client_secret'                       # OAuth client secret (we ship none)
@@ -35,7 +37,7 @@ joined="$(
 )"
 
 matches="$(
-  grep -RInE --binary-files=without-match \
+  grep -RInEi --binary-files=without-match \
     --exclude-dir=.git \
     --exclude-dir=node_modules \
     --exclude-dir=dist \
