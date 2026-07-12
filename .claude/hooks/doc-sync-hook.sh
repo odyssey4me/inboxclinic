@@ -5,8 +5,7 @@
 # This hook runs after Write/Edit operations on markdown files.
 # It validates documentation sync and reminds Claude to fix issues.
 #
-# Uses the same validation logic as the git pre-commit hook
-# (scripts/doc-sync-validate.sh) for consistency.
+# Uses the shared validation logic in scripts/doc-sync-validate.sh.
 #
 # Exit codes:
 #   0 = Success (with optional JSON output for context)

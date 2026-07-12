@@ -8,9 +8,9 @@
 # 2. New/removed docs in docs/ must be reflected in docs/README.md index
 # 3. Modified design docs and architecture.md must have changelog entries
 #
-# This script is used by:
-# - Git pre-commit hook (scripts/pre-commit)
-# - Claude Code hooks (.claude/hooks/doc-sync-hook.sh)
+# This script is used by the Claude Code doc-sync hook
+# (.claude/hooks/doc-sync-hook.sh) after Markdown edits, and can also be run manually.
+# (No git pre-commit hook installs it.)
 #
 # Usage:
 #   ./scripts/doc-sync-validate.sh [--staged]
