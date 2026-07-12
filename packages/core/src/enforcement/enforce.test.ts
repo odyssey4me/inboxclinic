@@ -196,4 +196,77 @@ describe("enforce", () => {
     expect(result.failures).toHaveLength(1);
     expect(result.failures[0]?.error).toBe("boom");
   });
+
+  it("keeps the last known-good totalFilters when listFilters() fails", async () => {
+    class FlakyListClient extends MockGmailClient {
+      override listFilters(): never {
+        throw new Error("503");
+      }
+    }
+    const store = createInMemoryStore();
+    await store.filterSync.put({ key: FILTER_SYNC_KEY, lastSyncAt: NOW - 1000, totalFilters: 7 });
+    await store.senders.put(senderBuilder("x@y.com", { trustStatus: "blocked" }));
+    const gmail = new FlakyListClient();
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(result.totalFilters).toBe(7);
+    expect(result.failures).toEqual([{ subject: "filters", error: "503" }]);
+    const sync = await store.filterSync.get();
+    expect(sync?.totalFilters).toBe(7);
+  });
+
+  it("does not clear pendingActions when matching messages exceed the fetch ceiling", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("spam@a.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "archive"],
+      }),
+    );
+    const gmail = new MockGmailClient([
+      msgFrom("spam@a.com"),
+      msgFrom("spam@a.com"),
+      msgFrom("spam@a.com"),
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW, messageIdCeiling: 2 });
+
+    // Only the first 2 (of 3) matching messages were fetched and archived...
+    expect(gmail.batchModifyCalls[0]?.ids).toHaveLength(2);
+    expect(result.messagesArchived).toBe(2);
+    // ...but pendingActions is retained so a follow-up run can pick up the rest.
+    const sender = await store.senders.get(senderBuilder("spam@a.com").id);
+    expect(sender?.pendingActions).toEqual(["create_filter", "archive"]);
+    expect(result.failures).toEqual([
+      {
+        subject: "spam@a.com",
+        error: "more than 2 matching messages; pendingActions retained for a follow-up run",
+      },
+    ]);
+  });
+
+  it("does not zero spamMarkedCount when spam-marked messages exceed the fetch ceiling", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("friend@good.com", { trustStatus: "trusted", spamMarkedCount: 3 }),
+    );
+    const gmail = new MockGmailClient([
+      msgFrom("friend@good.com"),
+      msgFrom("friend@good.com"),
+      msgFrom("friend@good.com"),
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW, messageIdCeiling: 2 });
+
+    expect(result.messagesRescued).toBe(2);
+    const sender = await store.senders.get(senderBuilder("friend@good.com").id);
+    expect(sender?.spamMarkedCount).toBe(3);
+    expect(result.failures).toEqual([
+      {
+        subject: "friend@good.com",
+        error: "more than 2 spam-marked messages; spamMarkedCount retained for a follow-up run",
+      },
+    ]);
+  });
 });
