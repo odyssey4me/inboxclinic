@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-07-12
 
 ## Overview
 
@@ -73,7 +73,7 @@ authorisation** (least-permission; architecture.md §6):
 |------|----------|---------|
 | 1 (required) | `gmail.readonly` | Inbox scan, sender extraction, trust scoring |
 | 2 (enforcement) | `gmail.modify`, `gmail.settings.basic` | Archive/delete/relabel, native filter sync |
-| 3 (optional) | `contacts.readonly` (People API) | "In contacts" trust signal |
+| 3 (optional) | `contacts.readonly` (People API) | "In contacts" trust signal — **deferred, not requested in v1** (see [ROADMAP.md](ROADMAP.md#deferred-post-v1)) |
 
 **Rationale:** Read-only first builds trust; enforcement scopes are only requested
 when the user acts. The hosted instance runs in **testing mode with a ≤100-email
@@ -277,7 +277,7 @@ interface GmailClient {
 
   // Senders
   listSenders(opts: ScanOptions): Promise<SenderSummary[]>;
-  lookupContacts(emails: string[]): Promise<Record<string, boolean>>; // People API
+  lookupContacts(emails: string[]): Promise<Record<string, boolean>>; // People API — deferred, not implemented in v1
 
   // Enforcement
   applyActions(actions: MailAction[]): Promise<void>;
@@ -290,7 +290,7 @@ interface GmailClient {
 | `authorize` | 1+ | Requests only the named tiers; incremental escalation |
 | `scanInbox` / `syncSince` | 1 | `format=metadata` only; `syncSince` returns `stale` on 404 |
 | `listSenders` | 1 | Aggregates scan output into per-sender summaries |
-| `lookupContacts` | 3 | Batched People API; result cached with 24h TTL |
+| `lookupContacts` | 3 | **Deferred, not implemented in v1.** Planned: batched People API; result cached with 24h TTL |
 | `applyActions` | 2 | `gmail.modify` |
 | `reconcileFilters` | 2 | `gmail.settings.basic`; idempotent, respects ~450 cap |
 
@@ -312,7 +312,7 @@ client settings.
 | `filters.softCap` | number | `450` | Stop creating filters near Gmail's 500 limit |
 | `filters.maxDomainsPerFilter` | number | `10` | OR-combine ceiling per filter |
 | `filters.domainBlockThreshold` | number | `3` | Senders-per-domain before a domain-level filter |
-| `contacts.cacheTtlHours` | number | `24` | `inContacts` cache validity |
+| `contacts.cacheTtlHours` | number | `24` | `inContacts` cache validity — **deferred setting; unused until `lookupContacts` ships** |
 | `quota.slowAtFraction` | number | `0.8` | Slow scanning past this share of the per-user limit |
 
 ## Error Handling
@@ -403,6 +403,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-12 | Clarify that Tier-3 `contacts.readonly`/`lookupContacts`/`contacts.cacheTtlHours` are **deferred, not implemented** in v1 — matches the code (`GmailClient.ts` `SCOPES_BY_TIER`) and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scope or code change. | Claude |
 | 2026-07-05 | Implement the **transport-level retry/backoff** the error table already specifies (`GmailRateLimited` 429 / 403 `rateLimitExceeded`, `GmailServerError` 5xx, 408): a shared `fetchWithRetry` wrapper honours `Retry-After` and otherwise uses exponential backoff + full jitter, so transient limits self-heal instead of surfacing as errors. Applied to the Gmail and Drive browser adapters. | Claude |
 | 2026-07-05 | Add **Decisions-milestone** capabilities: Decision 7 **learning scan** (read `listFilters` + a bounded read-weighted Spam/Trash scan to surface prior "no" decisions); Decision 8 **count-only enforcement simulation** (no-mutation impact preview + future extrapolation); Decision 9 **filter-optimisation suggestions** (consolidate/dedupe/tighten, confirm-first). | Claude |
 | 2026-06-28 | Full rewrite for client-only, local-first, no-backend PWA architecture: browser PKCE OAuth, metadata-only scan, polling + periodic sync (no push), native-filter compilation, and the `GmailClient` port in `packages/core`. Supersedes the prior server-based design. | Claude |

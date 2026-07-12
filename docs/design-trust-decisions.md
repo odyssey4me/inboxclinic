@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-07-12
 
 ## Overview
 
@@ -198,7 +198,7 @@ interface SenderSnapshot {
   readRate: number | null;        // 0..1
   frequency: Frequency;
   hasListUnsubscribe: boolean;
-  inContacts: boolean;
+  inContacts: boolean;            // deferred: always false until the Tier-3 lookup ships
   /** Recency-bucketed user-signal occurrences, e.g. { replied: {...} }. */
   userSignals: UserSignalCounts;
   auth: { spf: boolean; dkim: boolean; dmarc: boolean; spoofed: boolean };
@@ -313,9 +313,18 @@ These constants are owned by this design — architecture.md §4 defines the tru
 | Compliance | 0.23 | 0.15 |
 | Network (deferred) | — | 0.35 |
 
-**User signals** (−10…+10 before weighting): replied **+3**, in contacts **+2**, frequently
-starred **+2**, consistently opened >80% **+1**, never opened **−1**, frequently
-deleted-unread **−1**, manually marked spam **−2**, repeatedly marked spam **−3**.
+**User signals** (−10…+10 before weighting): replied **+3**, in contacts **+2**
+_(deferred — see below)_, frequently starred **+2**, consistently opened >80% **+1**,
+never opened **−1**, frequently deleted-unread **−1** _(deferred — not yet
+implemented)_, manually marked spam **−2**, repeatedly marked spam **−3**.
+
+> **Deferred signals:** `inContacts` and "frequently deleted-unread" are **not live in
+> v1** — see [ROADMAP.md](ROADMAP.md#deferred-post-v1). `inContacts` has a schema field
+> and scoring branch in place as a seam (`SenderSnapshot.inContacts`,
+> `computeTrustScore`), but the Tier-3 People API lookup that would populate it is not
+> built, so the field is always `false` and the +2 branch never fires
+> (`packages/core/src/ports/GmailClient.ts` — Tier 3 scopes). "Frequently deleted-unread"
+> has no field or scoring branch yet.
 
 **Recency weights:** ≤30d **×1.0**, 30–90d **×0.7**, 90–180d **×0.4**, >180d **×0.2**.
 
@@ -433,6 +442,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-12 | Clarify that `inContacts` (+2) and "frequently deleted-unread" (−1) are **deferred, not implemented** in v1 — matches the code and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scoring or scope change. | Claude |
 | 2026-07-05 | Add the **Decisions milestone** model: Decision 6 **revisable decisions** (change later → reconcile filters + rescue from Trash); Decision 7 **impact preview + explicit confirm** before applying (deletes are loud; block trashes future by default, delete-existing opt-in); Decision 8 **learn prior decisions** from filters + **read-weighted** Spam/Trash as confirm-first suggestions. | Claude |
 | 2026-06-28 | Rewritten for the client-only, local-first, all-TypeScript PWA model: pure on-device `packages/core` interfaces, network signals deferred (v1 User×0.77 + Compliance×0.23), no backend. Supersedes the backend-API design. | Claude |
 | 2025-12-30 | Approved (previous backend-API design) | Claude |
