@@ -92,7 +92,7 @@ empty static PWA shell.
 **Goal:** durable, user-owned backup; move to a new device.
 - Opt-in setting (default off); incremental `drive.file` scope requested on enable.
 - Back up: `exportAll()` → a visible `Inbox Clinic Backup.json` in the user's own
-  Drive (updated in place). Manual "Back up now"; optional periodic auto-backup.
+  Drive (updated in place). Manual "Back up now".
 - Restore: download → `importAll()` (replace-local with a warning). Not sync.
 - **Exit:** a user can back up to their Drive and restore on a fresh install.
 
@@ -121,6 +121,7 @@ empty static PWA shell.
 | **Collective trust intelligence** | Anonymous, opt-out aggregate (a user setting). Build behind the `packages/core` contribution interface; choose backend/datastore then (architecture §9). The **edge backend + anti-abuse foundation** (Cloudflare Workers, Turnstile, KV rate-limiting, cloud-neutral reporting port) is now established by [design-error-reporting.md](design-error-reporting.md) and reused here — with **distinct identity handling** (aggregate stays non-identifiable). |
 | **Mobile apps (iOS/Android)** | Capacitor wrap of the SPA first; React Native fallback. Kept open via platform-capability + repository interfaces. |
 | **Server-side real-time triage** | Deliberately avoided (would reintroduce a backend + token custody). |
+| **Periodic auto-backup** | v1 is manual "Back up now" only; see [design-backup-restore.md](design-backup-restore.md) Decision 4. |
 
 ## Notes
 
