@@ -16,7 +16,10 @@
  * 2. **One-time message actions** (archive/trash existing mail, unsubscribe) are driven
  *    by `pendingActions`, which are **cleared** once applied — so a re-run does nothing.
  *    Trust rescues (remove SPAM/TRASH) are gated by `spamMarkedCount`, which is zeroed
- *    after a successful rescue (the messages are genuinely no longer spam-marked).
+ *    after a successful rescue (the messages are genuinely no longer spam-marked). Both
+ *    are only cleared once the matching-message fetch is confirmed exhausted (below the
+ *    ceiling documented at {@link DEFAULT_MESSAGE_ID_CEILING}) — otherwise a follow-up
+ *    run retries the remainder instead of the state being dropped silently.
  *
  * Everything is best-effort: per-subject failures are collected and do not abort the run.
  */
@@ -30,11 +33,22 @@ import type { BlockAction, Store } from "../store";
 /** Singleton key for the `filterSyncState` record. */
 export const FILTER_SYNC_KEY = "filterSyncState";
 
+/**
+ * Ceiling passed as `max` to `listMessageIdsForSender`. `listMessageIds` pages via
+ * cursor up to this many ids, so anything below it means the query is genuinely
+ * exhausted (no `nextPageToken` left); anything landing exactly on it is treated as
+ * "there may be more" — pendingActions / spamMarkedCount are left in place so a later
+ * run retries rather than silently dropping the remainder.
+ */
+const DEFAULT_MESSAGE_ID_CEILING = 5000;
+
 export interface EnforceOptions {
   /** Injected clock for deterministic tests. */
   now?: number;
   /** Filter-compilation tuning (threshold / OR-combine / soft cap). */
   compile?: CompileFiltersOptions;
+  /** Override for {@link DEFAULT_MESSAGE_ID_CEILING} (tests only). */
+  messageIdCeiling?: number;
 }
 
 export interface EnforceFailure {
@@ -97,7 +111,10 @@ export async function reconcileNativeFilters(
 
   let filtersCreated = 0;
   let filtersDeleted = 0;
-  let totalFilters = 0;
+  // Preserve the last known-good count so a transient listFilters() failure below
+  // doesn't corrupt the persisted soft-cap headroom view with a false "zero" reading.
+  const previousSync = await store.filterSync.get();
+  let totalFilters = previousSync?.totalFilters ?? 0;
   try {
     const existing = await client.listFilters();
     const { toCreate, toDelete } = reconcileFilters(compiled.filters, existing);
@@ -180,6 +197,8 @@ export async function enforce(
     });
   }
 
+  const messageIdCeiling = options.messageIdCeiling ?? DEFAULT_MESSAGE_ID_CEILING;
+
   let messagesArchived = 0;
   let messagesTrashed = 0;
   let unsubscribeRequested = 0;
@@ -190,17 +209,28 @@ export async function enforce(
         actions: subject.pendingActions,
         hasListUnsubscribe: subject.hasListUnsubscribe,
       });
+      let drained = true;
       if (plan.messageMutation !== null) {
-        const ids = await client.listMessageIdsForSender(subject.from);
+        const ids = await client.listMessageIdsForSender(subject.from, messageIdCeiling);
         if (ids.length > 0) await client.batchModifyMessages(ids, plan.messageMutation);
         if (plan.messageMutation.addLabelIds?.includes("TRASH") === true) {
           messagesTrashed += ids.length;
         } else if (plan.messageMutation.removeLabelIds?.includes("INBOX") === true) {
           messagesArchived += ids.length;
         }
+        drained = ids.length < messageIdCeiling;
       }
       if (plan.unsubscribe) unsubscribeRequested += 1;
-      await subject.clear();
+      if (drained) {
+        await subject.clear();
+      } else {
+        // More matching messages than the ceiling — leave pendingActions in place so a
+        // follow-up run picks up the remainder instead of silently dropping it.
+        failures.push({
+          subject: subject.from,
+          error: `more than ${messageIdCeiling} matching messages; pendingActions retained for a follow-up run`,
+        });
+      }
     } catch (error) {
       failures.push({ subject: subject.from, error: errMsg(error) });
     }
@@ -213,12 +243,23 @@ export async function enforce(
     if (sender.spamMarkedCount <= 0) continue;
     try {
       const plan = planActions({ decision: "trust", spamMarkedCount: sender.spamMarkedCount });
+      let drained = true;
       if (plan.messageMutation !== null) {
-        const ids = await client.listMessageIdsForSender(sender.email);
+        const ids = await client.listMessageIdsForSender(sender.email, messageIdCeiling);
         if (ids.length > 0) await client.batchModifyMessages(ids, plan.messageMutation);
         messagesRescued += ids.length;
+        drained = ids.length < messageIdCeiling;
       }
-      await store.senders.put({ ...sender, spamMarkedCount: 0 });
+      if (drained) {
+        await store.senders.put({ ...sender, spamMarkedCount: 0 });
+      } else {
+        // More spam-marked messages than the ceiling — leave the counter in place so a
+        // follow-up run retries rescuing the remainder.
+        failures.push({
+          subject: sender.email,
+          error: `more than ${messageIdCeiling} spam-marked messages; spamMarkedCount retained for a follow-up run`,
+        });
+      }
     } catch (error) {
       failures.push({ subject: sender.email, error: errMsg(error) });
     }
