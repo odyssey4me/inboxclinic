@@ -171,6 +171,8 @@ This project is optimized for Claude Code.
 |------|---------|-------------|
 | `.claude/settings.json` | Permissions and hooks | Yes |
 | `.claude/settings.local.json` | Personal overrides | No (gitignored) |
+| `.claude/agents/*.md` | Project subagents (e.g. `inbox-clinic-auditor`, the privacy/client-only invariant reviewer) | Yes |
+| `.claude/skills/*/` | Project skills (`design-doc`, `milestone`) | Yes |
 | `CLAUDE.md` (this file) | Project context | Yes |
 
 ### Model Usage

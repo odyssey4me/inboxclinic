@@ -114,6 +114,35 @@ PRs must pass: Prettier (format), ESLint (lint), `tsc` (types), and Vitest (test
 ≥80% core coverage). In the description, include a summary, any linked issue
 (`Fixes #123`), how you tested it, and any breaking changes (allowed in Alpha).
 
+## Reviewing for privacy & architecture invariants
+
+Inbox Clinic's identity is its constitution — **privacy by construction, client-only, no
+credential custody** (architecture.md §1, §2, §5). Those invariants are subtle to break
+in code. When reviewing (or writing) a change that touches networking, storage, auth
+scopes, logging, diagnostic reporting, or `packages/core`, watch for these code smells;
+each links to the clause it risks. This checklist is *detection guidance* — the
+authoritative rules live in the linked docs, not here.
+
+| Watch for (in the diff) | Risks the invariant owned by |
+|-------------------------|------------------------------|
+| `fetch`/XHR/WebSocket/beacon to a host that isn't the Gmail API or the sanctioned reporting path | On-device-only data — architecture.md §1, §5; [design-error-reporting.md](docs/design-error-reporting.md) |
+| Tokens/passwords written to the store, IndexedDB, `localStorage`/`sessionStorage`, cookies, a file, or a log | No credential custody — §2, §5; [design-local-store-schema.md](docs/design-local-store-schema.md), [design-gmail-integration.md](docs/design-gmail-integration.md) |
+| Requesting/storing/transmitting message **bodies** or content-bearing snippets (not metadata) | Metadata-only — §5 |
+| Raw addresses, message ids, subjects, or headers reaching a report payload or `console.*`/log without redaction or explicit user submission | Redacted, opt-in diagnostics — §5; [design-error-reporting.md](docs/design-error-reporting.md) |
+| Hardcoded API keys, private keys, or service credentials in source/config | No secrets in repo or client — §7; [design-deployment.md](docs/design-deployment.md) |
+| OAuth scopes broadened beyond the touched feature's need | Least-permission — §6; [design-gmail-integration.md](docs/design-gmail-integration.md), [design-backup-restore.md](docs/design-backup-restore.md) |
+| `packages/core` importing React/DOM/browser globals, a provider SDK, `apps/web`, or a storage technology; or a scoring function doing I/O | Pure, provider- & UI-agnostic core — §6; [design-trust-decisions.md](docs/design-trust-decisions.md) |
+| A new application server, server-side store of user data, analytics/telemetry SDK, or maintainer-controlled per-user flag | Client-only, no feature-flag system — §1, §2, §3, §8 |
+
+**Sanctioned** (don't flag, but confirm the shape matches): direct Gmail API calls; the
+opt-in, redacted diagnostic report to the Cloudflare feedback function
+([design-error-reporting.md](docs/design-error-reporting.md)); and the public OAuth
+client id (PKCE) + Turnstile on that function. A *new* egress or store that merely
+*resembles* one of these is still a finding.
+
+The `inbox-clinic-auditor` subagent automates this checklist — see
+[CLAUDE.md](CLAUDE.md).
+
 ## Security vulnerabilities
 
 If you discover a security vulnerability:
