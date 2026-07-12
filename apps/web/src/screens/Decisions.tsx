@@ -64,7 +64,7 @@ const REASON_TEXT: Record<LearnReason, string> = {
  * (design-trust-decisions.md Decision 6/7).
  */
 export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
-  const { data, reload } = useStoreSnapshot(store);
+  const { data, error: loadError, reload } = useStoreSnapshot(store);
   const [query, setQuery] = useState("");
   const [change, setChange] = useState<PendingChange | null>(null);
   const [impact, setImpact] = useState<SimulatedImpact | null>(null);
@@ -183,6 +183,15 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
           first, then reconciles your Gmail filters.
         </p>
       </div>
+
+      {loadError !== null && (
+        <div role="alert" className="flex items-center justify-between gap-3 text-sm text-block">
+          <span>Couldn't load your decisions: {loadError}</span>
+          <Button variant="ghost" onClick={reload}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm text-muted">{subjects.length} decided</span>

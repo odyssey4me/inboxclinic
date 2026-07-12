@@ -66,7 +66,7 @@ function Stat({
 const SENDERS_CAP = 50;
 
 export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: DashboardProps) {
-  const { data } = useStoreSnapshot(store);
+  const { data, error, reload } = useStoreSnapshot(store);
   const { layout } = useLayout();
   const desktop = layout === "desktop";
   const [query, setQuery] = useState("");
@@ -331,6 +331,15 @@ export function Dashboard({ store, gmail, online, onStartWorkflow, onChanged }: 
 
   return (
     <div className={`mx-auto flex flex-col gap-6 px-4 py-8 ${desktop ? "max-w-6xl" : "max-w-3xl"}`}>
+      {error !== null && (
+        <div role="alert" className="flex items-center justify-between gap-3 text-sm text-block">
+          <span>Couldn't load your data: {error}</span>
+          <Button variant="ghost" onClick={reload}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {heroCard}
 
       <section className="grid grid-cols-3 gap-3" aria-label="Summary">
