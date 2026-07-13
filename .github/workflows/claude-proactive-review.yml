@@ -59,11 +59,12 @@ jobs:
                critical paths, consistent with CLAUDE.md.
             6. Feedback synthesis — cluster open `feedback` issues, spot patterns, and
                propose concrete fixes or roadmap items.
-            7. Unblock stalled work — for any `claude-approved` issue carrying an
-               implementation-struggle comment (a paused attempt), act on that feedback so
-               the next attempt succeeds: sharpen the problem statement and add the
-               specifics it asked for, or split it into atomic issues if it's too large.
-               EDIT the existing issue (`gh issue edit`) — do not open a duplicate.
+            7. Unblock stalled work — for any issue labelled `needs-refinement` (a paused
+               attempt that left a struggle comment), act on that feedback so the next
+               attempt succeeds: sharpen the problem statement and add the specifics it
+               asked for, or split it into atomic issues if it's too large. EDIT the
+               existing issue (`gh issue edit`) — do not open a duplicate — then remove the
+               `needs-refinement` label so the maintainer can re-approve it.
 
             Write each issue for a mixed audience — LEAD WITH IMPACT IN PLAIN LANGUAGE,
             then supply the technical detail:

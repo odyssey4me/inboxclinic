@@ -68,8 +68,13 @@ jobs:
                 check that kept failing and the reason.
               • What would unblock it: the missing specifics, a concrete split into atomic
                 issues, or the decision you need from the maintainer.
+            After commenting, tag the issue for follow-up: `gh issue edit
+            #${{ github.event.issue.number }} --add-label needs-refinement --remove-label
+            claude-approved`. This makes the stall easy to spot and report on, and stops it
+            being re-attempted until it's refined and re-approved.
+
             A clear struggle report is a SUCCESSFUL outcome when the task isn't yet
-            tractable — it feeds the next round. Also stop-and-comment (no PR) if the
+            tractable — it feeds the next round. Also stop-and-comment + tag (no PR) if the
             request is unclear, unsafe, or conflicts with an architectural invariant.
           claude_args: |
             --allowedTools Read,Grep,Glob,Edit,Write,Bash
