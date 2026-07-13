@@ -8,7 +8,7 @@
  * `fake-indexeddb` in a node environment.
  */
 
-import Dexie, { type Table } from "dexie";
+import Dexie, { type IndexableType, type Table } from "dexie";
 import type {
   AnalyticsStore,
   DailyAnalytics,
@@ -72,7 +72,23 @@ class DexieRepo<T> implements Repo<T> {
   query(filter: Partial<T>): Promise<T[]> {
     const keys = Object.keys(filter) as (keyof T)[];
     if (keys.length === 0) return this.table.toArray();
-    return this.table.filter((record) => keys.every((k) => record[k] === filter[k])).toArray();
+
+    const { primKey, idxByName } = this.table.schema;
+    const isIndexed = (key: keyof T): boolean => key === primKey.name || key in idxByName;
+    const indexedKey = keys.find(isIndexed);
+
+    // No declared index covers any filtered field: fall back to a full scan.
+    if (indexedKey === undefined) {
+      return this.table.filter((record) => keys.every((k) => record[k] === filter[k])).toArray();
+    }
+
+    const remaining = keys.filter((k) => k !== indexedKey);
+    const collection = this.table
+      .where(indexedKey as string)
+      .equals(filter[indexedKey] as IndexableType);
+    return remaining.length === 0
+      ? collection.toArray()
+      : collection.and((record) => remaining.every((k) => record[k] === filter[k])).toArray();
   }
 
   async delete(id: string): Promise<void> {

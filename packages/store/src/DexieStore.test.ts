@@ -78,6 +78,27 @@ describe("DexieStore senders/domains repos", () => {
     expect(all).toHaveLength(3);
   });
 
+  it("queries senders by a non-indexed field, falling back to a full scan", async () => {
+    await store.senders.bulkPut([
+      senderFixture("a@acme.com", { displayName: "Ann" }),
+      senderFixture("b@acme.com", { displayName: "Bea" }),
+    ]);
+
+    const matches = await store.senders.query({ displayName: "Bea" });
+    expect(matches.map((s) => s.email)).toEqual(["b@acme.com"]);
+  });
+
+  it("queries senders by an indexed field combined with a non-indexed field", async () => {
+    await store.senders.bulkPut([
+      senderFixture("a@acme.com", { domain: "acme.com", displayName: "Ann" }),
+      senderFixture("b@acme.com", { domain: "acme.com", displayName: "Bea" }),
+      senderFixture("c@other.com", { domain: "other.com", displayName: "Ann" }),
+    ]);
+
+    const matches = await store.senders.query({ domain: "acme.com", displayName: "Ann" });
+    expect(matches.map((s) => s.email)).toEqual(["a@acme.com"]);
+  });
+
   it("deletes a sender", async () => {
     const sender = senderFixture("gone@acme.com");
     await store.senders.put(sender);
