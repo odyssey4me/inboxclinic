@@ -38,20 +38,39 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             The maintainer approved issue #${{ github.event.issue.number }} for
-            implementation (they applied the `claude-approved` label).
+            implementation (they applied the `claude-approved` label). Read the issue AND
+            its existing comments first — a previous attempt may have left a struggle
+            report on what blocked it; use that to go straight to a working approach.
 
-            - Read the issue and implement the requested change, following the repo
-              conventions: CLAUDE.md, docs/architecture.md and the design docs, and the
-              "Reviewing for privacy & architecture invariants" checklist in
-              CONTRIBUTING.md.
+            Implement the requested change, following the repo conventions: CLAUDE.md,
+            docs/architecture.md and the design docs, and the "Reviewing for privacy &
+            architecture invariants" checklist in CONTRIBUTING.md.
             - Work on a NEW branch — never push to `main`. One focused problem per commit.
             - Run the repo checks (lint, typecheck, tests) and fix any failures before
               opening the PR.
             - Open a pull request describing the change; include
               "Closes #${{ github.event.issue.number }}" in the body.
-            - If the request is unclear, unsafe, or conflicts with an architectural
-              invariant, do NOT implement it — instead comment on the issue explaining why
-              and what you'd need to proceed.
+
+            Budget & self-check: a focused fix should land in roughly 40 steps; the hard
+            ceiling is 50. Watch your own progress — do NOT burn to the ceiling or force a
+            low-quality PR. If you are NOT converging (thrashing, repeatedly failing the
+            same check, the change is far larger/more coupled than the issue implies, the
+            issue is underspecified, or it needs a maintainer decision), STOP and step
+            back: ask *why* it's taking so long — is the issue not specific enough, did you
+            go down a wrong path that needs a reset, or is the scope simply too big for one
+            atomic change?
+
+            Then post a COMMENT on the issue (`gh issue comment`) — do NOT open a PR — that
+            gives the next attempt what it needs to succeed:
+              • Why you paused: underspecified / too-large-should-split / blocked-by-X /
+                wrong-approach-needs-reset / conflicts-with-an-invariant.
+              • What you tried: the approach(es), dead-ends, files/areas touched, and any
+                check that kept failing and the reason.
+              • What would unblock it: the missing specifics, a concrete split into atomic
+                issues, or the decision you need from the maintainer.
+            A clear struggle report is a SUCCESSFUL outcome when the task isn't yet
+            tractable — it feeds the next round. Also stop-and-comment (no PR) if the
+            request is unclear, unsafe, or conflicts with an architectural invariant.
           claude_args: |
             --allowedTools Read,Grep,Glob,Edit,Write,Bash
-            --max-turns 100
+            --max-turns 50
