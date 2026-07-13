@@ -33,6 +33,7 @@ jobs:
           fetch-depth: 0 # full history so Claude can branch and diff
 
       - name: Implement issue → open PR
+        id: implement
         uses: anthropics/claude-code-action@e90deca47693f9457b72f2b53c17d7c445a87342 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -79,3 +80,52 @@ jobs:
           claude_args: |
             --allowedTools Read,Grep,Glob,Edit,Write,Bash
             --max-turns 50
+
+      - name: Record run metrics
+        if: always()
+        env:
+          EXEC: ${{ steps.implement.outputs.execution_file }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          # Per-run efficiency metrics from the agent's result object (num_turns, outcome,
+          # duration, cost) — shown in the run summary and as a greppable log line for
+          # aggregate reporting on how many rounds runs typically take.
+          if [[ -n "$EXEC" && -f "$EXEC" ]]; then
+            m=$(jq -r '[.[]|select(.type=="result")][0] | "\(.num_turns // "?")\t\(.subtype // "?")\t\(.is_error // false)\t\(.duration_ms // 0)\t\(.total_cost_usd // 0)"' "$EXEC")
+            IFS=$'\t' read -r turns subtype err ms cost <<< "$m"
+            {
+              echo "### Implement metrics — issue #$ISSUE"
+              echo "| turns | outcome | duration | cost (USD) |"
+              echo "|------:|---------|---------:|-----------:|"
+              echo "| $turns | \`$subtype\` | $(( ms / 1000 ))s | $cost |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "IMPLEMENT_METRICS issue=$ISSUE turns=$turns subtype=$subtype is_error=$err duration_ms=$ms cost_usd=$cost"
+          else
+            echo "IMPLEMENT_METRICS issue=$ISSUE turns=? subtype=no_execution_file"
+          fi
+
+      - name: Backstop — surface an ungraceful failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          EXEC: ${{ steps.implement.outputs.execution_file }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # A graceful pause exits success; reaching here means the attempt died hard
+          # (turn limit or crash) with no PR and no struggle report — never let it be
+          # silent. Distinct label per failure mode for reporting + actionable response.
+          have=$(gh issue view "$ISSUE" --json labels --jq '[.labels[].name]|join(",")')
+          case "$have" in *hit-turn-limit*|*needs-refinement*) echo "already tagged; skipping"; exit 0;; esac
+          subtype=""; turns="?"
+          if [[ -n "$EXEC" && -f "$EXEC" ]]; then
+            subtype=$(jq -r '[.[]|select(.type=="result")][0].subtype // ""' "$EXEC")
+            turns=$(jq -r '[.[]|select(.type=="result")][0].num_turns // "?"' "$EXEC")
+          fi
+          if [[ "$subtype" == "error_max_turns" ]]; then
+            gh issue comment "$ISSUE" --body "⛔ **Hit the turn limit** after ${turns} turns — no PR and no struggle report. The change is likely bigger/more coupled than the issue implies, or the attempt wandered. Review the [run log]($RUN_URL), then split the issue / add specifics / raise the budget. Labelled \`hit-turn-limit\`."
+            gh issue edit "$ISSUE" --add-label hit-turn-limit --remove-label claude-approved
+          else
+            gh issue comment "$ISSUE" --body "⚠️ The attempt failed (\`${subtype:-unknown}\`) with no PR and no struggle report — possibly a transient/infra error. See the [run log]($RUN_URL). Labelled \`needs-refinement\`; re-approve to retry, or inspect the run."
+            gh issue edit "$ISSUE" --add-label needs-refinement --remove-label claude-approved
+          fi

@@ -60,11 +60,12 @@ jobs:
             6. Feedback synthesis — cluster open `feedback` issues, spot patterns, and
                propose concrete fixes or roadmap items.
             7. Unblock stalled work — for any issue labelled `needs-refinement` (a paused
-               attempt that left a struggle comment), act on that feedback so the next
-               attempt succeeds: sharpen the problem statement and add the specifics it
-               asked for, or split it into atomic issues if it's too large. EDIT the
-               existing issue (`gh issue edit`) — do not open a duplicate — then remove the
-               `needs-refinement` label so the maintainer can re-approve it.
+               attempt's struggle report) or `hit-turn-limit` (an attempt that ran out of
+               budget), act on it so the next attempt succeeds: sharpen the problem
+               statement and add the specifics asked for, or split it into atomic issues if
+               it's too large (a `hit-turn-limit` almost always means split it smaller).
+               EDIT the existing issue (`gh issue edit`) — do not open a duplicate — then
+               remove that label so the maintainer can re-approve it.
 
             Write each issue for a mixed audience — LEAD WITH IMPACT IN PLAIN LANGUAGE,
             then supply the technical detail:
