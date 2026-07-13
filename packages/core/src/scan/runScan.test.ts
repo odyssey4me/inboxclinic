@@ -211,4 +211,62 @@ describe("runScan", () => {
     expect(await store.prompts.get(keyFor("news@promo.com"))).toBeUndefined();
     expect(await store.prompts.get(keyFor("jane@acme.com"))).toBeDefined();
   });
+
+  it("preserves a blocked sender's pendingActions across a rescan", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+
+    // Mirrors applyDecision's block bookkeeping (staged for M4 enforcement).
+    const blocked = await store.senders.get(keyFor("news@promo.com"));
+    await store.senders.put({
+      ...blocked!,
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      decisionScope: "address",
+      pendingActions: ["create_filter", "archive"],
+    });
+
+    await runScan(client, store, { now: NOW + 1000 });
+
+    expect(await store.senders.get(keyFor("news@promo.com"))).toMatchObject({
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      decisionScope: "address",
+      pendingActions: ["create_filter", "archive"],
+    });
+  });
+
+  it("preserves a blocked domain's trustStatus and exceptionAddresses across a rescan", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "deals@promo.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+
+    const domain = await store.domains.get(keyFor("promo.com"));
+    await store.domains.put({
+      ...domain!,
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      decisionScope: "domain",
+      pendingActions: ["create_filter", "archive"],
+      exceptionAddresses: ["deals@promo.com"],
+    });
+
+    await runScan(client, store, { now: NOW + 1000 });
+
+    expect(await store.domains.get(keyFor("promo.com"))).toMatchObject({
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      decisionScope: "domain",
+      pendingActions: ["create_filter", "archive"],
+      exceptionAddresses: ["deals@promo.com"],
+    });
+  });
 });
