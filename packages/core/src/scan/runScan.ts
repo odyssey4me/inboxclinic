@@ -18,7 +18,7 @@ import { recordDailyAnalytics } from "../analytics/record";
 import { generatePrompts } from "../prompts/generatePrompts";
 import { extractSenders } from "../senders/extract";
 import type { GmailClient, MessageMeta } from "../ports/GmailClient";
-import type { Profile, Sender, Store } from "../store";
+import type { Domain, Profile, Sender, Store } from "../store";
 
 export interface RunScanOptions {
   /** Bounded scan window in days (design default 30). */
@@ -90,13 +90,34 @@ export async function runScan(
 
   const { senders, domains } = extractSenders(metas, now);
 
-  // Preserve prior trust decisions across rescans; only undecided senders prompt.
-  const priorStatus = new Map<string, Sender["trustStatus"]>();
-  for (const prior of await store.senders.query({})) priorStatus.set(prior.id, prior.trustStatus);
-  const newSenders = senders.filter((s) => !priorStatus.has(s.id)).length;
+  // Preserve prior trust decisions across rescans; only undecided senders/domains
+  // prompt. Every decision-record field is carried forward (not just `trustStatus`),
+  // otherwise a rescan silently wipes a blocked sender's `pendingActions` before
+  // enforce() picks them up, or reverts a blocked domain straight back to `pending`.
+  const priorSenders = new Map<string, Sender>();
+  for (const prior of await store.senders.query({})) priorSenders.set(prior.id, prior);
+  const newSenders = senders.filter((s) => !priorSenders.has(s.id)).length;
   for (const sender of senders) {
-    const prev = priorStatus.get(sender.id);
-    if (prev !== undefined) sender.trustStatus = prev;
+    const prev = priorSenders.get(sender.id);
+    if (prev === undefined) continue;
+    sender.trustStatus = prev.trustStatus;
+    sender.trustDecidedAt = prev.trustDecidedAt;
+    sender.decisionScope = prev.decisionScope;
+    sender.decisionContext = prev.decisionContext;
+    sender.pendingActions = prev.pendingActions;
+  }
+
+  const priorDomains = new Map<string, Domain>();
+  for (const prior of await store.domains.query({})) priorDomains.set(prior.id, prior);
+  for (const domain of domains) {
+    const prev = priorDomains.get(domain.id);
+    if (prev === undefined) continue;
+    domain.trustStatus = prev.trustStatus;
+    domain.trustDecidedAt = prev.trustDecidedAt;
+    domain.decisionScope = prev.decisionScope;
+    domain.decisionContext = prev.decisionContext;
+    domain.pendingActions = prev.pendingActions;
+    domain.exceptionAddresses = prev.exceptionAddresses;
   }
 
   await store.senders.bulkPut(senders);
