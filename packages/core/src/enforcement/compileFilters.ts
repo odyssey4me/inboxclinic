@@ -129,29 +129,25 @@ function signature(filter: FilterSpec): string {
   ].join("|");
 }
 
-/** A filter is "ours" only if its action matches the block action (Trash + skip-inbox). */
-function isManaged(filter: NativeFilter): boolean {
-  return (
-    filter.addLabelIds.includes(BLOCK_FILTER_ADD_LABEL_IDS[0]) &&
-    filter.removeLabelIds.includes(BLOCK_FILTER_REMOVE_LABEL_IDS[0])
-  );
-}
-
 /**
  * Diff the desired filter set against the account's existing filters. Idempotent:
  * re-running after the plan is applied yields empty `toCreate`/`toDelete`. Only
- * **managed** filters (matching the block action) are ever deleted — foreign filters
- * the user created by hand are never touched (design open question, conservative
- * default).
+ * filters whose id is in `managedFilterIds` are ever eligible for deletion — action
+ * shape alone ("Trash + skip-inbox") is not proof of provenance, since that is also a
+ * common hand-built Gmail filter action; foreign filters are never touched even if
+ * their shape happens to match (#29). A desired filter that coincidentally matches a
+ * foreign filter's criteria is still created (and tracked) rather than adopted, so
+ * ownership is never inferred from shape.
  */
 export function reconcileFilters(
   desired: ReadonlyArray<FilterSpec>,
   existing: ReadonlyArray<NativeFilter>,
+  managedFilterIds: ReadonlySet<string>,
 ): FilterReconcilePlan {
   const desiredBySig = new Map<string, FilterSpec>();
   for (const spec of desired) desiredBySig.set(signature(spec), spec);
 
-  const managed = existing.filter(isManaged);
+  const managed = existing.filter((f) => managedFilterIds.has(f.id));
   const existingSigs = new Set(managed.map(signature));
 
   const toCreate: FilterSpec[] = [];

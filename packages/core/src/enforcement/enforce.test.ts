@@ -42,7 +42,12 @@ describe("enforce", () => {
     const sender = await store.senders.get(senderBuilder("spam@a.com").id);
     expect(sender?.pendingActions).toEqual([]);
     const sync = await store.filterSync.get();
-    expect(sync).toEqual({ key: FILTER_SYNC_KEY, lastSyncAt: NOW, totalFilters: 1 });
+    expect(sync).toEqual({
+      key: FILTER_SYNC_KEY,
+      lastSyncAt: NOW,
+      totalFilters: 1,
+      managedFilterIds: ["filter-1"],
+    });
   });
 
   it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
@@ -138,16 +143,41 @@ describe("enforce", () => {
 
   it("deletes a managed filter when its sender is no longer blocked", async () => {
     const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("gone@x.com", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
+
+    // First run creates (and records as managed) the filter for the blocked sender.
+    await enforce(gmail, store, { now: NOW });
+    expect(gmail.createdFilters).toHaveLength(1);
+
+    // Once the sender is no longer blocked, a follow-up run deletes its own filter.
+    await store.senders.put(senderBuilder("gone@x.com", { trustStatus: "pending" }));
+    const result = await enforce(gmail, store, { now: NOW + 1000 });
+
+    expect(gmail.deletedFilterIds).toEqual(["filter-1"]);
+    expect(result.filtersDeleted).toBe(1);
+    expect(result.totalFilters).toBe(0);
+  });
+
+  it("never deletes a foreign filter that merely shares the block action shape (#29)", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    // A filter the user built by hand in Gmail's own UI — same "Trash + skip inbox"
+    // action as an app-created block filter, but never created through this app.
     gmail.seedFilters([
-      { id: "stale", from: "gone@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      {
+        id: "hand-made",
+        from: "oldjob@company.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
     ]);
 
     const result = await enforce(gmail, store, { now: NOW });
 
-    expect(gmail.deletedFilterIds).toEqual(["stale"]);
-    expect(result.filtersDeleted).toBe(1);
-    expect(result.totalFilters).toBe(0);
+    expect(gmail.deletedFilterIds).toEqual([]);
+    expect(result.filtersDeleted).toBe(0);
+    expect(result.totalFilters).toBe(1);
   });
 
   it("counts an unsubscribe request without an unsubscribe transport", async () => {
@@ -204,7 +234,12 @@ describe("enforce", () => {
       }
     }
     const store = createInMemoryStore();
-    await store.filterSync.put({ key: FILTER_SYNC_KEY, lastSyncAt: NOW - 1000, totalFilters: 7 });
+    await store.filterSync.put({
+      key: FILTER_SYNC_KEY,
+      lastSyncAt: NOW - 1000,
+      totalFilters: 7,
+      managedFilterIds: [],
+    });
     await store.senders.put(senderBuilder("x@y.com", { trustStatus: "blocked" }));
     const gmail = new FlakyListClient();
 

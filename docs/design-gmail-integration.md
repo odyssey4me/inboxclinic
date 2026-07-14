@@ -121,6 +121,12 @@ them continuously (architecture.md §6):
 5. **Best-effort + idempotent:** the local decision is the source of truth; filters are
    reconciled on a periodic client-side sync, retried on failure, and never duplicated.
    Sync state lives in the local `filterSyncState` store.
+6. **Ownership tracking, not action-shape matching:** a filter is only ever deleted
+   during reconciliation if its Gmail-assigned id is in `filterSyncState.managedFilterIds`
+   (populated when this app creates a filter). Action shape alone ("Trash + skip inbox")
+   is not proof of provenance — it's also a common hand-built Gmail filter — so a filter
+   the user created outside the app is never touched, even if it happens to match a
+   desired filter's criteria and action (#29).
 
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
@@ -391,8 +397,6 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 - [ ] Service-worker **Periodic Background Sync** is Chromium-only and gated by site
       engagement — what is the fallback cadence on Firefox/Safari (open-on-launch only)?
-- [ ] Should `reconcileFilters` tag filters with a recognisable marker (e.g. a label or
-      query convention) so foreign filters are never touched during reconciliation?
 - [ ] How aggressively should the client estimate Gmail per-user quota when Google does
       not expose remaining quota directly — fixed unit costs, or adaptive backoff only?
 - [ ] People API contact lookup batching and quota interplay with the Gmail scan budget.
@@ -403,6 +407,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-14 | Resolve the filter-ownership open question: Decision 5 adds a point 6 — `reconcileFilters` now gates deletion on `filterSyncState.managedFilterIds` (an id set populated when this app creates a filter), not on matching the block action shape, so a user's own hand-built "Trash + skip inbox" filter is never silently deleted (#29). | Claude |
 | 2026-07-12 | Clarify that Tier-3 `contacts.readonly`/`lookupContacts`/`contacts.cacheTtlHours` are **deferred, not implemented** in v1 — matches the code (`GmailClient.ts` `SCOPES_BY_TIER`) and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scope or code change. | Claude |
 | 2026-07-05 | Implement the **transport-level retry/backoff** the error table already specifies (`GmailRateLimited` 429 / 403 `rateLimitExceeded`, `GmailServerError` 5xx, 408): a shared `fetchWithRetry` wrapper honours `Retry-After` and otherwise uses exponential backoff + full jitter, so transient limits self-heal instead of surfacing as errors. Applied to the Gmail and Drive browser adapters. | Claude |
 | 2026-07-05 | Add **Decisions-milestone** capabilities: Decision 7 **learning scan** (read `listFilters` + a bounded read-weighted Spam/Trash scan to surface prior "no" decisions); Decision 8 **count-only enforcement simulation** (no-mutation impact preview + future extrapolation); Decision 9 **filter-optimisation suggestions** (consolidate/dedupe/tighten, confirm-first). | Claude |

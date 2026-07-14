@@ -83,7 +83,8 @@ export async function simulateEnforcement(
     const blockedDomains = domains.filter((d) => domainStatus.get(d.id) === "blocked");
     const compiled = compileFilters(blockedSenders, blockedDomains);
     const existing = await client.listFilters();
-    const plan = reconcileFilters(compiled.filters, existing);
+    const managedFilterIds = new Set((await store.filterSync.get())?.managedFilterIds ?? []);
+    const plan = reconcileFilters(compiled.filters, existing, managedFilterIds);
     filtersToCreate = plan.toCreate.length;
     filtersToDelete = plan.toDelete.length;
   } catch {

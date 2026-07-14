@@ -270,6 +270,7 @@ async function runIncrementalSync(
     key: FILTER_SYNC_KEY,
     lastSyncAt: now,
     totalFilters: filters.totalFilters,
+    managedFilterIds: filters.managedFilterIds,
   });
 
   return {
@@ -312,6 +313,7 @@ async function fullSync(
     key: FILTER_SYNC_KEY,
     lastSyncAt: now,
     totalFilters: filters.totalFilters,
+    managedFilterIds: filters.managedFilterIds,
   });
 
   return {
