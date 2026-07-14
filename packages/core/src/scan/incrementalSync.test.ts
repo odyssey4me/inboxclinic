@@ -114,6 +114,29 @@ describe("incrementalSync — removed delta", () => {
     expect(profile?.messageCount).toBe(1);
     expect(profile?.lastHistoryId).toBe("210");
   });
+
+  it("nets an add-then-delete within one window to zero, not -1", async () => {
+    const { client, store } = await syncedFixture();
+
+    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.seedHistory(
+      [
+        {
+          id: "150",
+          messagesAdded: [{ message: { id: "c1", threadId: "t-c1", labelIds: ["INBOX"] } }],
+          messagesDeleted: [{ message: { id: "c1", threadId: "t-c1" } }],
+        },
+      ],
+      "210",
+    );
+
+    const result = await incrementalSync(client, store, { now: NOW });
+
+    expect(result.messagesAdded).toBe(0);
+    expect(result.messagesRemoved).toBe(0);
+    const profile = await store.profile.get();
+    expect(profile?.messageCount).toBe(2);
+  });
 });
 
 describe("incrementalSync — label delta", () => {
