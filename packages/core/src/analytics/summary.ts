@@ -188,7 +188,14 @@ export async function analyticsSummary(
   ]);
 
   const summary = buildAnalyticsSummary({ now, windowDays, days, senders, domains });
-  await store.analytics.putMonth(buildMonthlyAnalytics(now, days, summary));
+
+  // The rolling `days` window can be shorter than the elapsed days in the current
+  // month (e.g. the default 30-day window on day 31), which would silently drop
+  // day 1 from the persisted rollup. Re-fetch a wider slice when that happens.
+  const dayOfMonth = new Date(now).getUTCDate();
+  const monthDays = dayOfMonth <= windowDays ? days : await store.analytics.recentDays(dayOfMonth);
+
+  await store.analytics.putMonth(buildMonthlyAnalytics(now, monthDays, summary));
   return summary;
 }
 
