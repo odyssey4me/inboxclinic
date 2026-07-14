@@ -149,4 +149,33 @@ describe("Settings view", () => {
 
     await waitFor(() => expect(onRestored).toHaveBeenCalledOnce());
   });
+
+  it("suggests and adopts an existing filter that already matches a desired one (#80)", async () => {
+    const { store, backup, gmail } = setup();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    gmail.seedFilters([
+      { id: "hand-made", from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        gmail={gmail}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /check for adoptable filters/i }));
+    expect(await screen.findByText(/spam@a.com/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /adopt 1 filter/i }));
+
+    expect(await screen.findByText(/adopted 1 existing filter/i)).toBeInTheDocument();
+    const sync = await store.filterSync.get();
+    expect(sync?.managedFilterIds).toEqual(["hand-made"]);
+    expect(gmail.createdFilters).toEqual([]);
+  });
 });

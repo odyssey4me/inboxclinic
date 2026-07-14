@@ -180,6 +180,28 @@ describe("enforce", () => {
     expect(result.totalFilters).toBe(1);
   });
 
+  it("does not create a duplicate filter when an untracked one already matches (#80)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+    // A filter with the exact desired shape, but never created through this app —
+    // e.g. built by hand, or created before ownership tracking existed (#29).
+    gmail.seedFilters([
+      {
+        id: "untracked",
+        from: "spam@a.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.createdFilters).toEqual([]);
+    expect(result.filtersCreated).toBe(0);
+    expect(result.totalFilters).toBe(1);
+  });
+
   it("counts an unsubscribe request without an unsubscribe transport", async () => {
     const store = createInMemoryStore();
     await store.senders.put(

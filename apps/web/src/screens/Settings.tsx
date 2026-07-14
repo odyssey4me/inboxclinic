@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
+  applyFilterAdoptions,
   applyFilterOptimisations,
   backupToDrive,
   BackupNotFoundError,
@@ -7,9 +8,11 @@ import {
   resetInstallId,
   restoreFromDrive,
   setBackupEnabled,
+  suggestFilterAdoptions,
   suggestFilterOptimisations,
   type BackupClient,
   type BackupState,
+  type FilterAdoption,
   type FilterOptimisation,
   type GmailClient,
   type Store,
@@ -73,6 +76,8 @@ export function Settings({
   const [error, setError] = useState<string | null>(null);
   const [optimisations, setOptimisations] = useState<FilterOptimisation[] | null>(null);
   const [filterBusy, setFilterBusy] = useState<"checking" | "applying" | null>(null);
+  const [adoptions, setAdoptions] = useState<FilterAdoption[] | null>(null);
+  const [adoptBusy, setAdoptBusy] = useState<"checking" | "applying" | null>(null);
   const [reporting, setReporting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
 
@@ -120,6 +125,35 @@ export function Settings({
       setError(`Could not update filters: ${errorMessage(caught)}`);
     } finally {
       setFilterBusy(null);
+    }
+  };
+
+  const onCheckAdoptions = async (): Promise<void> => {
+    setNote(null);
+    setError(null);
+    setAdoptBusy("checking");
+    try {
+      setAdoptions(await suggestFilterAdoptions(gmail, store));
+    } catch (caught) {
+      setError(`Could not read filters: ${errorMessage(caught)}`);
+    } finally {
+      setAdoptBusy(null);
+    }
+  };
+
+  const onApplyAdoptions = async (): Promise<void> => {
+    if (adoptions === null) return;
+    setNote(null);
+    setError(null);
+    setAdoptBusy("applying");
+    try {
+      const result = await applyFilterAdoptions(store, adoptions);
+      setNote(`Adopted ${result.adopted} existing filter${result.adopted === 1 ? "" : "s"}.`);
+      setAdoptions([]);
+    } catch (caught) {
+      setError(`Could not update filters: ${errorMessage(caught)}`);
+    } finally {
+      setAdoptBusy(null);
     }
   };
 
@@ -401,6 +435,44 @@ export function Settings({
               {filterBusy === "applying"
                 ? "Applying…"
                 : `Apply ${optimisations.length} change${optimisations.length === 1 ? "" : "s"}`}
+            </Button>
+          </>
+        )}
+      </Card>
+
+      <Card aria-label="Adopt existing filters" className="space-y-3">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold">Adopt existing filters</h2>
+          <p className="text-sm text-muted">
+            Some of your existing Gmail filters may already match a sender or domain Inbox Clinic
+            currently blocks. Adopting one lets Inbox Clinic manage it going forward instead of
+            creating a duplicate — nothing changes without your OK.
+          </p>
+        </div>
+        {adoptions === null ? (
+          <Button
+            variant="secondary"
+            onClick={() => void onCheckAdoptions()}
+            disabled={!online || adoptBusy !== null}
+          >
+            {adoptBusy === "checking" ? "Checking…" : "Check for adoptable filters"}
+          </Button>
+        ) : adoptions.length === 0 ? (
+          <p className="text-sm text-muted">No adoptable filters found.</p>
+        ) : (
+          <>
+            <ul className="ml-4 list-disc space-y-1 text-sm text-muted">
+              {adoptions.map((adoption) => (
+                <li key={adoption.filterId}>{adoption.description}</li>
+              ))}
+            </ul>
+            <Button
+              onClick={() => void onApplyAdoptions()}
+              disabled={!online || adoptBusy !== null}
+            >
+              {adoptBusy === "applying"
+                ? "Adopting…"
+                : `Adopt ${adoptions.length} filter${adoptions.length === 1 ? "" : "s"}`}
             </Button>
           </>
         )}

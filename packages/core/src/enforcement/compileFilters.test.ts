@@ -160,4 +160,34 @@ describe("reconcileFilters", () => {
     expect(plan.toCreate.map((f) => f.from)).toEqual(["a@x.com"]);
     expect(plan.toDelete).toEqual(["f-1"]);
   });
+
+  it("surfaces an untracked filter matching a desired one as adoptable instead of duplicating it (#80)", () => {
+    const untracked: NativeFilter = {
+      id: "hand-made",
+      from: "a@x.com",
+      addLabelIds: ["TRASH"],
+      removeLabelIds: ["INBOX"],
+    };
+    const plan = reconcileFilters(desired, [untracked], new Set());
+    expect(plan.toCreate.map((f) => f.from)).toEqual(["b@y.com"]);
+    expect(plan.toDelete).toEqual([]);
+    expect(plan.adoptable).toEqual([untracked]);
+  });
+
+  it("does not surface a managed filter as adoptable — it is already tracked", () => {
+    const existing = asNative(desired);
+    const plan = reconcileFilters(desired, existing, allManaged(existing));
+    expect(plan.adoptable).toEqual([]);
+  });
+
+  it("does not surface a foreign filter with no matching desired criteria as adoptable", () => {
+    const foreign: NativeFilter = {
+      id: "foreign",
+      from: "boss@work.com",
+      addLabelIds: ["IMPORTANT"],
+      removeLabelIds: [],
+    };
+    const plan = reconcileFilters(desired, [foreign], new Set());
+    expect(plan.adoptable).toEqual([]);
+  });
 });

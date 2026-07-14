@@ -126,7 +126,9 @@ them continuously (architecture.md §6):
    (populated when this app creates a filter). Action shape alone ("Trash + skip inbox")
    is not proof of provenance — it's also a common hand-built Gmail filter — so a filter
    the user created outside the app is never touched, even if it happens to match a
-   desired filter's criteria and action (#29).
+   desired filter's criteria and action (#29). Symmetrically, `reconcileFilters` also
+   never *creates* a duplicate for a desired filter that an untracked filter already
+   covers — it surfaces that match instead, for confirm-first adoption (Decision 10, #80).
 
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
@@ -199,6 +201,27 @@ filter-reconcile path (Decision 5); nothing changes silently.
 
 **Rationale:** Fewer, cleaner rules are easier to reason about and stay within Gmail's filter
 limits — but filters are the user's, so every change is opt-in.
+
+### Decision 10: Confirm-first filter adoption (#80)
+
+**Context:** Decision 5 point 6 fixed #29 by never inferring ownership from action shape — a
+filter is only deleted if its id is tracked in `managedFilterIds`. That closed the delete-on-
+first-sight risk but left a duplicate-create gap: if an untracked filter already has the exact
+criteria + action a desired block filter needs (a filter built by hand, or created before
+ownership tracking existed), `reconcileFilters` created a second, functionally-identical filter
+alongside it rather than reusing the one already there.
+
+**Decision:** `reconcileFilters` recognises this case and returns it in a new `adoptable` list —
+it neither creates the duplicate nor auto-adopts the untracked filter. `suggestFilterAdoptions` /
+`applyFilterAdoptions` (`adoptFilters.ts`) mirror Decision 9's suggest/apply split: adoption only
+records the filter's id into `filterSyncState.managedFilterIds` (no Gmail mutation — the filter
+already has the desired shape) once the user explicitly accepts the suggestion in Settings.
+
+**Rationale:** Adoption and deletion are two doors into the same risk — once adopted, a filter
+becomes eligible for deletion later if the matching sender/domain is unblocked, so guessing
+ownership automatically is exactly as unsafe in this direction as in #29's. Requiring explicit
+confirmation, like Decision 9's optimisation suggestions, closes the duplicate gap without
+silently guessing provenance either way.
 
 ## Interfaces
 
@@ -407,6 +430,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-14 | Add **Decision 10: confirm-first filter adoption** (#80) — `reconcileFilters` no longer creates a duplicate filter when an untracked existing filter already matches a desired one; it surfaces the match in a new `adoptable` list instead, and `suggestFilterAdoptions`/`applyFilterAdoptions` let the user opt in before its id is tracked as managed. Closes the duplicate-create gap left by Decision 5 point 6's #29 fix without inferring ownership automatically in either direction. | Claude |
 | 2026-07-14 | Resolve the filter-ownership open question: Decision 5 adds a point 6 — `reconcileFilters` now gates deletion on `filterSyncState.managedFilterIds` (an id set populated when this app creates a filter), not on matching the block action shape, so a user's own hand-built "Trash + skip inbox" filter is never silently deleted (#29). | Claude |
 | 2026-07-12 | Clarify that Tier-3 `contacts.readonly`/`lookupContacts`/`contacts.cacheTtlHours` are **deferred, not implemented** in v1 — matches the code (`GmailClient.ts` `SCOPES_BY_TIER`) and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scope or code change. | Claude |
 | 2026-07-05 | Implement the **transport-level retry/backoff** the error table already specifies (`GmailRateLimited` 429 / 403 `rateLimitExceeded`, `GmailServerError` 5xx, 408): a shared `fetchWithRetry` wrapper honours `Retry-After` and otherwise uses exponential backoff + full jitter, so transient limits self-heal instead of surfacing as errors. Applied to the Gmail and Drive browser adapters. | Claude |
