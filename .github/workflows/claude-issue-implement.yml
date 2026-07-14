@@ -47,14 +47,16 @@ jobs:
             docs/architecture.md and the design docs, and the "Reviewing for privacy &
             architecture invariants" checklist in CONTRIBUTING.md.
             - Work on a NEW branch — never push to `main`. One focused problem per commit.
-            - Run the repo checks (lint, typecheck, tests) and fix any failures before
-              opening the PR.
+            - While iterating, run only the TARGETED checks for what you touched (the
+              affected package's tests or a single test file, plus a typecheck) to keep the
+              loop tight and cheap. Run the FULL suite (lint, typecheck, tests) ONCE at the
+              end — before opening the PR — and fix any failures.
             - Open a pull request describing the change; include
               "Closes #${{ github.event.issue.number }}" in the body.
 
-            Budget & self-check: a focused fix should land in roughly 40 steps; the hard
-            ceiling is 50. Watch your own progress — do NOT burn to the ceiling or force a
-            low-quality PR. If you are NOT converging (thrashing, repeatedly failing the
+            Budget & self-check: a focused fix should land in roughly 50 steps; the hard
+            ceiling is 100. Treat these as a sense of scale, not a counter you can read —
+            judge by PROGRESS, and do NOT burn toward the ceiling or force a low-quality PR. If you are NOT converging (thrashing, repeatedly failing the
             same check, the change is far larger/more coupled than the issue implies, the
             issue is underspecified, or it needs a maintainer decision), STOP and step
             back: ask *why* it's taking so long — is the issue not specific enough, did you
@@ -79,7 +81,7 @@ jobs:
             request is unclear, unsafe, or conflicts with an architectural invariant.
           claude_args: |
             --allowedTools Read,Grep,Glob,Edit,Write,Bash
-            --max-turns 50
+            --max-turns 100
 
       - name: Record run metrics
         if: always()
@@ -129,3 +131,22 @@ jobs:
             gh issue comment "$ISSUE" --body "⚠️ The attempt failed (\`${subtype:-unknown}\`) with no PR and no struggle report — possibly a transient/infra error. See the [run log]($RUN_URL). Labelled \`needs-refinement\`; re-approve to retry, or inspect the run."
             gh issue edit "$ISSUE" --add-label needs-refinement --remove-label claude-approved
           fi
+
+      - name: Guard — catch a silent no-op success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # A successful run must have EITHER opened a PR OR self-reported (a graceful
+          # pause adds needs-refinement/hit-turn-limit + removes claude-approved). If it did
+          # neither, it exited "success" having produced nothing — don't let that pass.
+          labels=$(gh issue view "$ISSUE" --repo "$REPO" --json labels --jq '[.labels[].name]|join(",")')
+          case "$labels" in *needs-refinement*|*hit-turn-limit*) echo "self-reported; ok"; exit 0;; esac
+          prs=$(gh pr list --repo "$REPO" --state all --limit 50 --json closingIssuesReferences \
+            --jq "[.[] | select([.closingIssuesReferences[].number] | index($ISSUE))] | length")
+          if [[ "${prs:-0}" -gt 0 ]]; then echo "PR exists for #$ISSUE; ok"; exit 0; fi
+          gh issue comment "$ISSUE" --body "⚠️ The implementation run finished (success) without opening a PR or leaving a struggle report — a silent no-op. See the [run log]($RUN_URL). Labelled \`needs-refinement\` so it isn't lost; refine and re-approve, or inspect the run."
+          gh issue edit "$ISSUE" --add-label needs-refinement --remove-label claude-approved
