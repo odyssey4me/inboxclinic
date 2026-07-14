@@ -14,6 +14,35 @@ function msg(id: string, from: string): MessageMeta {
   return messageMetaBuilder({ id, headers: { from }, internalDate: NOW, labelIds: ["INBOX"] });
 }
 
+/**
+ * Minimal Web Locks API fake (#81) — enough to exercise the cross-tab skip path
+ * deterministically. `heldByAnotherTab` simulates a lock another tab is already
+ * holding: an `ifAvailable` request resolves its callback with `null` immediately,
+ * matching `navigator.locks`' non-blocking, steal-free behaviour.
+ */
+class FakeLockManager implements LockManager {
+  constructor(private heldByAnotherTab = false) {}
+
+  query(): Promise<LockManagerSnapshot> {
+    return Promise.resolve({ held: [], pending: [] });
+  }
+
+  request<T>(name: string, callback: LockGrantedCallback<T>): Promise<Awaited<T>>;
+  request<T>(
+    name: string,
+    options: LockOptions,
+    callback: LockGrantedCallback<T>,
+  ): Promise<Awaited<T>>;
+  async request<T>(
+    name: string,
+    optionsOrCallback: LockOptions | LockGrantedCallback<T>,
+    maybeCallback?: LockGrantedCallback<T>,
+  ): Promise<Awaited<T>> {
+    const callback = maybeCallback ?? (optionsOrCallback as LockGrantedCallback<T>);
+    return await callback(this.heldByAnotherTab ? null : { mode: "exclusive", name });
+  }
+}
+
 /** Seed the inbox, run a first (full) sync, and return the synced fixtures. */
 async function syncedFixture() {
   const client = new MockGmailClient(
@@ -314,6 +343,53 @@ describe("incrementalSync — concurrency & partial failure (#48)", () => {
     expect(client.historyQueries).toEqual(["100"]); // a single listHistory call
     const sender = await store.senders.get(keyFor("fresh@new.com"));
     expect(sender?.totalEmails).toBe(1);
+  });
+});
+
+describe("incrementalSync — cross-tab lock (#81)", () => {
+  it("skips the sync when another tab already holds the cross-tab lock", async () => {
+    const { client, store } = await syncedFixture();
+    const before = await store.senders.get(keyFor("jane@acme.com"));
+
+    // A message is available to sync, but the lock is held elsewhere — the body must
+    // never run, so this delta is left for the next poll rather than double-applied.
+    client.addInboxMessages([msg("a2", "jane@acme.com")]);
+    client.seedHistory(
+      [{ id: "150", messagesAdded: [{ message: { id: "a2", threadId: "t-a2" } }] }],
+      "200",
+    );
+
+    const result = await incrementalSync(client, store, {
+      now: NOW,
+      locks: new FakeLockManager(true),
+    });
+
+    expect(result.mode).toBe("skipped");
+    expect(result.sendersAdded).toBe(0);
+    expect(result.sendersUpdated).toBe(0);
+    expect(result.historyId).toBe("100"); // unchanged — the marker was never claimed
+    expect(client.historyQueries).toEqual([]); // listHistory never called
+    const after = await store.senders.get(keyFor("jane@acme.com"));
+    expect(after).toEqual(before);
+  });
+
+  it("runs the sync normally when the cross-tab lock is available", async () => {
+    const { client, store } = await syncedFixture();
+
+    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.seedHistory(
+      [{ id: "150", messagesAdded: [{ message: { id: "c1", threadId: "t-c1" } }] }],
+      "200",
+    );
+
+    const result = await incrementalSync(client, store, {
+      now: NOW,
+      locks: new FakeLockManager(false),
+    });
+
+    expect(result.mode).toBe("incremental");
+    expect(result.sendersAdded).toBe(1);
+    expect(result.historyId).toBe("200");
   });
 });
 

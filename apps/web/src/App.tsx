@@ -50,6 +50,8 @@ function errorMessage(error: unknown): string {
 
 /** One-line summary of what a refresh changed. */
 function summariseSync(result: IncrementalSyncResult): string {
+  // Another tab already held the cross-tab sync lock (#81) — nothing ran here.
+  if (result.mode === "skipped") return "Already syncing in another tab";
   if (result.sendersAdded > 0) {
     return `${result.sendersAdded} new sender${result.sendersAdded === 1 ? "" : "s"}`;
   }
@@ -85,7 +87,14 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     setError(null);
     setSyncing(true);
     try {
-      const result = await incrementalSync(gmail, store, { windowDays: 30 });
+      // Web Locks API adapter (#81): the core stays platform-agnostic and never reads
+      // `navigator` itself, so the concrete LockManager is supplied here, feature-
+      // detected for browsers that don't implement it.
+      const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+      const result = await incrementalSync(gmail, store, {
+        windowDays: 30,
+        ...(locks !== undefined ? { locks } : {}),
+      });
       setLastSyncedAt(Date.now());
       setSyncSummary(summariseSync(result));
       setReloadKey((k) => k + 1);

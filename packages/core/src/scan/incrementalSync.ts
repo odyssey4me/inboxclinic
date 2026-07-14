@@ -24,11 +24,21 @@
  * After processing, native filters are reconciled from the durable blocked set (reusing
  * M4's idempotent `reconcileNativeFilters`) so re-syncing never duplicates filters.
  *
- * Concurrency & partial failure (#48): the additive merge below has no cross-repo
- * transaction, so two safeguards keep it from double-counting —
- *   - **In-flight guard:** concurrent calls for the same `Store` (sign-in, periodic
- *     background sync, and pull-to-refresh can all fire together) collapse onto the
- *     same in-progress run instead of racing on the store.
+ * Concurrency & partial failure (#48, #81): the additive merge below has no cross-repo
+ * transaction, so three safeguards keep it from double-counting —
+ *   - **In-flight guard:** concurrent calls for the same `Store` *instance* (sign-in,
+ *     periodic background sync, and pull-to-refresh can all fire together within one
+ *     tab) collapse onto the same in-progress run instead of racing on the store. This
+ *     only sees races within one JS heap — a second browser tab has its own `Store`
+ *     instance and `WeakMap`, invisible to the first tab's run, even though both talk
+ *     to the same on-device IndexedDB (#81).
+ *   - **Cross-tab lock:** when the caller injects a `LockManager` (`options.locks` —
+ *     `apps/web` passes `navigator.locks`; the core never reads it from a global, to
+ *     stay provider-/UI-agnostic), the sync body additionally runs under a Web Locks
+ *     API mutex named per browser profile, not per tab. A second tab's request is
+ *     acquired `ifAvailable`-only (non-blocking, steal-free), so it **skips** its sync
+ *     rather than queuing behind the first — the next poll retries for free, so losing
+ *     this race is harmless (#81).
  *   - **Claim-then-merge:** `lastHistoryId` is claimed *before* the additive mutations
  *     run, not after. A crash between the claim and the final commit means this batch's
  *     deltas are applied at most once — the cost is that an interrupted batch's deltas
@@ -62,11 +72,23 @@ export interface IncrementalSyncOptions {
   now?: number;
   /** Filter-compilation tuning passed through to reconciliation. */
   compile?: CompileFiltersOptions;
+  /**
+   * Cross-tab lock manager (#81) — caller-injected (e.g. `apps/web` passes
+   * `navigator.locks`), never read from a global here, so the core stays
+   * provider-/UI-agnostic (architecture.md §6). Pass a fake for deterministic tests.
+   * `undefined` (the default — no lock manager supplied) disables cross-tab
+   * serialization and falls back to the intra-tab-only in-flight guard.
+   */
+  locks?: LockManager;
 }
 
 export interface IncrementalSyncResult {
-  /** `full` on a first run or a stale-historyId rescan; `incremental` otherwise. */
-  mode: "full" | "incremental";
+  /**
+   * `full` on a first run or a stale-historyId rescan; `incremental` otherwise;
+   * `skipped` when another tab already held the cross-tab sync lock (#81) — nothing
+   * ran, all counts are zero, and `historyId` reflects the store's current marker.
+   */
+  mode: "full" | "incremental" | "skipped";
   /** New messages scanned (full) or added since the last sync (incremental). */
   messagesAdded: number;
   /** Messages removed from the mailbox since the last sync (incremental only). */
@@ -89,10 +111,16 @@ export interface IncrementalSyncResult {
 }
 
 /**
- * One in-flight run per `Store` instance. Concurrent callers (sign-in, periodic
- * background sync, pull-to-refresh) join the same run instead of racing on the store.
+ * One in-flight run per `Store` *instance*, i.e. per tab (#81) — this `WeakMap` lives
+ * in one JS heap, so it cannot see a run started by another tab's copy of the store.
+ * Concurrent callers *within a tab* (sign-in, periodic background sync, pull-to-refresh)
+ * join the same run instead of racing on the store; cross-tab races are handled by the
+ * Web Locks mutex in `withCrossTabLock` below.
  */
 const inFlightSyncs = new WeakMap<Store, Promise<IncrementalSyncResult>>();
+
+/** Cross-tab mutex name — shared per browser profile, not per tab (#81). */
+const CROSS_TAB_SYNC_LOCK = "inboxclinic-sync";
 
 /**
  * Run an incremental Gmail sync, keeping the on-device store current without a full
@@ -101,7 +129,9 @@ const inFlightSyncs = new WeakMap<Store, Promise<IncrementalSyncResult>>();
  *
  * Concurrent calls for the same `store` are serialized onto a single run (#48) — a
  * second call issued while one is already in flight for that store returns the same
- * promise rather than starting an overlapping sync.
+ * promise rather than starting an overlapping sync. Concurrent calls from *another tab*
+ * over the same on-device data are serialized with the Web Locks API instead — the
+ * second tab skips its sync rather than blocking on the first (#81).
  */
 export function incrementalSync(
   client: GmailClient,
@@ -111,11 +141,52 @@ export function incrementalSync(
   const inFlight = inFlightSyncs.get(store);
   if (inFlight !== undefined) return inFlight;
 
-  const run = runIncrementalSync(client, store, options).finally(() => {
+  const run = withCrossTabLock(client, store, options).finally(() => {
     inFlightSyncs.delete(store);
   });
   inFlightSyncs.set(store, run);
   return run;
+}
+
+/**
+ * Acquire the cross-tab sync lock (non-blocking, steal-free — `ifAvailable: true`)
+ * around the whole sync body. If another tab already holds it, this call skips its own
+ * sync rather than queuing behind the first (#81). Falls back to running unlocked when
+ * no lock manager was supplied — `options.locks` is caller-injected rather than read
+ * from a global so this stays a pure, provider- & UI-agnostic core (architecture.md
+ * §6): the `navigator.locks` adapter lives in `apps/web`, not here. Without it, the
+ * intra-tab guard above is still in effect.
+ */
+function withCrossTabLock(
+  client: GmailClient,
+  store: Store,
+  options: IncrementalSyncOptions,
+): Promise<IncrementalSyncResult> {
+  const locks = options.locks;
+  if (locks === undefined) return runIncrementalSync(client, store, options);
+
+  return locks.request(CROSS_TAB_SYNC_LOCK, { ifAvailable: true }, (lock) =>
+    lock === null ? skippedResult(store) : runIncrementalSync(client, store, options),
+  );
+}
+
+/** Result reported when another tab held the cross-tab lock — nothing ran (#81). */
+async function skippedResult(store: Store): Promise<IncrementalSyncResult> {
+  const [profile, filterSync] = await Promise.all([store.profile.get(), store.filterSync.get()]);
+  return {
+    mode: "skipped",
+    messagesAdded: 0,
+    messagesRemoved: 0,
+    labelChanges: 0,
+    sendersAdded: 0,
+    sendersUpdated: 0,
+    promptsGenerated: 0,
+    historyId: profile?.lastHistoryId ?? "",
+    rescanned: false,
+    filtersCreated: 0,
+    filtersDeleted: 0,
+    totalFilters: filterSync?.totalFilters ?? 0,
+  };
 }
 
 async function runIncrementalSync(
