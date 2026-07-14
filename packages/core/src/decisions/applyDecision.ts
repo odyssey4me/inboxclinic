@@ -14,6 +14,11 @@
  *   an explicit exception (`domain.exceptionAddresses`).
  * - **Trust / Block** resolve the related prompt(s) (`resolvedAt = now`). **Defer**
  *   decays priority (×0.9) and marks `deferredAt` — it does not resolve the prompt.
+ * - **Defer only touches an undecided subject.** Applied to a subject that already
+ *   carries a Trust/Block decision, it is a no-op on the subject's record (status,
+ *   pendingActions, decision context all untouched) — otherwise "not sure" would
+ *   silently revert an already-decided sender and, via enforcement, delete its live
+ *   Gmail filter.
  * - A **Block**'s `actions` are stored as `pendingActions` for M4; **no** Gmail call
  *   is made here (enforcement is M4).
  */
@@ -114,25 +119,33 @@ async function applyAddressDecision(
   const sender = await store.senders.get(subjectId);
   if (sender === undefined) throw new Error(`applyDecision: no sender ${subjectId}`);
 
-  const status = statusFor(decision);
-  const pendingActions = decision === "block" ? (input.actions ?? []) : [];
+  // Defer on an already-decided sender must not revert it — see module docs.
+  const noOp = decision === "defer" && sender.trustStatus !== "pending";
+  const status = noOp ? sender.trustStatus : statusFor(decision);
+  const pendingActions = noOp
+    ? sender.pendingActions
+    : decision === "block"
+      ? (input.actions ?? [])
+      : [];
 
-  await store.senders.put({
-    ...sender,
-    trustStatus: status,
-    trustDecidedAt: now,
-    decisionScope: "address",
-    decisionContext: senderContext(sender, decidedVia),
-    pendingActions,
-  });
-
-  // An address decision made under an existing domain decision is an exception.
-  const domain = await store.domains.get(keyFor(sender.domain));
-  if (domain?.decisionScope === "domain" && !domain.exceptionAddresses.includes(sender.email)) {
-    await store.domains.put({
-      ...domain,
-      exceptionAddresses: [...domain.exceptionAddresses, sender.email],
+  if (!noOp) {
+    await store.senders.put({
+      ...sender,
+      trustStatus: status,
+      trustDecidedAt: now,
+      decisionScope: "address",
+      decisionContext: senderContext(sender, decidedVia),
+      pendingActions,
     });
+
+    // An address decision made under an existing domain decision is an exception.
+    const domain = await store.domains.get(keyFor(sender.domain));
+    if (domain?.decisionScope === "domain" && !domain.exceptionAddresses.includes(sender.email)) {
+      await store.domains.put({
+        ...domain,
+        exceptionAddresses: [...domain.exceptionAddresses, sender.email],
+      });
+    }
   }
 
   const resolvedPromptIds: string[] = [];
@@ -162,18 +175,26 @@ async function applyDomainDecision(
   const domain = await store.domains.get(subjectId);
   if (domain === undefined) throw new Error(`applyDecision: no domain ${subjectId}`);
 
-  const status = statusFor(decision);
-  const pendingActions = decision === "block" ? (input.actions ?? []) : [];
+  // Defer on an already-decided domain must not revert it — see module docs.
+  const noOp = decision === "defer" && domain.trustStatus !== "pending";
+  const status = noOp ? domain.trustStatus : statusFor(decision);
+  const pendingActions = noOp
+    ? domain.pendingActions
+    : decision === "block"
+      ? (input.actions ?? [])
+      : [];
   const members = await store.senders.query({ domain: domain.domain });
 
-  await store.domains.put({
-    ...domain,
-    trustStatus: status,
-    trustDecidedAt: now,
-    decisionScope: "domain",
-    decisionContext: domainContext(domain, members, decidedVia),
-    pendingActions,
-  });
+  if (!noOp) {
+    await store.domains.put({
+      ...domain,
+      trustStatus: status,
+      trustDecidedAt: now,
+      decisionScope: "domain",
+      decisionContext: domainContext(domain, members, decidedVia),
+      pendingActions,
+    });
+  }
 
   const resolvedPromptIds: string[] = [];
   const deferredPromptIds: string[] = [];
