@@ -156,6 +156,55 @@ describe("applyDecision — address scope", () => {
     expect((await store.senders.get(keyFor("a@acme.com")))?.trustStatus).toBe("pending");
   });
 
+  it("defer on an already-blocked sender is a no-op — status and pendingActions untouched", async () => {
+    const store = await seed();
+    await applyDecision(store, {
+      subjectId: keyFor("a@acme.com"),
+      scope: "address",
+      decision: "block",
+      actions: ["create_filter"],
+      now: NOW,
+    });
+
+    const result = await applyDecision(store, {
+      subjectId: keyFor("a@acme.com"),
+      scope: "address",
+      decision: "defer",
+      now: NOW + 1,
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.pendingActions).toEqual(["create_filter"]);
+
+    const sender = await store.senders.get(keyFor("a@acme.com"));
+    expect(sender).toMatchObject({
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      pendingActions: ["create_filter"],
+    });
+  });
+
+  it("defer on an already-trusted sender is a no-op — status untouched", async () => {
+    const store = await seed();
+    await applyDecision(store, {
+      subjectId: keyFor("a@acme.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    const result = await applyDecision(store, {
+      subjectId: keyFor("a@acme.com"),
+      scope: "address",
+      decision: "defer",
+      now: NOW + 1,
+    });
+
+    expect(result.status).toBe("trusted");
+    const sender = await store.senders.get(keyFor("a@acme.com"));
+    expect(sender).toMatchObject({ trustStatus: "trusted", trustDecidedAt: NOW });
+  });
+
   it("throws for an unknown sender", async () => {
     const store = await seed();
     await expect(
@@ -253,6 +302,34 @@ describe("applyDecision — domain scope (overrides address)", () => {
       [keyFor("a@acme.com"), keyFor("b@acme.com")].sort(),
     );
     expect((await store.prompts.get(keyFor("a@acme.com")))?.deferredAt).toBe(NOW);
+  });
+
+  it("defer on an already-blocked domain is a no-op — status and pendingActions untouched", async () => {
+    const store = await seed();
+    await applyDecision(store, {
+      subjectId: keyFor("acme.com"),
+      scope: "domain",
+      decision: "block",
+      actions: ["create_filter"],
+      now: NOW,
+    });
+
+    const result = await applyDecision(store, {
+      subjectId: keyFor("acme.com"),
+      scope: "domain",
+      decision: "defer",
+      now: NOW + 1,
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.pendingActions).toEqual(["create_filter"]);
+
+    const domain = await store.domains.get(keyFor("acme.com"));
+    expect(domain).toMatchObject({
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      pendingActions: ["create_filter"],
+    });
   });
 
   it("throws for an unknown domain", async () => {
