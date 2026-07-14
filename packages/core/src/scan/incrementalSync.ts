@@ -23,6 +23,17 @@
  *
  * After processing, native filters are reconciled from the durable blocked set (reusing
  * M4's idempotent `reconcileNativeFilters`) so re-syncing never duplicates filters.
+ *
+ * Concurrency & partial failure (#48): the additive merge below has no cross-repo
+ * transaction, so two safeguards keep it from double-counting —
+ *   - **In-flight guard:** concurrent calls for the same `Store` (sign-in, periodic
+ *     background sync, and pull-to-refresh can all fire together) collapse onto the
+ *     same in-progress run instead of racing on the store.
+ *   - **Claim-then-merge:** `lastHistoryId` is claimed *before* the additive mutations
+ *     run, not after. A crash between the claim and the final commit means this batch's
+ *     deltas are applied at most once — the cost is that an interrupted batch's deltas
+ *     may be missed once (self-corrected by the next sync), never replayed and
+ *     double-counted.
  */
 
 import { reseedHistoryMarker, runScan } from "./runScan";
@@ -78,14 +89,39 @@ export interface IncrementalSyncResult {
 }
 
 /**
+ * One in-flight run per `Store` instance. Concurrent callers (sign-in, periodic
+ * background sync, pull-to-refresh) join the same run instead of racing on the store.
+ */
+const inFlightSyncs = new WeakMap<Store, Promise<IncrementalSyncResult>>();
+
+/**
  * Run an incremental Gmail sync, keeping the on-device store current without a full
  * rescan. Falls back to a bounded rescan on first run or a stale historyId. Pure over
  * the `GmailClient` + `Store` ports.
+ *
+ * Concurrent calls for the same `store` are serialized onto a single run (#48) — a
+ * second call issued while one is already in flight for that store returns the same
+ * promise rather than starting an overlapping sync.
  */
-export async function incrementalSync(
+export function incrementalSync(
   client: GmailClient,
   store: Store,
   options: IncrementalSyncOptions = {},
+): Promise<IncrementalSyncResult> {
+  const inFlight = inFlightSyncs.get(store);
+  if (inFlight !== undefined) return inFlight;
+
+  const run = runIncrementalSync(client, store, options).finally(() => {
+    inFlightSyncs.delete(store);
+  });
+  inFlightSyncs.set(store, run);
+  return run;
+}
+
+async function runIncrementalSync(
+  client: GmailClient,
+  store: Store,
+  options: IncrementalSyncOptions,
 ): Promise<IncrementalSyncResult> {
   const now = options.now ?? Date.now();
   const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
@@ -109,6 +145,13 @@ export async function incrementalSync(
     }
     throw error;
   }
+
+  // Claim this batch's historyId before the additive merge below runs. If a write
+  // fails or the tab closes partway through, the marker has already moved past this
+  // batch, so a retry starts from the new historyId instead of re-fetching and
+  // re-applying the same deltas (#48). The profile's count fields are refreshed at the
+  // end regardless, so this early write's stale counts are always superseded.
+  await store.profile.put({ ...profile, lastHistoryId: history.historyId });
 
   // Flatten the history records into id sets / label-delta lists.
   const addedIds: string[] = [];
