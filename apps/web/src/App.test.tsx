@@ -71,6 +71,28 @@ describe("App", () => {
     expect(profile?.lastHistoryId).not.toBeNull();
   });
 
+  it("reseeds the History-API marker after a Full rescan, so the next sync stays incremental (issue #47)", async () => {
+    const { gmail, store, backup } = setup();
+    render(<App gmail={gmail} store={store} backup={backup} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
+    await screen.findByText("owner@gmail.com");
+    const seededHistoryId = (await store.profile.get())?.lastHistoryId;
+    expect(seededHistoryId).not.toBeNull();
+
+    // The mailbox moves on before the user triggers a "Full rescan" from Settings.
+    gmail.setLatestHistoryId("999");
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: /rescan inbox/i }));
+
+    await screen.findByText(/rescanned \d+ sender/i);
+    const profile = await store.profile.get();
+    // A stale marker here would make the next incrementalSync replay old history and
+    // double-count sender totals — the rescan must reseed it to the mailbox's current
+    // historyId, not leave it at the pre-rescan value.
+    expect(profile?.lastHistoryId).toBe("999");
+  });
+
   it("demo mode renders a populated dashboard, the demo banner, and an exit", async () => {
     const { gmail, store, backup } = await createDemoEnvironment({ now: DEMO_NOW });
     render(

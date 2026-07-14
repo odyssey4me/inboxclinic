@@ -143,7 +143,13 @@ export {
 export { importLearnedDecisions } from "./decisions/importLearned";
 
 // Bounded metadata scan orchestration (pure over the ports).
-export { buildScanQuery, runScan, type RunScanOptions, type ScanResult } from "./scan/runScan";
+export {
+  buildScanQuery,
+  reseedHistoryMarker,
+  runScan,
+  type RunScanOptions,
+  type ScanResult,
+} from "./scan/runScan";
 
 // Incremental History-API sync (pure over the ports; M5).
 export {

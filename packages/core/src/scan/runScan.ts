@@ -9,9 +9,12 @@
  *
  * Flow: build a bounded Gmail query → list ids → fetch each message's metadata →
  * extract senders/domains → upsert them (preserving prior trust decisions) →
- * generate prompts for the undecided → update the profile counts. `runScan` is also the
- * first-run / stale-recovery path for `incrementalSync` (scan/incrementalSync.ts), which
- * seeds the History-API marker (`lastHistoryId`) from `getLatestHistoryId` afterwards.
+ * generate prompts for the undecided → update the profile counts. `runScan` leaves the
+ * History-API marker (`lastHistoryId`) untouched — every caller that runs a scan
+ * standalone (not immediately followed by a `listHistory` from the same point) must
+ * reseed it via `reseedHistoryMarker`, or the next `incrementalSync` will replay stale
+ * history into the additive merge and double-count. `incrementalSync`'s own first-run /
+ * stale-recovery path (`fullSync` in scan/incrementalSync.ts) does this already.
  */
 
 import { recordDailyAnalytics } from "../analytics/record";
@@ -149,4 +152,21 @@ export async function runScan(
     domainCount: domains.length,
     promptCount: prompts.length,
   };
+}
+
+/**
+ * Reseed the History-API marker (`lastHistoryId`) from the mailbox's current
+ * historyId. Callers that run a bounded scan (`runScan`) outside of
+ * `incrementalSync`'s own first-run/stale-recovery path (`fullSync`) — e.g. a
+ * user-triggered "Full rescan" — must call this afterwards, otherwise the next
+ * `incrementalSync` replays history since the stale marker into the additive
+ * merge and double-counts (issue #47).
+ */
+export async function reseedHistoryMarker(client: GmailClient, store: Store): Promise<string> {
+  const historyId = await client.getLatestHistoryId();
+  const profile = await store.profile.get();
+  if (profile !== undefined) {
+    await store.profile.put({ ...profile, lastHistoryId: historyId });
+  }
+  return historyId;
 }
