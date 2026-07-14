@@ -123,9 +123,12 @@ export async function incrementalSync(
       labelRemoves.push({ id: lr.message.id, labels: lr.labelIds });
   }
 
-  // A message added then deleted within the window is a no-op; net it out and dedupe.
-  const netAdded = [...new Set(addedIds)].filter((id) => !removedIds.has(id));
+  // A message added then deleted within the window is a no-op; net it out of both
+  // sides (it never existed in the prior message count, so it's not a removal either).
+  const addedIdSet = new Set(addedIds);
+  const netAdded = [...addedIdSet].filter((id) => !removedIds.has(id));
   const netAddedSet = new Set(netAdded);
+  for (const id of addedIdSet) removedIds.delete(id);
 
   // 1. Added messages → fetch metadata (best-effort) and extract sender deltas.
   const addedMetas: MessageMeta[] = [];
