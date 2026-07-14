@@ -31,6 +31,7 @@ import { FILTER_SYNC_KEY, reconcileNativeFilters } from "../enforcement/enforce"
 import { keyFor } from "../keys";
 import { generatePrompts } from "../prompts/generatePrompts";
 import { extractSenders, frequencyFor } from "../senders/extract";
+import { ageBuckets, ageInDays } from "../senders/recency";
 import type { CompileFiltersOptions } from "../enforcement/compileFilters";
 import type { GmailClient, MessageMeta } from "../ports/GmailClient";
 import { StaleHistoryError } from "../ports/GmailClient";
@@ -348,11 +349,15 @@ function mergeSender(existing: Sender, delta: Sender, now: number): Sender {
     delta.readRate === null ? 0 : Math.round((1 - delta.readRate) * delta.totalEmails);
   const unread = existingUnread + deltaUnread;
 
+  // The carried-over buckets were last aged as of `existing.updatedAt`; age them forward
+  // to `now` before folding in the delta's freshly-bucketed counts, or a sender touched
+  // repeatedly by incremental syncs would accumulate an ever-growing `d30` (#67).
+  const agedExisting = ageBuckets(existing.recencyBuckets, ageInDays(now, existing.updatedAt));
   const recencyBuckets = {
-    d30: existing.recencyBuckets.d30 + delta.recencyBuckets.d30,
-    d90: existing.recencyBuckets.d90 + delta.recencyBuckets.d90,
-    d180: existing.recencyBuckets.d180 + delta.recencyBuckets.d180,
-    older: existing.recencyBuckets.older + delta.recencyBuckets.older,
+    d30: agedExisting.d30 + delta.recencyBuckets.d30,
+    d90: agedExisting.d90 + delta.recencyBuckets.d90,
+    d180: agedExisting.d180 + delta.recencyBuckets.d180,
+    older: agedExisting.older + delta.recencyBuckets.older,
   };
   const deltaHasAuth = delta.auth.spf || delta.auth.dkim || delta.auth.dmarc || delta.auth.spoofed;
 
