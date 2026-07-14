@@ -85,6 +85,13 @@ describe("simulateEnforcement", () => {
     gmail.seedFilters([
       { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
+    // The filter was created by this app in an earlier run, so it's tracked as managed.
+    await store.filterSync.put({
+      key: "filterSyncState",
+      lastSyncAt: null,
+      totalFilters: 1,
+      managedFilterIds: ["f1"],
+    });
 
     const impact = await simulateEnforcement(gmail, store, [
       { subjectId: keyFor("spam@x.com"), scope: "address", decision: "trust" },
@@ -93,6 +100,24 @@ describe("simulateEnforcement", () => {
     expect(impact.filtersToDelete).toBe(1);
     expect(impact.filtersToCreate).toBe(0);
     expect(gmail.deletedFilterIds).toHaveLength(0); // no mutation
+  });
+
+  it("never previews deleting a foreign filter sharing the block action shape (#29)", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    // Hand-built by the user in Gmail's own UI — no managed-filter record for it.
+    gmail.seedFilters([
+      {
+        id: "hand-made",
+        from: "oldjob@company.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+
+    const impact = await simulateEnforcement(gmail, store, []);
+
+    expect(impact.filtersToDelete).toBe(0);
   });
 
   it("counts spam-marked mail that a trust reversal would rescue", async () => {

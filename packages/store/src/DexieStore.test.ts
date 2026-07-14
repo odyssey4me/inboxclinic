@@ -260,7 +260,12 @@ describe("DexieStore analytics", () => {
 
 describe("DexieStore filterSync (singleton) and settings", () => {
   it("stores and reads back the singleton filter-sync state", async () => {
-    const state: FilterSyncState = { key: "singleton", lastSyncAt: 123, totalFilters: 7 };
+    const state: FilterSyncState = {
+      key: "singleton",
+      lastSyncAt: 123,
+      totalFilters: 7,
+      managedFilterIds: ["filter-1"],
+    };
     await store.filterSync.put(state);
 
     expect(await store.filterSync.get()).toEqual(state);

@@ -102,14 +102,18 @@ describe("reconcileFilters", () => {
   const asNative = (specs: FilterSpec[]): NativeFilter[] =>
     specs.map((spec, i) => ({ ...spec, id: `f-${i}` }));
 
+  /** All ids from `filters`, i.e. every one of them is app-managed. */
+  const allManaged = (filters: NativeFilter[]): Set<string> => new Set(filters.map((f) => f.id));
+
   it("creates every desired filter against an empty account", () => {
-    const plan = reconcileFilters(desired, []);
+    const plan = reconcileFilters(desired, [], new Set());
     expect(plan.toCreate).toHaveLength(2);
     expect(plan.toDelete).toEqual([]);
   });
 
   it("is idempotent — no ops once the desired set already exists", () => {
-    const plan = reconcileFilters(desired, asNative(desired));
+    const existing = asNative(desired);
+    const plan = reconcileFilters(desired, existing, allManaged(existing));
     expect(plan.toCreate).toEqual([]);
     expect(plan.toDelete).toEqual([]);
   });
@@ -119,16 +123,31 @@ describe("reconcileFilters", () => {
       ...desired,
       { from: "stale@z.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
-    const plan = reconcileFilters(desired, existing);
+    const plan = reconcileFilters(desired, existing, allManaged(existing));
     expect(plan.toCreate).toEqual([]);
     expect(plan.toDelete).toEqual(["f-2"]);
   });
 
-  it("never touches foreign (non-managed) filters", () => {
+  it("never touches foreign filters, even ones not tracked as managed", () => {
     const foreign: NativeFilter[] = [
       { id: "foreign", from: "boss@work.com", addLabelIds: ["IMPORTANT"], removeLabelIds: [] },
     ];
-    const plan = reconcileFilters([], foreign);
+    const plan = reconcileFilters([], foreign, new Set());
+    expect(plan.toDelete).toEqual([]);
+  });
+
+  it("never deletes a foreign filter that merely shares the block action shape (#29)", () => {
+    // A hand-built "Trash + skip inbox" filter the user made themselves — never
+    // created via `createFilter`, so its id was never recorded as managed.
+    const handMade: NativeFilter[] = [
+      {
+        id: "hand-made",
+        from: "oldjob@company.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ];
+    const plan = reconcileFilters([], handMade, new Set());
     expect(plan.toDelete).toEqual([]);
   });
 
@@ -137,7 +156,7 @@ describe("reconcileFilters", () => {
       { from: "b@y.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
       { from: "old@z.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
-    const plan = reconcileFilters(desired, existing);
+    const plan = reconcileFilters(desired, existing, allManaged(existing));
     expect(plan.toCreate.map((f) => f.from)).toEqual(["a@x.com"]);
     expect(plan.toDelete).toEqual(["f-1"]);
   });

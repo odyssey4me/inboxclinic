@@ -233,6 +233,12 @@ export interface FilterSyncState {
   key: string; // singleton key
   lastSyncAt: number | null;
   totalFilters: number;
+  /**
+   * Ids of native filters this app created — the ownership marker `reconcileFilters`
+   * requires before a filter is eligible for deletion (#29). Gmail filters carry no
+   * metadata field, so provenance is tracked locally instead of inferred from shape.
+   */
+  managedFilterIds: string[];
 }
 
 export interface Setting {

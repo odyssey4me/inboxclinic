@@ -90,6 +90,8 @@ export interface FilterReconcileOutcome {
   capReached: boolean;
   /** Filters not created because the cap was reached. */
   skippedAtCap: number;
+  /** Ids of filters this app owns after this run — persist to `store.filterSync` (#29). */
+  managedFilterIds: string[];
   failures: EnforceFailure[];
 }
 
@@ -115,12 +117,18 @@ export async function reconcileNativeFilters(
   // doesn't corrupt the persisted soft-cap headroom view with a false "zero" reading.
   const previousSync = await store.filterSync.get();
   let totalFilters = previousSync?.totalFilters ?? 0;
+  let managedFilterIds = new Set(previousSync?.managedFilterIds ?? []);
   try {
     const existing = await client.listFilters();
-    const { toCreate, toDelete } = reconcileFilters(compiled.filters, existing);
+    // Drop ids for filters removed outside the app (e.g. via Gmail's own UI) so the
+    // managed set tracks what's actually there instead of growing unbounded.
+    const existingIds = new Set(existing.map((f) => f.id));
+    managedFilterIds = new Set([...managedFilterIds].filter((id) => existingIds.has(id)));
+    const { toCreate, toDelete } = reconcileFilters(compiled.filters, existing, managedFilterIds);
     for (const spec of toCreate) {
       try {
-        await client.createFilter(spec);
+        const created = await client.createFilter(spec);
+        managedFilterIds.add(created.id);
         filtersCreated += 1;
       } catch (error) {
         failures.push({ subject: `filter:${spec.from}`, error: errMsg(error) });
@@ -129,6 +137,7 @@ export async function reconcileNativeFilters(
     for (const id of toDelete) {
       try {
         await client.deleteFilter(id);
+        managedFilterIds.delete(id);
         filtersDeleted += 1;
       } catch (error) {
         failures.push({ subject: `filter:${id}`, error: errMsg(error) });
@@ -145,6 +154,7 @@ export async function reconcileNativeFilters(
     totalFilters,
     capReached: compiled.capReached,
     skippedAtCap: compiled.skippedAtCap,
+    managedFilterIds: [...managedFilterIds],
     failures,
   };
 }
@@ -266,7 +276,12 @@ export async function enforce(
   }
 
   // 4. Record sync state and the day's blocked/rescued email volume (analytics, M6).
-  await store.filterSync.put({ key: FILTER_SYNC_KEY, lastSyncAt: now, totalFilters });
+  await store.filterSync.put({
+    key: FILTER_SYNC_KEY,
+    lastSyncAt: now,
+    totalFilters,
+    managedFilterIds: filters.managedFilterIds,
+  });
   await recordDailyAnalytics(store, now, {
     emailsBlocked: messagesArchived + messagesTrashed,
     emailsRescued: messagesRescued,
