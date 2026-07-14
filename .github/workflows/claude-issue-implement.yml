@@ -20,11 +20,13 @@ permissions:
 
 jobs:
   implement:
-    # Approved for implementation, but never a `cleanup` batch (those are handled
-    # directly by the maintainer, not the heavyweight per-issue loop).
+    # Approved for implementation, but never a `cleanup` batch or a `maintainer-only`
+    # issue (workflow/infra changes the GitHub App token can't push) — those are handled
+    # directly by the maintainer, not the heavyweight per-issue loop.
     if: >-
       github.event.label.name == 'claude-approved' &&
-      !contains(github.event.issue.labels.*.name, 'cleanup')
+      !contains(github.event.issue.labels.*.name, 'cleanup') &&
+      !contains(github.event.issue.labels.*.name, 'maintainer-only')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

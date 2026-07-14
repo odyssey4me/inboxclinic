@@ -1,9 +1,12 @@
 name: CI
 
-# CI/CD pipeline. `build` (lint/typecheck/test/coverage/build) and `e2e` (Tier-3
-# Playwright across chromium/firefox/webkit/mobile against demo mode) run on every push
-# and PR. `deploy` runs only on main and **needs both**, so a broken build or a failing
-# E2E run can never publish. Job names are stable so they back the required status checks.
+# CI/CD pipeline. `build` (lint/typecheck/test/coverage/build), `e2e` (Tier-3 Playwright
+# across chromium/firefox/webkit/mobile against demo mode), and `docs` (doc-sync
+# validation) run on every push and PR. `ci-gate` depends on all three and is the SINGLE
+# required status check — every PR, including docs-only ones, resolves to one gate that
+# passes iff the real jobs did, so no PR gets stuck on a check that never reported.
+# `deploy` runs only on main and needs build+e2e, so a broken build or a failing E2E run
+# can never publish.
 
 on:
   push:
@@ -85,6 +88,43 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+  docs:
+    name: Docs sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Validate documentation sync
+        run: ./scripts/doc-sync-validate.sh
+
+  ci-gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    needs: [build, e2e, docs]
+    # Runs even when a gating job fails, so it always reports a result.
+    if: always()
+    steps:
+      - name: Verify gating jobs passed
+        env:
+          BUILD: ${{ needs.build.result }}
+          E2E: ${{ needs.e2e.result }}
+          DOCS: ${{ needs.docs.result }}
+        run: |
+          # The SINGLE required status check. Passes only if every gating job succeeded
+          # (or was legitimately skipped), so a PR resolves to one reliable gate instead of
+          # several individual checks that may never report (docs-only PRs, etc.).
+          echo "build=$BUILD  e2e=$E2E  docs=$DOCS"
+          for r in "$BUILD" "$E2E" "$DOCS"; do
+            case "$r" in
+              success | skipped) ;;
+              *) echo "::error::a gating job did not pass ($r)"; exit 1 ;;
+            esac
+          done
+          echo "All gating jobs passed."
 
   deploy:
     name: Build & deploy to Cloudflare Pages
