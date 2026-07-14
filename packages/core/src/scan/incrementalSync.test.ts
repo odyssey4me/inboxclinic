@@ -95,6 +95,39 @@ describe("incrementalSync — added delta", () => {
     const after = await store.senders.get(keyFor("jane@acme.com"));
     expect(after?.totalEmails).toBe((before?.totalEmails ?? 0) + 1);
   });
+
+  it("ages carried-over recency buckets forward on each repeated sync (#67)", async () => {
+    const { client, store } = await syncedFixture();
+    const DAY = 24 * 60 * 60 * 1000;
+
+    // jane's one message from the first sync is fresh (d30:1) as of NOW.
+    const afterFirst = await store.senders.get(keyFor("jane@acme.com"));
+    expect(afterFirst?.recencyBuckets).toEqual({ d30: 1, d90: 0, d180: 0, older: 0 });
+
+    // 40 days later, jane sends again. Her first message is now >30 days old and should
+    // have aged out of `d30` — not still be counted as recent.
+    const secondNow = NOW + 40 * DAY;
+    client.addInboxMessages([
+      messageMetaBuilder({
+        id: "a2",
+        headers: { from: "jane@acme.com" },
+        internalDate: secondNow,
+        labelIds: ["INBOX"],
+      }),
+    ]);
+    client.seedHistory(
+      [{ id: "150", messagesAdded: [{ message: { id: "a2", threadId: "t-a2" } }] }],
+      "200",
+    );
+    await incrementalSync(client, store, { now: secondNow });
+
+    const afterSecond = await store.senders.get(keyFor("jane@acme.com"));
+    expect(afterSecond?.totalEmails).toBe(2);
+    expect(afterSecond?.recencyBuckets).toEqual({ d30: 1, d90: 1, d180: 0, older: 0 });
+    // Buckets stay a true partition of the sender's messages, not an unbounded d30.
+    const b = afterSecond!.recencyBuckets;
+    expect(b.d30 + b.d90 + b.d180 + b.older).toBe(afterSecond!.totalEmails);
+  });
 });
 
 describe("incrementalSync — removed delta", () => {

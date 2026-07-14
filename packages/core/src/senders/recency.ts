@@ -39,6 +39,46 @@ export function emptyBuckets(): RecencyBuckets {
   return { d30: 0, d90: 0, d180: 0, older: 0 };
 }
 
+/** `[bucket, lowerBoundDays, upperBoundDays]`, in the same order as {@link bucketForAgeDays}. */
+const BUCKET_RANGES: [RecencyBucket, number, number][] = [
+  ["d30", 0, 30],
+  ["d90", 30, 90],
+  ["d180", 90, 180],
+  ["older", 180, Infinity],
+];
+
+/** Spread `count` proportionally across the bucket ranges it overlaps `[lo, hi)`. */
+function distribute(count: number, lo: number, hi: number, out: RecencyBuckets): void {
+  const width = hi - lo;
+  for (const [bucket, segLo, segHi] of BUCKET_RANGES) {
+    const overlap = Math.min(hi, segHi) - Math.max(lo, segLo);
+    if (overlap > 0) out[bucket] += count * (overlap / width);
+  }
+}
+
+/**
+ * Re-bucket a previously-computed `RecencyBuckets` for `elapsedDays` having passed since
+ * it was last computed. Buckets record counts, not per-message ages, so each bucket's
+ * messages are assumed uniformly spread across its day-range; ageing shifts that range
+ * forward and redistributes the count across whichever bucket(s) the shifted range now
+ * overlaps. `older` never needs to move — once a message is >180d old, ageing it further
+ * only keeps it there.
+ */
+export function ageBuckets(buckets: RecencyBuckets, elapsedDays: number): RecencyBuckets {
+  if (elapsedDays <= 0) return buckets;
+  const result = emptyBuckets();
+  for (const [bucket, lo, hi] of BUCKET_RANGES) {
+    const count = buckets[bucket];
+    if (count <= 0) continue;
+    if (hi === Infinity) {
+      result.older += count;
+    } else {
+      distribute(count, lo + elapsedDays, hi + elapsedDays, result);
+    }
+  }
+  return result;
+}
+
 /**
  * Recency-weighted average over a bucket set, in `[0.2, 1.0]` (`0` when empty).
  * Used to scale time-sensitive user signals toward recent activity.
