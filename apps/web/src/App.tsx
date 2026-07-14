@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
   incrementalSync,
+  reseedHistoryMarker,
   runScan,
   type BackupClient,
   type GmailClient,
@@ -115,6 +116,9 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     setScanning(true);
     try {
       const result = await runScan(gmail, store, { windowDays: 30 });
+      // Reseed the History-API marker so the next incremental sync starts from this
+      // scan's point-in-time instead of replaying old history into it (issue #47).
+      await reseedHistoryMarker(gmail, store);
       setLastSyncedAt(Date.now());
       setSyncSummary(
         `Rescanned ${result.senderCount} sender${result.senderCount === 1 ? "" : "s"}`,

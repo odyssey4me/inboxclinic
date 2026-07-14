@@ -9,7 +9,8 @@ import {
   messageMetaBuilder,
   MockGmailClient,
 } from "../testing";
-import { buildScanQuery, runScan } from "./runScan";
+import { incrementalSync } from "./incrementalSync";
+import { buildScanQuery, reseedHistoryMarker, runScan } from "./runScan";
 
 /**
  * Wraps a `MockGmailClient` so `getMessageMeta` rejects for one id while
@@ -268,5 +269,67 @@ describe("runScan", () => {
       pendingActions: ["create_filter", "archive"],
       exceptionAddresses: ["deals@promo.com"],
     });
+  });
+});
+
+describe("reseedHistoryMarker", () => {
+  const NOW = 1_700_000_000_000;
+
+  it("advances lastHistoryId to the mailbox's current historyId", async () => {
+    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.com" } })]);
+    client.setLatestHistoryId("456");
+    const store = createInMemoryStore();
+    await store.profile.put({
+      googleEmail: "owner@gmail.com",
+      onboardingComplete: true,
+      lastHistoryId: "123",
+      senderCount: 0,
+      domainCount: 0,
+      messageCount: 0,
+      lastScanAt: null,
+      privacy: { contributeToAggregate: true },
+    });
+
+    await reseedHistoryMarker(client, store);
+
+    expect((await store.profile.get())?.lastHistoryId).toBe("456");
+  });
+
+  it("is a no-op when no profile exists yet", async () => {
+    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.com" } })]);
+    client.setLatestHistoryId("456");
+    const store = createInMemoryStore();
+
+    await reseedHistoryMarker(client, store);
+
+    expect(await store.profile.get()).toBeUndefined();
+  });
+
+  it("prevents a rescan follow by an incremental sync from double-counting (issue #47)", async () => {
+    // Reproduces the reported bug: "Full rescan" (runScan) followed by the next
+    // automatic sync (incrementalSync) must not replay history since a stale marker.
+    const client = new MockGmailClient(
+      [messageMetaBuilder({ headers: { from: "jane@acme.com" } })],
+      "owner@gmail.com",
+    );
+    client.setLatestHistoryId("100");
+    const store = createInMemoryStore();
+
+    // First sync seeds the marker at historyId "100" (via incrementalSync's own
+    // first-run path) — simulates the user having synced before rescanning.
+    await incrementalSync(client, store, { now: NOW });
+    expect((await store.profile.get())?.lastHistoryId).toBe("100");
+
+    // Mailbox moves on; a "Full rescan" runs the bounded scan directly (bypassing
+    // incrementalSync), then must reseed the marker itself.
+    client.setLatestHistoryId("200");
+    await runScan(client, store, { now: NOW + 1000 });
+    await reseedHistoryMarker(client, store);
+    expect((await store.profile.get())?.lastHistoryId).toBe("200");
+
+    // The next automatic sync must not see a stale "100" marker.
+    const next = await incrementalSync(client, store, { now: NOW + 2000 });
+    expect(next.mode).toBe("incremental");
+    expect(client.historyQueries).toEqual(["200"]);
   });
 });

@@ -25,7 +25,7 @@
  * M4's idempotent `reconcileNativeFilters`) so re-syncing never duplicates filters.
  */
 
-import { runScan } from "./runScan";
+import { reseedHistoryMarker, runScan } from "./runScan";
 import { recordDailyAnalytics } from "../analytics/record";
 import { FILTER_SYNC_KEY, reconcileNativeFilters } from "../enforcement/enforce";
 import { keyFor } from "../keys";
@@ -258,11 +258,7 @@ async function fullSync(
     ...(options.maxMessages !== undefined ? { maxMessages: options.maxMessages } : {}),
   });
 
-  const historyId = await client.getLatestHistoryId();
-  const profile = await store.profile.get();
-  if (profile !== undefined) {
-    await store.profile.put({ ...profile, lastHistoryId: historyId });
-  }
+  const historyId = await reseedHistoryMarker(client, store);
 
   const filters = await reconcileNativeFilters(client, store, options.compile);
   await store.filterSync.put({
