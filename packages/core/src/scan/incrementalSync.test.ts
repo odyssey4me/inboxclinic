@@ -5,6 +5,7 @@ import { incrementalSync } from "./incrementalSync";
 import { keyFor } from "../keys";
 import { createInMemoryStore, messageMetaBuilder, MockGmailClient } from "../testing";
 import type { HistoryRecord, MessageMeta } from "../ports/GmailClient";
+import type { Profile, Store } from "../store";
 
 const NOW = Date.UTC(2026, 5, 28);
 
@@ -249,6 +250,70 @@ describe("incrementalSync — stale historyId", () => {
     expect(client.historyQueries).toEqual(["100"]); // tried once, then fell back
     const profile = await store.profile.get();
     expect(profile?.lastHistoryId).toBe("999");
+  });
+});
+
+describe("incrementalSync — concurrency & partial failure (#48)", () => {
+  it("does not double-count a sync interrupted before the final profile.put", async () => {
+    const { client, store } = await syncedFixture();
+    const before = await store.senders.get(keyFor("jane@acme.com"));
+
+    client.addInboxMessages([msg("a2", "jane@acme.com")]);
+    client.seedHistory(
+      [{ id: "150", messagesAdded: [{ message: { id: "a2", threadId: "t-a2" } }] }],
+      "200",
+    );
+
+    // Simulate the tab closing (or a write failing) right at the final commit: the
+    // additive sender merge has already landed, but the last profile write hasn't.
+    let putCount = 0;
+    const flakyStore: Store = {
+      ...store,
+      profile: {
+        get: () => store.profile.get(),
+        put: async (value: Profile) => {
+          putCount += 1;
+          if (putCount === 2) throw new Error("interrupted");
+          await store.profile.put(value);
+        },
+      },
+      exportAll: store.exportAll.bind(store),
+      importAll: store.importAll.bind(store),
+      wipeAll: store.wipeAll.bind(store),
+    };
+
+    await expect(incrementalSync(client, flakyStore, { now: NOW })).rejects.toThrow("interrupted");
+
+    // The claim write already advanced the marker past this batch's historyId — a real
+    // Gmail `listHistory` from an already-delivered marker returns no further records
+    // for it, so the retry must not re-apply the same delta.
+    client.seedHistory([], "200");
+    const retry = await incrementalSync(client, store, { now: NOW });
+
+    expect(retry.mode).toBe("incremental");
+    expect(retry.messagesAdded).toBe(0);
+    const after = await store.senders.get(keyFor("jane@acme.com"));
+    expect(after?.totalEmails).toBe((before?.totalEmails ?? 0) + 1);
+  });
+
+  it("collapses concurrent calls for the same store into a single run", async () => {
+    const { client, store } = await syncedFixture();
+
+    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.seedHistory(
+      [{ id: "150", messagesAdded: [{ message: { id: "c1", threadId: "t-c1" } }] }],
+      "200",
+    );
+
+    const [first, second] = await Promise.all([
+      incrementalSync(client, store, { now: NOW }),
+      incrementalSync(client, store, { now: NOW }),
+    ]);
+
+    expect(second).toBe(first);
+    expect(client.historyQueries).toEqual(["100"]); // a single listHistory call
+    const sender = await store.senders.get(keyFor("fresh@new.com"));
+    expect(sender?.totalEmails).toBe(1);
   });
 });
 
