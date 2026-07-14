@@ -83,9 +83,13 @@ export function TrustActions({
         <Button variant="danger" onClick={() => onDecide("block", defaultBlockActions(sender))}>
           Block
         </Button>
-        <Button variant="ghost" onClick={() => onDecide("defer", [])}>
-          Not sure (defer)
-        </Button>
+        {/* Defer is only meaningful for an undecided subject — applyDecision is a no-op
+            once trusted/blocked (design-trust-decisions.md), so hide it once decided. */}
+        {sender.trustStatus === "pending" && (
+          <Button variant="ghost" onClick={() => onDecide("defer", [])}>
+            Not sure (defer)
+          </Button>
+        )}
         <button
           type="button"
           onClick={() => setBlockOpen((v) => !v)}

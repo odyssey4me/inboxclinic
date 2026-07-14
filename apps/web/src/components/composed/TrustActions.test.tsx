@@ -93,4 +93,20 @@ describe("TrustActions", () => {
     fireEvent.click(screen.getByRole("button", { name: /block with these actions/i }));
     expect(onDecide).toHaveBeenCalledWith("block", ["create_filter"]);
   });
+
+  it("offers defer only for a pending subject", () => {
+    const onDecide = vi.fn();
+    const { rerender } = render(<Harness sender={senderA} onDecide={onDecide} />);
+    expect(screen.getByRole("button", { name: /not sure \(defer\)/i })).toBeInTheDocument();
+
+    rerender(
+      <Harness sender={makeSender({ ...senderA, trustStatus: "trusted" })} onDecide={onDecide} />,
+    );
+    expect(screen.queryByRole("button", { name: /not sure \(defer\)/i })).not.toBeInTheDocument();
+
+    rerender(
+      <Harness sender={makeSender({ ...senderA, trustStatus: "blocked" })} onDecide={onDecide} />,
+    );
+    expect(screen.queryByRole("button", { name: /not sure \(defer\)/i })).not.toBeInTheDocument();
+  });
 });
