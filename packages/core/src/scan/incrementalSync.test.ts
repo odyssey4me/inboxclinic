@@ -96,6 +96,47 @@ describe("incrementalSync — added delta", () => {
     expect(after?.totalEmails).toBe((before?.totalEmails ?? 0) + 1);
   });
 
+  it("keeps a domain's batch size consistent when a delta touches only one member (#68)", async () => {
+    // Seed 5 distinct pending senders sharing a domain, all in one full sync.
+    const client = new MockGmailClient(
+      [
+        msg("p1", "one@promo.com"),
+        msg("p2", "two@promo.com"),
+        msg("p3", "three@promo.com"),
+        msg("p4", "four@promo.com"),
+        msg("p5", "five@promo.com"),
+      ],
+      "owner@gmail.com",
+    );
+    client.setLatestHistoryId("100");
+    const store = createInMemoryStore();
+    await incrementalSync(client, store, { now: NOW });
+
+    // Sanity: the initial full sync already agrees on batchSize 5 for the domain.
+    const initialSizes = await Promise.all(
+      ["one", "two", "three", "four", "five"].map(
+        async (n) => (await store.prompts.get(keyFor(`${n}@promo.com`)))?.batchSize,
+      ),
+    );
+    expect(initialSizes).toEqual([5, 5, 5, 5, 5]);
+
+    // A single new message from just one domain-mate should not desync the batch size —
+    // every prompt in the domain must still report the same 5-member batch.
+    client.addInboxMessages([msg("p1b", "one@promo.com")]);
+    client.seedHistory(
+      [{ id: "150", messagesAdded: [{ message: { id: "p1b", threadId: "t-p1b" } }] }],
+      "200",
+    );
+    await incrementalSync(client, store, { now: NOW });
+
+    const sizesAfter = await Promise.all(
+      ["one", "two", "three", "four", "five"].map(
+        async (n) => (await store.prompts.get(keyFor(`${n}@promo.com`)))?.batchSize,
+      ),
+    );
+    expect(sizesAfter).toEqual([5, 5, 5, 5, 5]);
+  });
+
   it("ages carried-over recency buckets forward on each repeated sync (#67)", async () => {
     const { client, store } = await syncedFixture();
     const DAY = 24 * 60 * 60 * 1000;
