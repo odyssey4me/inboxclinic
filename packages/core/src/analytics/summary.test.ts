@@ -106,17 +106,24 @@ describe("analyticsSummary (over the Store port)", () => {
   });
 
   it("still covers day 1 of the month when the window is shorter than the elapsed days", async () => {
-    // A 31-day month with the default 30-day window: `recentDays(30)` alone would
-    // drop the 1st, silently under-counting the persisted monthly rollup.
+    // A 31-day month with the default 30-day window: `recentDays(30)` returns the
+    // 30 *most recent* records. With only a handful of days seeded, that trivially
+    // includes the 1st regardless of the window, so the test must seed MORE than
+    // `windowDays` records after the 1st for `recentDays(30)` to actually push it
+    // out — reproducing the undercount the pre-fix code silently produced.
     const store = createInMemoryStore();
     const day31st = Date.UTC(2026, 6, 31, 12, 0, 0); // 2026-07-31
     await store.analytics.putDay(day("2026-07-01", { emailsBlocked: 5 }));
-    await store.analytics.putDay(day("2026-07-31", { emailsBlocked: 7 }));
+    for (let d = 2; d <= 31; d += 1) {
+      await store.analytics.putDay(day(`2026-07-${String(d).padStart(2, "0")}`, { emailsBlocked: 1 }));
+    }
 
     await analyticsSummary(store, { now: day31st, windowDays: 30 });
 
     const monthly = await store.analytics.month("2026-07");
-    expect(monthly?.emailsBlocked).toBe(12);
+    // 5 (day 1) + 30 (days 2-31, one each) = 35. Pre-fix, `recentDays(30)` returns
+    // only days 2-31 (the 30 most recent), dropping day 1 and yielding 30.
+    expect(monthly?.emailsBlocked).toBe(35);
   });
 });
 
