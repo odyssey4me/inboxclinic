@@ -144,19 +144,16 @@ export async function incrementalSync(
 
   let sendersAdded = 0;
   let sendersUpdated = 0;
-  const touchedPendingIds = new Set<string>();
   const affectedDomains = new Set<string>();
   for (const delta of deltaSenders) {
     const existing = await store.senders.get(delta.id);
     if (existing === undefined) {
       await store.senders.put(delta);
       sendersAdded += 1;
-      touchedPendingIds.add(delta.id);
     } else {
       const merged = mergeSender(existing, delta, now);
       await store.senders.put(merged);
       sendersUpdated += 1;
-      if (merged.trustStatus === "pending") touchedPendingIds.add(merged.id);
     }
     affectedDomains.add(delta.domain);
   }
@@ -198,10 +195,16 @@ export async function incrementalSync(
     }
   }
 
-  // 4. Regenerate prompts for the undecided senders touched this sync.
+  // 4. Regenerate prompts for every pending sender in a domain touched this sync — not
+  // just the senders this sync's delta hit. `generatePrompts` derives each prompt's
+  // `batchSize`/`sameDomainCount` from the full set of senders passed in, so feeding it
+  // only the touched senders would recompute their batch size from a 1-sender subset
+  // and desync it from domain-mates whose prompts weren't regenerated (#68).
   const allSenders = await store.senders.query({});
-  const touched = allSenders.filter((s) => touchedPendingIds.has(s.id));
-  const prompts = generatePrompts(touched, { now });
+  const pendingInAffectedDomains = allSenders.filter(
+    (s) => s.trustStatus === "pending" && affectedDomains.has(s.domain),
+  );
+  const prompts = generatePrompts(pendingInAffectedDomains, { now });
   await store.prompts.bulkPut(prompts);
 
   // 5. Advance the marker and refresh profile counts.
