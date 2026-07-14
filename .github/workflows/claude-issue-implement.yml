@@ -83,6 +83,30 @@ jobs:
             --allowedTools Read,Grep,Glob,Edit,Write,Bash
             --max-turns 100
 
+      - name: Save agent transcript
+        if: always()
+        env:
+          EXEC: ${{ steps.implement.outputs.execution_file }}
+        run: |
+          # Persist the full agent transcript (every tool call + the result object) so a
+          # no-op or failure can be diagnosed post-hoc — otherwise it is ephemeral and
+          # `gh run view --log` doesn't expose the tool calls.
+          if [[ -n "$EXEC" && -f "$EXEC" ]]; then
+            cp "$EXEC" "$GITHUB_WORKSPACE/agent-transcript.json"
+            echo "saved $(wc -c < "$GITHUB_WORKSPACE/agent-transcript.json") bytes"
+          else
+            echo '{"note":"no execution_file output was set for this run"}' > "$GITHUB_WORKSPACE/agent-transcript.json"
+          fi
+
+      - name: Upload agent transcript
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-transcript-${{ github.event.issue.number }}-${{ github.run_id }}
+          path: agent-transcript.json
+          retention-days: 30
+          if-no-files-found: warn
+
       - name: Record run metrics
         if: always()
         env:
