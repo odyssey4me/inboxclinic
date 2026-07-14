@@ -104,6 +104,20 @@ describe("analyticsSummary (over the Store port)", () => {
     const monthly = await store.analytics.month("2026-06");
     expect(monthly?.emailsBlocked).toBe(40);
   });
+
+  it("still covers day 1 of the month when the window is shorter than the elapsed days", async () => {
+    // A 31-day month with the default 30-day window: `recentDays(30)` alone would
+    // drop the 1st, silently under-counting the persisted monthly rollup.
+    const store = createInMemoryStore();
+    const day31st = Date.UTC(2026, 6, 31, 12, 0, 0); // 2026-07-31
+    await store.analytics.putDay(day("2026-07-01", { emailsBlocked: 5 }));
+    await store.analytics.putDay(day("2026-07-31", { emailsBlocked: 7 }));
+
+    await analyticsSummary(store, { now: day31st, windowDays: 30 });
+
+    const monthly = await store.analytics.month("2026-07");
+    expect(monthly?.emailsBlocked).toBe(12);
+  });
 });
 
 describe("snapshot (privacy-safe, opt-in)", () => {
