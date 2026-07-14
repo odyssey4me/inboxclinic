@@ -16,7 +16,7 @@ import {
   type Store,
   type TrustStatus,
 } from "@inboxclinic/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ImpactPreview } from "../components/composed/ImpactPreview";
 import { Badge } from "../components/ui/Badge";
@@ -74,6 +74,10 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
   const [suggestions, setSuggestions] = useState<LearnedSuggestion[]>([]);
   const [dismissed, setDismissed] = useState(false);
   const [importing, setImporting] = useState(false);
+  // Bumped on every openChange call; a resolving simulateEnforcement only applies its
+  // result if it's still the most recent request (guards against a second subject being
+  // opened before the first one's simulation resolves).
+  const changeRequestRef = useRef(0);
 
   // On open, learn prior "no" decisions from existing filters + Spam/Trash (read-only).
   useEffect(() => {
@@ -140,12 +144,12 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
     setError(null);
     setImpact(null);
     setChange({ subject, to });
+    const requestId = ++changeRequestRef.current;
     const actions = to === "block" ? subject.blockActions : [];
-    setImpact(
-      await simulateEnforcement(gmail, store, [
-        { subjectId: subject.subjectId, scope: subject.scope, decision: to, actions },
-      ]),
-    );
+    const result = await simulateEnforcement(gmail, store, [
+      { subjectId: subject.subjectId, scope: subject.scope, decision: to, actions },
+    ]);
+    if (changeRequestRef.current === requestId) setImpact(result);
   };
 
   const confirmChange = async (): Promise<void> => {
