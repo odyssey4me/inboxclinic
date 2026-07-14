@@ -43,16 +43,26 @@ jobs:
             its existing comments first — a previous attempt may have left a struggle
             report on what blocked it; use that to go straight to a working approach.
 
+            IMPORTANT — you run in a SINGLE-SHOT CI job with NO continuation. You cannot
+            pause, wait for background work, resume later, schedule a follow-up, or spawn a
+            subagent and wait for it. Do NOT use the Agent/Task or ScheduleWakeup tools —
+            they will silently strand your work uncommitted. Everything must happen inline
+            in this one pass. Apply the "Reviewing for privacy & architecture invariants"
+            checklist in CONTRIBUTING.md YOURSELF as you work — do not delegate it to the
+            inbox-clinic-auditor or any subagent.
+
             Implement the requested change, following the repo conventions: CLAUDE.md,
-            docs/architecture.md and the design docs, and the "Reviewing for privacy &
-            architecture invariants" checklist in CONTRIBUTING.md.
+            docs/architecture.md and the design docs, and the CONTRIBUTING invariant
+            checklist.
             - Work on a NEW branch — never push to `main`. One focused problem per commit.
             - While iterating, run only the TARGETED checks for what you touched (the
               affected package's tests or a single test file, plus a typecheck) to keep the
               loop tight and cheap. Run the FULL suite (lint, typecheck, tests) ONCE at the
               end — before opening the PR — and fix any failures.
-            - Open a pull request describing the change; include
-              "Closes #${{ github.event.issue.number }}" in the body.
+            - FINISH the job: `git add` + commit, PUSH the branch to origin, then open a
+              PR with `gh pr create` (body includes "Closes #${{ github.event.issue.number }}").
+              Editing files is NOT enough — uncommitted, unpushed work is discarded when
+              the job ends. Confirm the PR actually exists before you stop.
 
             Budget & self-check: a focused fix should land in roughly 50 steps; the hard
             ceiling is 100. Treat these as a sense of scale, not a counter you can read —
