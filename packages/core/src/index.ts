@@ -172,6 +172,13 @@ export {
   type FilterReconcilePlan,
 } from "./enforcement/compileFilters";
 
+// Confirm-first adoption of untracked filters that already match a desired one (#80).
+export {
+  suggestFilterAdoptions,
+  applyFilterAdoptions,
+  type FilterAdoption,
+} from "./enforcement/adoptFilters";
+
 // Action planning (pure).
 export { planActions, type ActionPlan, type PlanActionsInput } from "./enforcement/planActions";
 

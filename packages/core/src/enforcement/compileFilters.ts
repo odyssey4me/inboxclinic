@@ -118,6 +118,13 @@ export function compileFilters(
 export interface FilterReconcilePlan {
   toCreate: FilterSpec[];
   toDelete: string[];
+  /**
+   * Untracked existing filters whose criteria + action already match a desired
+   * filter. Neither created (that would duplicate it) nor deleted or auto-adopted
+   * (ownership is never inferred from shape, #29) — surfaced for confirm-first
+   * adoption (`suggestFilterAdoptions`, #80).
+   */
+  adoptable: NativeFilter[];
 }
 
 /** A stable signature over a filter's criteria + action, for set comparison. */
@@ -135,9 +142,11 @@ function signature(filter: FilterSpec): string {
  * filters whose id is in `managedFilterIds` are ever eligible for deletion — action
  * shape alone ("Trash + skip-inbox") is not proof of provenance, since that is also a
  * common hand-built Gmail filter action; foreign filters are never touched even if
- * their shape happens to match (#29). A desired filter that coincidentally matches a
- * foreign filter's criteria is still created (and tracked) rather than adopted, so
- * ownership is never inferred from shape.
+ * their shape happens to match (#29). A desired filter that coincidentally matches an
+ * *untracked* existing filter's criteria + action is not created either — that would
+ * duplicate it — but it is also not auto-adopted; it is surfaced in `adoptable` so the
+ * app can offer confirm-first adoption instead of silently guessing ownership in
+ * either direction (#80).
  */
 export function reconcileFilters(
   desired: ReadonlyArray<FilterSpec>,
@@ -148,13 +157,24 @@ export function reconcileFilters(
   for (const spec of desired) desiredBySig.set(signature(spec), spec);
 
   const managed = existing.filter((f) => managedFilterIds.has(f.id));
-  const existingSigs = new Set(managed.map(signature));
+  const managedSigs = new Set(managed.map(signature));
+
+  const unmanagedBySig = new Map<string, NativeFilter>();
+  for (const f of existing) {
+    if (managedFilterIds.has(f.id)) continue;
+    const sig = signature(f);
+    if (!unmanagedBySig.has(sig)) unmanagedBySig.set(sig, f);
+  }
 
   const toCreate: FilterSpec[] = [];
+  const adoptable: NativeFilter[] = [];
   for (const [sig, spec] of desiredBySig) {
-    if (!existingSigs.has(sig)) toCreate.push(spec);
+    if (managedSigs.has(sig)) continue;
+    const match = unmanagedBySig.get(sig);
+    if (match !== undefined) adoptable.push(match);
+    else toCreate.push(spec);
   }
   const toDelete = managed.filter((f) => !desiredBySig.has(signature(f))).map((f) => f.id);
 
-  return { toCreate, toDelete };
+  return { toCreate, toDelete, adoptable };
 }
