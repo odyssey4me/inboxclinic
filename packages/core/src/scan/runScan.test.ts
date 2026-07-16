@@ -241,6 +241,25 @@ describe("runScan", () => {
     });
   });
 
+  it("preserves a learn-populated deletedUnreadCount across a rescan", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+
+    // The learn pass (Trash scan) later records a deleted-unread count on this sender.
+    const sender = await store.senders.get(keyFor("news@promo.com"));
+    await store.senders.put({ ...sender!, deletedUnreadCount: 3 });
+
+    // A full rescan rebuilds senders from the inbox (which can't see Trash) — it must not
+    // wipe the learn-derived count.
+    await runScan(client, store, { now: NOW + 1000 });
+
+    expect((await store.senders.get(keyFor("news@promo.com")))?.deletedUnreadCount).toBe(3);
+  });
+
   it("preserves a blocked domain's trustStatus and exceptionAddresses across a rescan", async () => {
     const client = new MockGmailClient([
       messageMetaBuilder({ headers: { from: "news@promo.com" } }),

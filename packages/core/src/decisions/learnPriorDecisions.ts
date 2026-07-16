@@ -14,7 +14,10 @@
  *
  * Side effect: while scanning Trash it also persists each existing sender's
  * `deletedUnreadCount` (mail binned while unread) — a trust-scoring input (Decision 8) that
- * the inbox scan can't see. This is the sole populator of that count.
+ * the inbox scan can't see. This is the sole populator of that count. It updates **existing
+ * sender records only** (by design — the signal only matters for senders the user actually
+ * sees as pending decisions, which have records). A trash-only sender with no record yet is
+ * simply picked up on the next learn pass after the inbox scan creates its record.
  */
 
 import { isBlockFilter, parseFilterSubjects } from "../enforcement/filterShape";
