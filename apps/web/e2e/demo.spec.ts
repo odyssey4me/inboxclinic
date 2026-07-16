@@ -9,7 +9,7 @@ test("landing offers a demo that opens a populated dashboard, and can exit", asy
   await page.getByRole("button", { name: /explore the demo/i }).click();
 
   // Signed in as the demo identity with a clear demo banner — no Google sign-in.
-  // (The mobile shell shows the email in both the account summary and its panel.)
+  // (Both shells show the email in the account menu's summary and its panel.)
   await expect(page.getByText(/demo mode/i)).toBeVisible();
   await expect(page.getByText(DEMO_EMAIL).first()).toBeVisible();
 
