@@ -318,8 +318,11 @@ async function runIncrementalSync(
   const pendingInAffectedDomains = allSenders.filter(
     (s) => s.trustStatus === "pending" && affectedDomains.has(s.domain),
   );
-  // Pass domain decisions so a domain-covered member isn't re-prompted every sync (#123).
-  const domainsForPrompts = await store.domains.query({});
+  // Pass domain decisions so a domain-covered member isn't re-prompted every sync (#123),
+  // scoped to the domains touched this sync (matching pendingInAffectedDomains).
+  const domainsForPrompts = (await store.domains.query({})).filter((d) =>
+    affectedDomains.has(d.domain),
+  );
   const prompts = generatePrompts(pendingInAffectedDomains, { now, domains: domainsForPrompts });
   await store.prompts.bulkPut(prompts);
 

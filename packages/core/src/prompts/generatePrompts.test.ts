@@ -74,6 +74,28 @@ describe("generatePrompts", () => {
     expect(prompts.map((p) => p.senderId)).toEqual([keyFor("c@open.com")]);
   });
 
+  it("excludes a decided per-address exception like any decided sender (#123)", () => {
+    const prompts = generatePrompts(
+      [
+        senderFixture("keep@blocked.com", "trusted"), // own address decision → an exception
+        senderFixture("other@blocked.com", "pending"), // covered by the domain block
+      ],
+      {
+        now: NOW,
+        domains: [
+          domainBuilder("blocked.com", {
+            trustStatus: "blocked",
+            decisionScope: "domain",
+            exceptionAddresses: ["keep@blocked.com"],
+          }),
+        ],
+      },
+    );
+    // The exception's own (trusted) decision wins → excluded; the other member is
+    // domain-covered → excluded. Neither is re-prompted.
+    expect(prompts).toHaveLength(0);
+  });
+
   it("still prompts members of an undecided domain — suppression only fires for decided domains (#123)", () => {
     const prompts = generatePrompts(
       [senderFixture("a@open.com", "pending"), senderFixture("b@open.com", "pending")],
