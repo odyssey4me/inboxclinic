@@ -3,37 +3,46 @@ import { expect, test } from "@playwright/test";
 
 import { gotoDemo } from "./helpers";
 
-test("decisions view: change a block to trust with a previewed, confirmed re-decision", async ({
+test("decisions surface: re-decide a trusted sender to blocked, previewed and confirmed", async ({
   page,
 }) => {
   await gotoDemo(page);
 
+  // The home is the decisions surface; the nav item confirms it.
   await page.getByRole("button", { name: /^Decisions$/ }).click();
   await expect(page.getByRole("heading", { name: /^Decisions$/ })).toBeVisible();
 
-  // The seeded demo blocks deals@retailco.com — change it to Trust.
-  const row = page.getByRole("listitem").filter({ hasText: "deals@retailco.com" });
-  await row.getByRole("button", { name: /change to trust/i }).click();
+  // jane.cooper is seeded trusted — view decided senders and change her to Blocked.
+  await page.getByRole("tab", { name: /^decided/i }).click();
+  const row = page.getByRole("row").filter({ hasText: "jane.cooper@gmail.com" });
+  await row.getByRole("button", { name: /^Block$/ }).click();
 
-  // A confirm dialog with the read-only impact preview appears; apply it.
-  await expect(page.getByRole("alertdialog", { name: /confirm decision change/i })).toBeVisible();
-  await expect(page.getByText(/when you apply/i)).toBeVisible();
-  await page.getByRole("button", { name: /confirm & apply/i }).click();
+  // Block opens the detail panel, where the impact is previewed before it applies.
+  const drawer = page.getByRole("dialog", { name: /actions for jane\.cooper@gmail\.com/i });
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole("button", { name: /^Block$/ }).click();
+  await expect(drawer.getByText(/when you apply/i)).toBeVisible();
+  await drawer.getByRole("button", { name: /confirm block/i }).click();
+  await expect(drawer).toBeHidden();
 
-  await expect(page.getByText(/deals@retailco\.com is now trusted/i)).toBeVisible();
+  // The re-decision is reflected in the row's status.
+  await expect(page.getByRole("row").filter({ hasText: "jane.cooper@gmail.com" })).toContainText(
+    "blocked",
+  );
 });
 
-test("decisions view: import prior decisions learned from Gmail (Spam/Trash)", async ({ page }) => {
+test("decisions surface: import prior decisions learned from Gmail (Spam/Trash)", async ({
+  page,
+}) => {
   await gotoDemo(page);
-  await page.getByRole("button", { name: /^Decisions$/ }).click();
 
-  // Learned from the demo's Spam/Trash: a confirm-first import appears.
+  // Learned from the demo's Spam/Trash, the prior-decisions card surfaces on the home.
   await expect(page.getByRole("heading", { name: /found \d+ prior decision/i })).toBeVisible();
   await page.getByRole("button", { name: /import all as blocked/i }).click();
-
   await expect(page.getByText(/imported \d+ prior decision/i)).toBeVisible();
-  // The imported spam sender is now a blocked decision in the list.
-  await expect(
-    page.getByRole("listitem").filter({ hasText: "wins@megacasino.example" }),
-  ).toBeVisible();
+
+  // The imported spam sender is now a blocked decision — find it via search on the All tab.
+  await page.getByRole("tab", { name: /^all/i }).click();
+  await page.getByRole("searchbox", { name: /search senders/i }).fill("megacasino");
+  await expect(page.getByText("wins@megacasino.example")).toBeVisible();
 });

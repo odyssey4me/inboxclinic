@@ -20,7 +20,6 @@ import { recordError } from "./reporting/recentErrors";
 import { registerPeriodicSync, SW_SYNC_MESSAGE } from "./pwa/periodicSync";
 import { Analytics } from "./screens/Analytics";
 import { Dashboard } from "./screens/Dashboard";
-import { Decisions } from "./screens/Decisions";
 import { Settings } from "./screens/Settings";
 import { TrustWorkflow } from "./workflow/TrustWorkflow";
 
@@ -32,7 +31,7 @@ const REQUEST_ACCESS_URL =
 /** Set on Disconnect so the local-first auto-render stays signed out until the next sign-in. */
 const SIGNED_OUT_KEY = "inboxclinic.signedOut";
 
-type View = "dashboard" | "workflow" | "decisions" | "analytics" | "settings";
+type View = "dashboard" | "workflow" | "analytics" | "settings";
 
 export interface AppProps {
   gmail: GmailClient;
@@ -241,13 +240,6 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
           setView("dashboard");
         }}
       />
-    ) : view === "decisions" ? (
-      <Decisions
-        store={store}
-        gmail={gmail}
-        online={online}
-        onChanged={() => setReloadKey((k) => k + 1)}
-      />
     ) : view === "analytics" ? (
       <Analytics store={store} />
     ) : view === "settings" ? (
@@ -262,10 +254,10 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       />
     ) : (
       <Dashboard
-        key={reloadKey}
         store={store}
         gmail={gmail}
         online={online}
+        refreshKey={reloadKey}
         onStartWorkflow={() => setView("workflow")}
         onChanged={() => setReloadKey((k) => k + 1)}
       />

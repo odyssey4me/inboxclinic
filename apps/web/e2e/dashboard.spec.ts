@@ -16,20 +16,17 @@ test("dashboard: act on a sender directly from the detail drawer", async ({ page
   await expect(drawer).toBeHidden();
 });
 
-test("dashboard: explore domains and act on a whole domain", async ({ page }) => {
+test("dashboard: act on a whole domain from a sender's detail panel", async ({ page }) => {
   await gotoDemo(page);
 
-  // Switch the list to Domains, open a domain that has multiple senders. Scope the click
-  // to the Domains region and match exactly so it can't hit a sender address like
-  // news@retailco.com (which also contains "retailco.com").
-  await page.getByRole("tab", { name: /domains/i }).click();
-  const domainsRegion = page.getByRole("region", { name: "Domains" });
-  await domainsRegion.getByText("retailco.com", { exact: true }).first().click();
-
-  const drawer = page.getByRole("dialog", { name: /actions for retailco\.com/i });
+  // Whole-domain decisions live on the sender's detail panel (scope toggle). Open a pending
+  // sender whose domain has siblings (news@ + deals@ on retailco.com).
+  await page.getByText("news@retailco.com").first().click();
+  const drawer = page.getByRole("dialog", { name: /actions for news@retailco\.com/i });
   await expect(drawer).toBeVisible();
 
-  // Trusting the domain applies in place and closes the drawer.
-  await drawer.getByRole("button", { name: /trust domain/i }).click();
+  // Switch the decision scope to the whole domain, then Trust it in place.
+  await drawer.getByRole("radio", { name: /whole domain/i }).check();
+  await drawer.getByRole("button", { name: /^Trust$/ }).click();
   await expect(drawer).toBeHidden();
 });

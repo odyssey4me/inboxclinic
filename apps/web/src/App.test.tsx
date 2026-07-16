@@ -104,7 +104,10 @@ describe("App", () => {
     expect(screen.getByText(/demo mode/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /exit demo/i })).toBeInTheDocument();
 
-    // The dashboard is populated from the seeded store (no sign-in, no network).
+    // The dashboard is populated from the seeded store (no sign-in, no network). The
+    // decisions surface defaults to the Pending tab; switch to All to see decided senders
+    // (jane is seeded trusted, deals blocked).
+    fireEvent.click(await screen.findByRole("tab", { name: /^all \(/i }));
     expect((await screen.findAllByText("jane.cooper@gmail.com")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("deals@retailco.com")).length).toBeGreaterThan(0);
   });
