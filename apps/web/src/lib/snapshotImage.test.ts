@@ -66,6 +66,25 @@ describe("drawSnapshot", () => {
     expect(ctx.texts.some((t) => t.includes("ACHIEVEMENTS"))).toBe(false);
   });
 
+  it("wraps many earned achievements onto extra rows instead of dropping them", () => {
+    // All 6 possible achievements earned (design-analytics.md Decision 4) — a single pill
+    // row can't hold them, so they must wrap rather than silently truncate.
+    const all = [
+      "First Block",
+      "Trust Builder",
+      "Clean Sweep",
+      "Triage Master",
+      "Time Saver",
+      "Inbox Hero",
+    ];
+    const ctx = fakeContext();
+    drawSnapshot(ctx, { ...SNAPSHOT, achievements: all });
+
+    for (const name of all) {
+      expect(ctx.texts.some((t) => t.includes(name))).toBe(true);
+    }
+  });
+
   it("uses the shared, fixed canvas size", () => {
     expect(SNAPSHOT_IMAGE_WIDTH).toBeGreaterThan(0);
     expect(SNAPSHOT_IMAGE_HEIGHT).toBeGreaterThan(0);

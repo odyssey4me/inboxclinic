@@ -46,6 +46,48 @@ function roundedRect(
   ctx.closePath();
 }
 
+const PILL_HEIGHT = 36;
+const PILL_GAP = 10;
+const PILL_ROW_GAP = 12;
+/** Usable width for a row of achievement pills, inside the card's left/right insets. */
+const PILL_MAX_WIDTH = SNAPSHOT_IMAGE_WIDTH - CARD_PAD * 2 - 96;
+
+interface Pill {
+  label: string;
+  width: number;
+}
+
+/**
+ * Lay earned-achievement pills into rows that each fit `PILL_MAX_WIDTH`, so a power user
+ * with many badges wraps onto extra rows instead of silently dropping the overflow (there
+ * are up to 6 — design-analytics.md Decision 4). Pure aside from `ctx.measureText`.
+ */
+function achievementRows(ctx: CanvasRenderingContext2D, names: readonly string[]): Pill[][] {
+  ctx.font = "600 16px system-ui, sans-serif";
+  const rows: Pill[][] = [];
+  let row: Pill[] = [];
+  let x = 0;
+  for (const name of names) {
+    const label = `★ ${name}`;
+    const width = ctx.measureText(label).width + 32;
+    const advance = (row.length > 0 ? PILL_GAP : 0) + width;
+    if (row.length > 0 && x + advance > PILL_MAX_WIDTH) {
+      rows.push(row);
+      row = [];
+      x = 0;
+    }
+    row.push({ label, width });
+    x += (row.length > 1 ? PILL_GAP : 0) + width;
+  }
+  if (row.length > 0) rows.push(row);
+  return rows;
+}
+
+/** Canvas height for `rowCount` pill rows — grows by a row-height for each extra line. */
+function heightForRows(rowCount: number): number {
+  return SNAPSHOT_IMAGE_HEIGHT + Math.max(0, rowCount - 1) * (PILL_HEIGHT + PILL_ROW_GAP);
+}
+
 interface Stat {
   label: string;
   value: string;
@@ -70,20 +112,23 @@ function snapshotStats(snapshot: AnalyticsSnapshot): Stat[] {
  */
 export function drawSnapshot(ctx: CanvasRenderingContext2D, snapshot: AnalyticsSnapshot): void {
   const width = SNAPSHOT_IMAGE_WIDTH;
-  const height = SNAPSHOT_IMAGE_HEIGHT;
-
-  ctx.fillStyle = PALETTE.bg;
-  ctx.fillRect(0, 0, width, height);
-
   const cardX = CARD_PAD;
   const cardY = CARD_PAD;
   const cardWidth = width - CARD_PAD * 2;
+  const innerX = cardX + 48;
+
+  // Wrap achievement pills across rows and grow the canvas so none are silently dropped;
+  // the footer is bottom-anchored, so the row→footer gap stays constant as height grows.
+  const rows = achievementRows(ctx, snapshot.achievements);
+  const height = heightForRows(rows.length);
   const cardHeight = height - CARD_PAD * 2;
+
+  ctx.fillStyle = PALETTE.bg;
+  ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = PALETTE.surface;
   roundedRect(ctx, cardX, cardY, cardWidth, cardHeight, 24);
   ctx.fill();
 
-  const innerX = cardX + 48;
   let y = cardY + 72;
 
   ctx.fillStyle = PALETTE.muted;
@@ -127,33 +172,27 @@ export function drawSnapshot(ctx: CanvasRenderingContext2D, snapshot: AnalyticsS
   });
   y += Math.ceil(stats.length / columns) * rowHeight + 24;
 
-  const earned = snapshot.achievements;
-  if (earned.length > 0) {
+  if (rows.length > 0) {
     ctx.fillStyle = PALETTE.muted;
     ctx.font = "600 16px system-ui, sans-serif";
     ctx.fillText("ACHIEVEMENTS", innerX, y);
     y += 32;
 
-    let pillX = innerX;
-    const pillHeight = 36;
-    const pillGap = 10;
-    ctx.font = "600 16px system-ui, sans-serif";
-    for (const name of earned) {
-      const label = `★ ${name}`;
-      const textWidth = ctx.measureText(label).width;
-      const pillWidth = textWidth + 32;
-      if (pillX + pillWidth > cardX + cardWidth - 48) break;
+    for (const row of rows) {
+      let pillX = innerX;
+      for (const { label, width: pillWidth } of row) {
+        ctx.fillStyle = PALETTE.accentSoft;
+        roundedRect(ctx, pillX, y, pillWidth, PILL_HEIGHT, PILL_HEIGHT / 2);
+        ctx.fill();
 
-      ctx.fillStyle = PALETTE.accentSoft;
-      roundedRect(ctx, pillX, y, pillWidth, pillHeight, pillHeight / 2);
-      ctx.fill();
+        ctx.fillStyle = PALETTE.accentInk;
+        ctx.font = "600 16px system-ui, sans-serif";
+        ctx.fillText(label, pillX + 16, y + 24);
 
-      ctx.fillStyle = PALETTE.accentInk;
-      ctx.fillText(label, pillX + 16, y + 24);
-
-      pillX += pillWidth + pillGap;
+        pillX += pillWidth + PILL_GAP;
+      }
+      y += PILL_HEIGHT + PILL_ROW_GAP;
     }
-    y += pillHeight + 24;
   }
 
   ctx.fillStyle = PALETTE.line;
@@ -174,12 +213,13 @@ export function drawSnapshot(ctx: CanvasRenderingContext2D, snapshot: AnalyticsS
  */
 export function renderSnapshotCanvas(snapshot: AnalyticsSnapshot): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = SNAPSHOT_IMAGE_WIDTH;
-  canvas.height = SNAPSHOT_IMAGE_HEIGHT;
   const ctx = canvas.getContext("2d");
   if (ctx === null) {
     throw new Error("Canvas 2D rendering is not available in this browser");
   }
+  // Size to the wrapped-pill layout before drawing (drawSnapshot recomputes the same rows).
+  canvas.width = SNAPSHOT_IMAGE_WIDTH;
+  canvas.height = heightForRows(achievementRows(ctx, snapshot.achievements).length);
   drawSnapshot(ctx, snapshot);
   return canvas;
 }
