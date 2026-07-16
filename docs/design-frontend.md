@@ -220,7 +220,9 @@ split — Application shell & navigation), with a shared detail panel:
   "Pending 12") — the standalone clickable **count tiles are removed**.
 - A **Group by domain** toggle so a domain and its member senders are decided together (a
   domain decision applies with `scope: "domain"`, `subjectId = keyFor(domain)`; per-address
-  exceptions in the detail panel).
+  exceptions in the detail panel). *Phased: the initial surface (#100) ships **senders-only**
+  — whole-domain decisions remain available via a sender's detail-panel scope toggle — and
+  the group-by-domain view (with `DomainDetail`) lands in **#104**.*
 - A **status column** and **inline Trust / Block / Defer** per row for fast triage (a
   primary action + overflow on a mobile card, to keep ≥44px touch targets). Safety is
   unchanged (design-trust-decisions.md Decision 7): **Trust/Defer apply immediately**;
@@ -502,3 +504,4 @@ None — the previously-open items are now resolved:
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |
 | 2026-07-16 | **Home-page redesign (proposal, #99):** make the home page one **searchable, sortable decisions surface** — a table on desktop / card list on mobile — with `Pending · Decided · All` tabs (counts in the labels), a **group-by-domain** toggle, a status column + **inline Trust/Block/Defer**, and row → detail **side-panel (desktop) / bottom sheet (mobile)** to view/change. **Remove** the standalone count tiles and the **inbox-health hero** from the home (health stays on Analytics). The guided workflow becomes an optional **"Triage pending →"** fast-path — primary on mobile, an escape hatch on desktop. Move the **`LayoutSwitch`** into the account menu. Add a **User Journeys** section; revise **Decision 8** and the shell/layout section; fixes the desktop pending-aside/table overlap. | Claude |
 | 2026-07-16 | **Approved (Alpha):** the frontend design — including the #99 home-page decisions-surface redesign — is the authoritative source for its topic; changes now require discussion. Open Questions are deferred (not blockers). | Claude |
+| 2026-07-16 | **Phased-delivery note (#106):** the decisions-surface rebuild (#100) ships **senders-only**; whole-domain decisions stay reachable via a sender's detail-panel scope toggle, and the **group-by-domain** toggle + `DomainDetail` are deferred to **#104**. The orphaned `DomainDetail` component was removed for now (git history preserves it) per the No-Dead-Code rule; #104 rebuilds it against the new surface. Decision 8 annotated accordingly. | Claude |
