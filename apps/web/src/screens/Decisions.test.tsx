@@ -2,7 +2,9 @@
 import { keyFor, type Store } from "@inboxclinic/core";
 import {
   createInMemoryStore,
+  domainBuilder,
   inboxFromSender,
+  messageMetaBuilder,
   MockGmailClient,
   senderBuilder,
 } from "@inboxclinic/core/testing";
@@ -188,5 +190,108 @@ describe("Decisions view", () => {
     );
     expect(screen.getByText(/archive 1 existing email/i)).toBeInTheDocument();
     expect(screen.queryByText(/archive 5 existing emails/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces prior-decision suggestions and imports them as Blocked", async () => {
+    const { store, gmail } = setup();
+    gmail.seedInbox([
+      messageMetaBuilder({ headers: { from: "junk@spam.com" }, labelIds: ["SPAM", "UNREAD"] }),
+    ]);
+    const onChanged = vi.fn();
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={onChanged} />);
+
+    expect(await screen.findByText(/found 1 prior decision/i)).toBeInTheDocument();
+    expect(screen.getByText("junk@spam.com")).toBeInTheDocument();
+    expect(screen.getByText(/marked spam/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /import all as blocked/i }));
+
+    expect(await screen.findByText(/imported 1 prior decision as blocked/i)).toBeInTheDocument();
+    expect(screen.queryByText(/found 1 prior decision/i)).not.toBeInTheDocument();
+    expect((await store.senders.get(keyFor("junk@spam.com")))?.trustStatus).toBe("blocked");
+    expect(gmail.createdFilters).toEqual([
+      { from: "junk@spam.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
+
+  it("dismisses prior-decision suggestions without importing them", async () => {
+    const { store, gmail } = setup();
+    gmail.seedInbox([
+      messageMetaBuilder({ headers: { from: "junk@spam.com" }, labelIds: ["SPAM", "UNREAD"] }),
+    ]);
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={vi.fn()} />);
+
+    expect(await screen.findByText(/found 1 prior decision/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+
+    expect(screen.queryByText(/found 1 prior decision/i)).not.toBeInTheDocument();
+    expect((await store.senders.get(keyFor("junk@spam.com")))).toBeUndefined();
+  });
+
+  it("blocks a trusted domain: previews the impact, applies it, and reconciles a Gmail filter", async () => {
+    const { store, gmail } = setup();
+    await store.domains.put(domainBuilder("promo.com", { trustStatus: "trusted" }));
+    const onChanged = vi.fn();
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={onChanged} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /change to block/i }));
+    expect(screen.getByRole("alertdialog", { name: /confirm decision change/i })).toHaveTextContent(
+      "promo.com",
+    );
+    expect(screen.getByText("whole domain")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/create 1 filter to auto-handle future mail/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm & apply/i }));
+
+    expect(await screen.findByText(/promo\.com is now blocked/i)).toBeInTheDocument();
+    expect((await store.domains.get(keyFor("promo.com")))?.trustStatus).toBe("blocked");
+    expect(gmail.createdFilters).toEqual([
+      { from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    expect(onChanged).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("button", { name: /change to trust/i })).toBeInTheDocument();
+  });
+
+  it("reverses a blocked domain to trust", async () => {
+    const { store, gmail } = setup();
+    await store.domains.put(domainBuilder("promo.com", { trustStatus: "blocked" }));
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /change to trust/i }));
+    expect(
+      await screen.findByText(/records your decision on-device; no gmail changes needed/i),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /confirm & apply/i }));
+
+    expect(await screen.findByText(/promo\.com is now trusted/i)).toBeInTheDocument();
+    expect((await store.domains.get(keyFor("promo.com")))?.trustStatus).toBe("trusted");
+  });
+
+  it("surfaces a load failure and recovers via Retry", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("a@x.com", { trustStatus: "trusted" }));
+    vi.spyOn(store.senders, "query").mockRejectedValueOnce(new Error("read failed"));
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText(/couldn't load your decisions: read failed/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /change to block/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/couldn't load your decisions/i),
+    ).not.toBeInTheDocument();
   });
 });
