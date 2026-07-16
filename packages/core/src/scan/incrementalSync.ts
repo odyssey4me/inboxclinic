@@ -318,7 +318,9 @@ async function runIncrementalSync(
   const pendingInAffectedDomains = allSenders.filter(
     (s) => s.trustStatus === "pending" && affectedDomains.has(s.domain),
   );
-  const prompts = generatePrompts(pendingInAffectedDomains, { now });
+  // Pass domain decisions so a domain-covered member isn't re-prompted every sync (#123).
+  const domainsForPrompts = await store.domains.query({});
+  const prompts = generatePrompts(pendingInAffectedDomains, { now, domains: domainsForPrompts });
   await store.prompts.bulkPut(prompts);
 
   // 5. Advance the marker and refresh profile counts.

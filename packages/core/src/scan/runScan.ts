@@ -129,7 +129,9 @@ export async function runScan(
   await store.domains.bulkPut(domains);
   await recordDailyAnalytics(store, now, { newSenders });
 
-  const prompts = generatePrompts(senders, { now });
+  // Pass domains so a domain-decided sender isn't re-prompted (#123); `domains` already
+  // carries prior decisions forward (above).
+  const prompts = generatePrompts(senders, { now, domains });
   await store.prompts.bulkPut(prompts);
 
   const existing = await store.profile.get();
