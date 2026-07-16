@@ -114,6 +114,17 @@ PRs must pass: Prettier (format), ESLint (lint), `tsc` (types), and Vitest (test
 ≥80% core coverage). In the description, include a summary, any linked issue
 (`Fixes #123`), how you tested it, and any breaking changes (allowed in Alpha).
 
+**Landing a PR — keep `main` linear and one-problem-per-commit.** Merge commits are
+disabled; land via **squash** or **rebase**, chosen to keep every commit on `main` a single
+coherent problem (see [Git workflow](#git-workflow) above):
+
+- **Squash** when the branch is one logical change plus fixups — review tweaks, "fix my own
+  test", a follow-up doc-sync — collapsing them into one well-described commit.
+- **Rebase** when the branch is genuinely a series of independent commits, each solving a
+  distinct problem worth keeping.
+
+Delete the branch on merge (e.g. `gh pr merge <n> --squash --delete-branch`).
+
 ## Reviewing for privacy & architecture invariants
 
 Inbox Clinic's identity is its constitution — **privacy by construction, client-only, no
