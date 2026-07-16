@@ -9,8 +9,9 @@ import {
   type Store,
 } from "@inboxclinic/core";
 import { useCallback, useEffect, useState } from "react";
+import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 
-import { AppShell } from "./components/composed/AppShell";
+import { AppShell, type ShellView } from "./components/composed/AppShell";
 import { ErrorBoundary } from "./components/composed/ErrorBoundary";
 import { Footer } from "./components/composed/Footer";
 import { Button } from "./components/ui/Button";
@@ -32,6 +33,35 @@ const REQUEST_ACCESS_URL =
 const SIGNED_OUT_KEY = "inboxclinic.signedOut";
 
 type View = "dashboard" | "workflow" | "analytics" | "settings";
+
+/** The routes the app owns; unknown paths redirect to the home surface. */
+const KNOWN_PATHS = ["/", "/triage", "/analytics", "/settings"] as const;
+
+/** Map the current URL path to a view (nav highlight + which screen renders). */
+function pathToView(pathname: string): View {
+  switch (pathname) {
+    case "/analytics":
+      return "analytics";
+    case "/settings":
+      return "settings";
+    case "/triage":
+      return "workflow";
+    default:
+      return "dashboard";
+  }
+}
+
+/** Map a nav item to its path (the workflow is launched, not a nav destination). */
+function viewToPath(view: ShellView): string {
+  switch (view) {
+    case "analytics":
+      return "/analytics";
+    case "settings":
+      return "/settings";
+    default:
+      return "/";
+  }
+}
 
 export interface AppProps {
   gmail: GmailClient;
@@ -62,17 +92,27 @@ function summariseSync(result: IncrementalSyncResult): string {
 
 export function App(props: AppProps) {
   return (
-    <LayoutProvider>
-      <ErrorBoundary store={props.store}>
-        <AppInner {...props} />
-      </ErrorBoundary>
-    </LayoutProvider>
+    <BrowserRouter>
+      <LayoutProvider>
+        <ErrorBoundary store={props.store}>
+          <AppInner {...props} />
+        </ErrorBoundary>
+      </LayoutProvider>
+    </BrowserRouter>
   );
 }
 
 function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: AppProps) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const view = pathToView(location.pathname);
+  // Navigate while preserving the query string (keeps `?demo=1` across client-side nav).
+  const goTo = useCallback(
+    (path: string) => navigate({ pathname: path, search: location.search }),
+    [navigate, location.search],
+  );
+
   const [email, setEmail] = useState<string | null>(initialEmail);
-  const [view, setView] = useState<View>("dashboard");
   const [scanning, setScanning] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -150,8 +190,16 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     }
     if (typeof localStorage !== "undefined") localStorage.setItem(SIGNED_OUT_KEY, "1");
     setEmail(null);
-    setView("dashboard");
-  }, [demo]);
+    goTo("/");
+  }, [demo, goTo]);
+
+  // Deep links to an unknown path fall back to the home surface (the SPA fallback in
+  // apps/web/public/_redirects already serves index.html for any path).
+  useEffect(() => {
+    if (!KNOWN_PATHS.includes(location.pathname as (typeof KNOWN_PATHS)[number])) {
+      navigate({ pathname: "/", search: location.search }, { replace: true });
+    }
+  }, [location.pathname, location.search, navigate]);
 
   // Local-first: render from the stored profile even before (or without) a live token,
   // so the app works offline. Also register Periodic Background Sync (feature-detected).
@@ -237,7 +285,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
         gmail={gmail}
         onDone={() => {
           setReloadKey((k) => k + 1);
-          setView("dashboard");
+          goTo("/");
         }}
       />
     ) : view === "analytics" ? (
@@ -258,7 +306,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
         gmail={gmail}
         online={online}
         refreshKey={reloadKey}
-        onStartWorkflow={() => setView("workflow")}
+        onStartWorkflow={() => goTo("/triage")}
         onChanged={() => setReloadKey((k) => k + 1)}
       />
     );
@@ -269,7 +317,7 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
       email={email}
       online={online}
       view={view}
-      onNavigate={setView}
+      onNavigate={(v) => goTo(viewToPath(v))}
       onRefresh={() => void sync()}
       refreshing={syncing}
       lastSyncedAt={lastSyncedAt}

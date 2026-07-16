@@ -15,7 +15,8 @@
     "@inboxclinic/core": "*",
     "@inboxclinic/store": "*",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "7.18.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
