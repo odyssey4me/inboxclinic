@@ -30,3 +30,18 @@ test("dashboard: act on a whole domain from a sender's detail panel", async ({ p
   await drawer.getByRole("button", { name: /^Trust$/ }).click();
   await expect(drawer).toBeHidden();
 });
+
+test("dashboard: group by domain and act on a whole domain", async ({ page }) => {
+  await gotoDemo(page);
+
+  // Toggle the surface to domain aggregates, then open a multi-sender domain.
+  await page.getByRole("checkbox", { name: /group by domain/i }).check();
+  await page.getByText("retailco.com", { exact: true }).first().click();
+
+  const drawer = page.getByRole("dialog", { name: /actions for retailco\.com/i });
+  await expect(drawer).toBeVisible();
+
+  // Trusting the domain applies to all its members in place and closes the drawer.
+  await drawer.getByRole("button", { name: /trust domain/i }).click();
+  await expect(drawer).toBeHidden();
+});

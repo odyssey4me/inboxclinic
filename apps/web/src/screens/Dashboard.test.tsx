@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { keyFor, type Prompt, type Store } from "@inboxclinic/core";
-import { createInMemoryStore, MockGmailClient, senderBuilder } from "@inboxclinic/core/testing";
+import {
+  createInMemoryStore,
+  domainBuilder,
+  MockGmailClient,
+  senderBuilder,
+} from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -169,5 +174,86 @@ describe("Dashboard — decisions surface", () => {
     expect(
       await screen.findByText(/run a scan from settings to start triaging/i),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Dashboard — group by domain", () => {
+  it("swaps senders for domain aggregates when the toggle is on", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("a@shop.com"));
+    await store.senders.put(senderBuilder("b@shop.com"));
+    await store.domains.put(domainBuilder("shop.com", { senderCount: 2, totalEmails: 9 }));
+
+    renderDashboard(store, gmail);
+    await screen.findByText("a@shop.com");
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: /group by domain/i }));
+
+    // The domain aggregate replaces its individual senders, and search now targets domains.
+    expect(await screen.findByText("shop.com")).toBeInTheDocument();
+    expect(screen.queryByText("a@shop.com")).not.toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: /search domains/i })).toBeInTheDocument();
+  });
+
+  it("tab counts reflect domains (not senders) when grouped", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("a@shop.com"));
+    await store.domains.put(domainBuilder("shop.com"));
+    await store.domains.put(domainBuilder("bank.com", { trustStatus: "trusted" }));
+
+    renderDashboard(store, gmail);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /group by domain/i }));
+
+    expect(await screen.findByRole("tab", { name: /pending \(1\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /decided \(1\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /all \(2\)/i })).toBeInTheDocument();
+  });
+
+  it("applies an inline domain Trust immediately at domain scope", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("a@shop.com"));
+    await store.domains.put(domainBuilder("shop.com"));
+    const onChanged = vi.fn();
+
+    renderDashboard(store, gmail, { onChanged });
+    fireEvent.click(await screen.findByRole("checkbox", { name: /group by domain/i }));
+    await screen.findByText("shop.com");
+
+    fireEvent.click(screen.getByRole("button", { name: "Trust" }));
+
+    await waitFor(async () =>
+      expect((await store.domains.get(keyFor("shop.com")))?.trustStatus).toBe("trusted"),
+    );
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("routes an inline domain Block through the detail panel (no immediate write)", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("a@shop.com"));
+    await store.domains.put(domainBuilder("shop.com"));
+
+    renderDashboard(store, gmail);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /group by domain/i }));
+    await screen.findByText("shop.com");
+
+    fireEvent.click(screen.getByRole("button", { name: "Block" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: /actions for shop\.com/i }),
+    ).toBeInTheDocument();
+    expect((await store.domains.get(keyFor("shop.com")))?.trustStatus).toBe("pending");
+  });
+
+  it("opens the domain detail panel with member drill-in on row click", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("a@shop.com"));
+    await store.domains.put(domainBuilder("shop.com", { senderCount: 1 }));
+
+    renderDashboard(store, gmail);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /group by domain/i }));
+    fireEvent.click(await screen.findByText("shop.com"));
+
+    const drawer = await screen.findByRole("dialog", { name: /actions for shop\.com/i });
+    expect(within(drawer).getByText("a@shop.com")).toBeInTheDocument();
   });
 });

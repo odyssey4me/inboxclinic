@@ -15,7 +15,7 @@ export interface DrawerProps {
 /**
  * A modal detail drawer — a right-side panel on desktop, a bottom sheet on mobile.
  * Owns the overlay, Escape / backdrop-click dismissal, and the labelled dialog header;
- * callers supply the body (e.g. SenderDetail, the global feedback panel).
+ * callers supply the body (e.g. SenderDetail, DomainDetail, the global feedback panel).
  */
 export function Drawer({ label, title, onClose, children }: DrawerProps) {
   useEffect(() => {

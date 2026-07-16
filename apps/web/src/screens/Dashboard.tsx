@@ -4,6 +4,7 @@ import {
   computeTrustScore,
   enforce,
   senderToSnapshot,
+  type Domain,
   type GmailClient,
   type Sender,
   type Store,
@@ -11,6 +12,7 @@ import {
 } from "@inboxclinic/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { DomainDetail } from "../components/composed/DomainDetail";
 import { PriorDecisionsImport } from "../components/composed/PriorDecisionsImport";
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { SenderDetail } from "../components/composed/SenderDetail";
@@ -40,7 +42,7 @@ type SortKey = "name" | "score" | "unread" | "volume" | "recency" | "status";
 type SortDir = "asc" | "desc";
 
 /** Rows rendered before the list is capped; search + sort keep the highest-value ones on top. */
-const SENDERS_CAP = 50;
+const ROW_CAP = 50;
 
 const STATUS_ORDER: Record<TrustStatus, number> = { pending: 0, trusted: 1, blocked: 2 };
 
@@ -63,6 +65,9 @@ const DEFAULT_DIR: Record<SortKey, SortDir> = {
   status: "asc",
 };
 
+/** Sort keys that make sense for domain aggregates (no per-message unread/recency). */
+const DOMAIN_SORT_KEYS: SortKey[] = ["name", "score", "volume", "status"];
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -72,11 +77,19 @@ function unreadRate(sender: Sender): number | null {
   return sender.readRate === null ? null : 1 - sender.readRate;
 }
 
+/** Average member trust score — the domain-level stand-in (design-frontend.md Decision 8). */
+function averageDomainScore(members: Sender[]): number | null {
+  if (members.length === 0) return null;
+  const sum = members.reduce((acc, m) => acc + computeTrustScore(senderToSnapshot(m)).score, 0);
+  return sum / members.length;
+}
+
 /**
  * Home — the decisions surface (design-frontend.md Decision 8). One searchable,
- * richly-sortable table of senders with Pending·Decided·All tabs, a status column, inline
- * Trust/Block/Defer, and a row → detail side-panel where a decision's impact is previewed
- * and per-address exceptions/history live. The guided 3-phase wizard is an optional
+ * richly-sortable table with Pending·Decided·All tabs, a status column, inline
+ * Trust/Block/Defer, and a row → detail side-panel where impact is previewed and per-address
+ * exceptions/history live. A **Group by domain** toggle switches senders for their domains so
+ * a domain and its members are decided together. The guided 3-phase wizard is an optional
  * "Triage pending" fast-path launched from here.
  */
 export function Dashboard({
@@ -95,7 +108,9 @@ export function Dashboard({
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [groupByDomain, setGroupByDomain] = useState(false);
   const [selected, setSelected] = useState<Sender | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -112,6 +127,7 @@ export function Dashboard({
   }, [refreshKey, reload]);
 
   const senders = useMemo(() => data?.senders ?? [], [data]);
+  const domains = useMemo(() => data?.domains ?? [], [data]);
   const openPrompts = (data?.prompts ?? []).filter((p) => p.resolvedAt === null);
 
   // Trust scores are pure arithmetic but we still avoid recomputing them per comparison.
@@ -119,8 +135,43 @@ export function Dashboard({
     () => new Map(senders.map((s) => [s.id, computeTrustScore(senderToSnapshot(s)).score])),
     [senders],
   );
+  const membersByDomain = useMemo(() => {
+    const map = new Map<string, Sender[]>();
+    for (const s of senders) {
+      const arr = map.get(s.domain);
+      if (arr) arr.push(s);
+      else map.set(s.domain, [s]);
+    }
+    return map;
+  }, [senders]);
+  const membersOf = (domain: Domain): Sender[] => membersByDomain.get(domain.domain) ?? [];
+  const domainScoreById = useMemo(
+    () =>
+      new Map(domains.map((d) => [d.id, averageDomainScore(membersByDomain.get(d.domain) ?? [])])),
+    [domains, membersByDomain],
+  );
 
   const q = query.trim().toLowerCase();
+  const onSort = (key: SortKey): void => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(DEFAULT_DIR[key]);
+    }
+  };
+
+  const toggleGroupByDomain = (): void => {
+    const next = !groupByDomain;
+    setGroupByDomain(next);
+    // The unread/recency sorts have no domain equivalent — fall back to volume when grouping.
+    if (next && !DOMAIN_SORT_KEYS.includes(sortKey)) {
+      setSortKey("volume");
+      setSortDir("desc");
+    }
+  };
+
+  // ---- Sender surface ---------------------------------------------------------------
   const searchFiltered = senders.filter(
     (s) =>
       q === "" ||
@@ -129,13 +180,11 @@ export function Dashboard({
       s.category.toLowerCase().includes(q) ||
       s.trustStatus.toLowerCase().includes(q),
   );
-
-  const counts = {
+  const senderCounts = {
     pending: searchFiltered.filter((s) => s.trustStatus === "pending").length,
     decided: searchFiltered.filter((s) => s.trustStatus !== "pending").length,
     all: searchFiltered.length,
   };
-
   const inTab = searchFiltered.filter((s) =>
     tab === "all"
       ? true
@@ -143,8 +192,7 @@ export function Dashboard({
         ? s.trustStatus === "pending"
         : s.trustStatus !== "pending",
   );
-
-  const compare = (a: Sender, b: Sender): number => {
+  const compareSender = (a: Sender, b: Sender): number => {
     switch (sortKey) {
       case "name":
         return a.email.localeCompare(b.email);
@@ -166,33 +214,81 @@ export function Dashboard({
         return STATUS_ORDER[a.trustStatus] - STATUS_ORDER[b.trustStatus];
     }
   };
-
-  const sorted = [...inTab].sort((a, b) => {
+  const sortedSenders = [...inTab].sort((a, b) => {
     // "unread" already applied direction internally (to keep nulls last both ways).
-    const raw = compare(a, b);
+    const raw = compareSender(a, b);
     const primary = sortKey === "unread" ? raw : sortDir === "asc" ? raw : -raw;
     return primary !== 0 ? primary : b.totalEmails - a.totalEmails;
   });
-  const shown = sorted.slice(0, SENDERS_CAP);
+  const shownSenders = sortedSenders.slice(0, ROW_CAP);
 
-  const onSort = (key: SortKey): void => {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir(DEFAULT_DIR[key]);
+  // ---- Domain surface ---------------------------------------------------------------
+  const domainSearchFiltered = domains.filter(
+    (d) =>
+      q === "" || d.domain.toLowerCase().includes(q) || d.trustStatus.toLowerCase().includes(q),
+  );
+  const domainCounts = {
+    pending: domainSearchFiltered.filter((d) => d.trustStatus === "pending").length,
+    decided: domainSearchFiltered.filter((d) => d.trustStatus !== "pending").length,
+    all: domainSearchFiltered.length,
+  };
+  const domainsInTab = domainSearchFiltered.filter((d) =>
+    tab === "all"
+      ? true
+      : tab === "pending"
+        ? d.trustStatus === "pending"
+        : d.trustStatus !== "pending",
+  );
+  const compareDomain = (a: Domain, b: Domain): number => {
+    switch (sortKey) {
+      case "name":
+        return a.domain.localeCompare(b.domain);
+      case "score":
+        return (
+          (domainScoreById.get(a.id) ?? Number.NEGATIVE_INFINITY) -
+          (domainScoreById.get(b.id) ?? Number.NEGATIVE_INFINITY)
+        );
+      case "status":
+        return STATUS_ORDER[a.trustStatus] - STATUS_ORDER[b.trustStatus];
+      default: // volume (and any non-domain key coerced on toggle)
+        return a.totalEmails - b.totalEmails;
     }
   };
+  const sortedDomains = [...domainsInTab].sort((a, b) => {
+    const raw = compareDomain(a, b);
+    const primary = sortDir === "asc" ? raw : -raw;
+    return primary !== 0 ? primary : b.totalEmails - a.totalEmails;
+  });
+  const shownDomains = sortedDomains.slice(0, ROW_CAP);
 
+  // ---- Active view (senders vs domains) ---------------------------------------------
+  const counts = groupByDomain ? domainCounts : senderCounts;
+  const inTabLen = groupByDomain ? domainsInTab.length : inTab.length;
+  const shownLen = groupByDomain ? shownDomains.length : shownSenders.length;
+  const noData = groupByDomain ? domains.length === 0 : senders.length === 0;
+  const emptyMessage = noData
+    ? "No senders yet — run a scan from Settings to start triaging."
+    : `No ${tab === "all" ? "" : tab + " "}${groupByDomain ? "domains" : "senders"}${
+        q === "" ? "" : ` match “${query}”`
+      }.`;
+  const sortOptions = groupByDomain
+    ? (Object.keys(SORT_LABELS) as SortKey[]).filter((k) => DOMAIN_SORT_KEYS.includes(k))
+    : (Object.keys(SORT_LABELS) as SortKey[]);
+
+  // ---- Inline decisions -------------------------------------------------------------
   // Trust/Defer are safe and apply immediately. Block can archive/delete mail, so it opens
   // the detail panel where the impact is previewed and confirmed (design-trust-decisions.md).
-  const quickDecide = async (sender: Sender, decision: "trust" | "defer"): Promise<void> => {
-    setBusyId(sender.id);
+  const quickDecide = async (
+    subjectId: string,
+    scope: "address" | "domain",
+    decision: "trust" | "defer",
+  ): Promise<void> => {
+    setBusyId(subjectId);
     setActionError(null);
     try {
       await applyDecision(store, {
-        subjectId: sender.id,
-        scope: "address",
+        subjectId,
+        scope,
         decision,
         actions: [],
         decidedVia: "dashboard",
@@ -208,7 +304,7 @@ export function Dashboard({
     }
   };
 
-  const renderActions = (sender: Sender) => {
+  const renderSenderActions = (sender: Sender) => {
     const disabled = !online || busyId === sender.id;
     return (
       <div
@@ -222,7 +318,7 @@ export function Dashboard({
             variant="trust"
             className="px-2 py-1 text-xs"
             disabled={disabled}
-            onClick={() => void quickDecide(sender, "trust")}
+            onClick={() => void quickDecide(sender.id, "address", "trust")}
           >
             Trust
           </Button>
@@ -242,7 +338,7 @@ export function Dashboard({
             variant="ghost"
             className="px-2 py-1 text-xs"
             disabled={disabled}
-            onClick={() => void quickDecide(sender, "defer")}
+            onClick={() => void quickDecide(sender.id, "address", "defer")}
           >
             Defer
           </Button>
@@ -251,12 +347,51 @@ export function Dashboard({
     );
   };
 
-  const emptyMessage =
-    senders.length === 0
-      ? "No senders yet — run a scan from Settings to start triaging."
-      : `No ${tab === "all" ? "" : tab + " "}senders${q === "" ? "" : ` match “${query}”`}.`;
+  const renderDomainActions = (domain: Domain) => {
+    const disabled = !online || busyId === domain.id;
+    return (
+      <div
+        className="flex items-center gap-1"
+        role="group"
+        aria-label={`Decide ${domain.domain}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {domain.trustStatus !== "trusted" && (
+          <Button
+            variant="trust"
+            className="px-2 py-1 text-xs"
+            disabled={disabled}
+            onClick={() => void quickDecide(domain.id, "domain", "trust")}
+          >
+            Trust
+          </Button>
+        )}
+        {domain.trustStatus !== "blocked" && (
+          <Button
+            variant="danger"
+            className="px-2 py-1 text-xs"
+            disabled={disabled}
+            onClick={() => setSelectedDomain(domain)}
+          >
+            Block
+          </Button>
+        )}
+        {domain.trustStatus === "pending" && (
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            disabled={disabled}
+            onClick={() => void quickDecide(domain.id, "domain", "defer")}
+          >
+            Defer
+          </Button>
+        )}
+      </div>
+    );
+  };
 
-  const table = (
+  // ---- Renderers --------------------------------------------------------------------
+  const senderTable = (
     <table className="w-full border-collapse text-left text-sm">
       <thead>
         <tr className="border-b border-line text-muted">
@@ -307,7 +442,7 @@ export function Dashboard({
         </tr>
       </thead>
       <tbody>
-        {shown.map((sender) => {
+        {shownSenders.map((sender) => {
           const unread = unreadRate(sender);
           return (
             <tr
@@ -335,7 +470,7 @@ export function Dashboard({
               </td>
               <td className="py-2 pl-4 text-right tabular-nums">{sender.totalEmails}</td>
               <td className="py-2 pl-4">
-                <div className="flex justify-end">{renderActions(sender)}</div>
+                <div className="flex justify-end">{renderSenderActions(sender)}</div>
               </td>
             </tr>
           );
@@ -344,9 +479,9 @@ export function Dashboard({
     </table>
   );
 
-  const cards = (
+  const senderCards = (
     <ul className="space-y-2">
-      {shown.map((sender) => {
+      {shownSenders.map((sender) => {
         const unread = unreadRate(sender);
         return (
           <li
@@ -370,13 +505,132 @@ export function Dashboard({
             </div>
             <div className="flex items-center justify-between gap-2">
               <ScoreIndicator score={scoreById.get(sender.id) ?? 0} />
-              {renderActions(sender)}
+              {renderSenderActions(sender)}
             </div>
           </li>
         );
       })}
     </ul>
   );
+
+  const domainTable = (
+    <table className="w-full border-collapse text-left text-sm">
+      <thead>
+        <tr className="border-b border-line text-muted">
+          <SortHeader
+            label="Domain"
+            sortKey="name"
+            active={sortKey}
+            dir={sortDir}
+            onSort={onSort}
+          />
+          <SortHeader
+            label="Score"
+            sortKey="score"
+            active={sortKey}
+            dir={sortDir}
+            onSort={onSort}
+          />
+          <th className="py-2 pr-4 text-left font-medium">Senders</th>
+          <SortHeader
+            label="Status"
+            sortKey="status"
+            active={sortKey}
+            dir={sortDir}
+            onSort={onSort}
+          />
+          <SortHeader
+            label="Emails"
+            sortKey="volume"
+            active={sortKey}
+            dir={sortDir}
+            onSort={onSort}
+            align="right"
+          />
+          <th className="py-2 pl-4 text-right font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {shownDomains.map((domain) => {
+          const score = domainScoreById.get(domain.id) ?? null;
+          return (
+            <tr
+              key={domain.id}
+              tabIndex={0}
+              onClick={() => setSelectedDomain(domain)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") setSelectedDomain(domain);
+              }}
+              className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+            >
+              <td className="py-2 pr-4 font-medium text-ink">{domain.domain}</td>
+              <td className="py-2 pr-4">
+                {score === null ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  <ScoreIndicator score={score} />
+                )}
+              </td>
+              <td className="py-2 pr-4 tabular-nums text-muted">{domain.senderCount}</td>
+              <td className="py-2 pr-4">
+                <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
+              </td>
+              <td className="py-2 pl-4 text-right tabular-nums">{domain.totalEmails}</td>
+              <td className="py-2 pl-4">
+                <div className="flex justify-end">{renderDomainActions(domain)}</div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+
+  const domainCards = (
+    <ul className="space-y-2">
+      {shownDomains.map((domain) => {
+        const score = domainScoreById.get(domain.id) ?? null;
+        return (
+          <li
+            key={domain.id}
+            tabIndex={0}
+            onClick={() => setSelectedDomain(domain)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") setSelectedDomain(domain);
+            }}
+            className="cursor-pointer space-y-2 rounded-md border border-line px-3 py-2 transition-colors hover:border-accent/40 hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-ink">{domain.domain}</p>
+                <p className="truncate text-xs text-muted">
+                  {domain.senderCount} sender{domain.senderCount === 1 ? "" : "s"} ·{" "}
+                  {domain.totalEmails} emails
+                </p>
+              </div>
+              <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              {score === null ? (
+                <span className="text-xs text-muted">no score</span>
+              ) : (
+                <ScoreIndicator score={score} />
+              )}
+              {renderDomainActions(domain)}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  const list = groupByDomain
+    ? desktop
+      ? domainTable
+      : domainCards
+    : desktop
+      ? senderTable
+      : senderCards;
 
   return (
     <div className={`mx-auto flex flex-col gap-6 px-4 py-8 ${desktop ? "max-w-6xl" : "max-w-3xl"}`}>
@@ -431,8 +685,19 @@ export function Dashboard({
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            {!desktop && senders.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {senders.length > 0 && (
+              <label className="flex items-center gap-1.5 text-sm text-muted">
+                <input
+                  type="checkbox"
+                  checked={groupByDomain}
+                  onChange={toggleGroupByDomain}
+                  className="accent-accent"
+                />
+                Group by domain
+              </label>
+            )}
+            {!desktop && !noData && (
               <div className="flex items-center gap-1">
                 <label className="sr-only" htmlFor="sort-key">
                   Sort by
@@ -443,7 +708,7 @@ export function Dashboard({
                   onChange={(event) => onSort(event.target.value as SortKey)}
                   className="min-h-9 rounded-md border border-line bg-surface px-2 text-sm text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                  {sortOptions.map((key) => (
                     <option key={key} value={key}>
                       {SORT_LABELS[key]}
                     </option>
@@ -463,21 +728,21 @@ export function Dashboard({
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search senders…"
-              aria-label="Search senders"
+              placeholder={groupByDomain ? "Search domains…" : "Search senders…"}
+              aria-label={groupByDomain ? "Search domains" : "Search senders"}
               className="min-h-9 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:w-56"
             />
           </div>
         </div>
 
-        {shown.length === 0 ? (
+        {shownLen === 0 ? (
           <p className="text-sm text-muted">{emptyMessage}</p>
         ) : (
           <>
-            {desktop ? table : cards}
-            {inTab.length > shown.length && (
+            {list}
+            {inTabLen > shownLen && (
               <p className="text-xs text-muted">
-                Showing {shown.length} of {inTab.length}. Search to narrow.
+                Showing {shownLen} of {inTabLen}. Search to narrow.
               </p>
             )}
           </>
@@ -490,6 +755,20 @@ export function Dashboard({
         gmail={gmail}
         online={online}
         onClose={() => setSelected(null)}
+        onChanged={onChanged}
+      />
+
+      <DomainDetail
+        domain={selectedDomain}
+        members={selectedDomain !== null ? membersOf(selectedDomain) : []}
+        store={store}
+        gmail={gmail}
+        online={online}
+        onClose={() => setSelectedDomain(null)}
+        onOpenSender={(sender) => {
+          setSelectedDomain(null);
+          setSelected(sender);
+        }}
         onChanged={onChanged}
       />
     </div>
