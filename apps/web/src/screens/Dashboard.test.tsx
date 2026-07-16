@@ -10,7 +10,29 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { LayoutContext } from "../layout/context";
 import { Dashboard } from "./Dashboard";
+
+/** Render pinned to the mobile shell (jsdom otherwise resolves layout to desktop). */
+function renderMobile(
+  store: Store,
+  gmail: MockGmailClient,
+  overrides: Partial<ComponentProps<typeof Dashboard>> = {},
+) {
+  return render(
+    <LayoutContext.Provider value={{ pref: "mobile", setPref: vi.fn(), layout: "mobile" }}>
+      <Dashboard
+        store={store}
+        gmail={gmail}
+        online
+        refreshKey={0}
+        onStartWorkflow={vi.fn()}
+        onChanged={vi.fn()}
+        {...overrides}
+      />
+    </LayoutContext.Provider>,
+  );
+}
 
 function setup(): { store: Store; gmail: MockGmailClient } {
   return { store: createInMemoryStore(), gmail: new MockGmailClient() };
@@ -276,5 +298,32 @@ describe("Dashboard — group by domain", () => {
     expect(screen.getByText("trusted")).toBeInTheDocument();
     // Already trusted → no inline Trust action on the sender row.
     expect(screen.queryByRole("button", { name: "Trust" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Dashboard — mobile wizard-forward", () => {
+  it("leads with a prominent Triage CTA on mobile and launches the workflow", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("todo@x.com"));
+    await store.prompts.put(promptFor("todo@x.com"));
+    const onStartWorkflow = vi.fn();
+
+    renderMobile(store, gmail, { onStartWorkflow });
+
+    // The prominent CTA carries the wizard framing (not just a compact header button).
+    const cta = await screen.findByRole("button", { name: /triage 1 pending/i });
+    expect(cta).toHaveTextContent(/quickest way on a phone/i);
+
+    fireEvent.click(cta);
+    expect(onStartWorkflow).toHaveBeenCalledOnce();
+  });
+
+  it("shows no Triage CTA when nothing is pending", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("done@x.com", { trustStatus: "trusted" }));
+
+    renderMobile(store, gmail);
+    await screen.findByRole("tab", { name: /all \(1\)/i });
+    expect(screen.queryByRole("button", { name: /triage \d+ pending/i })).not.toBeInTheDocument();
   });
 });

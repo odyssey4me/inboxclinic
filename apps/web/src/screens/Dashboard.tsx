@@ -670,10 +670,32 @@ export function Dashboard({
             Every sender in one place — search, sort, and Trust, Block or Defer each one.
           </p>
         </div>
-        {openPrompts.length > 0 && (
+        {/* Desktop: the workflow is an escape hatch (the table is primary). On mobile the
+            guided wizard is the *primary* triage path — the prominent CTA below. */}
+        {desktop && openPrompts.length > 0 && (
           <Button onClick={onStartWorkflow}>Triage {openPrompts.length} pending →</Button>
         )}
       </div>
+
+      {!desktop && openPrompts.length > 0 && (
+        <button
+          type="button"
+          onClick={onStartWorkflow}
+          className="flex w-full items-center justify-between gap-3 rounded-lg bg-accent-soft px-4 py-4 text-left transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <span className="min-w-0">
+            <span className="block font-semibold text-accent-ink">
+              Triage {openPrompts.length} pending
+            </span>
+            <span className="block text-sm text-muted">
+              Decide them one at a time — the quickest way on a phone.
+            </span>
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-xl text-accent-ink">
+            →
+          </span>
+        </button>
+      )}
 
       {error !== null && (
         <div role="alert" className="flex items-center justify-between gap-3 text-sm text-block">
