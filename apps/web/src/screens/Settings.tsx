@@ -150,7 +150,7 @@ export function Settings({
       const result = await applyFilterAdoptions(store, adoptions);
       const skippedNote =
         result.skipped > 0
-          ? ` (${result.skipped} skipped — no longer matches a currently blocked sender)`
+          ? ` (${result.skipped} skipped — no longer matches a currently blocked sender or domain)`
           : "";
       setNote(
         `Adopted ${result.adopted} existing filter${result.adopted === 1 ? "" : "s"}${skippedNote}.`,
