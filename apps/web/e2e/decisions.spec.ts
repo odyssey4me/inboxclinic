@@ -14,8 +14,12 @@ test("decisions surface: re-decide a trusted sender to blocked, previewed and co
 
   // jane.cooper is seeded trusted — view decided senders and change her to Blocked.
   await page.getByRole("tab", { name: /^decided/i }).click();
-  const row = page.getByRole("row").filter({ hasText: "jane.cooper@gmail.com" });
-  await row.getByRole("button", { name: /^Block$/ }).click();
+  // Layout-agnostic: the per-sender action group is labelled identically on the desktop
+  // table row and the mobile card.
+  await page
+    .getByRole("group", { name: /decide jane\.cooper@gmail\.com/i })
+    .getByRole("button", { name: /^Block$/ })
+    .click();
 
   // Block opens the detail panel, where the impact is previewed before it applies.
   const drawer = page.getByRole("dialog", { name: /actions for jane\.cooper@gmail\.com/i });
@@ -25,10 +29,9 @@ test("decisions surface: re-decide a trusted sender to blocked, previewed and co
   await drawer.getByRole("button", { name: /confirm block/i }).click();
   await expect(drawer).toBeHidden();
 
-  // The re-decision is reflected in the row's status.
-  await expect(page.getByRole("row").filter({ hasText: "jane.cooper@gmail.com" })).toContainText(
-    "blocked",
-  );
+  // The re-decision is reflected in the sender's row/card status.
+  const janeItem = page.locator("tr, li").filter({ hasText: "jane.cooper@gmail.com" });
+  await expect(janeItem).toContainText("blocked");
 });
 
 test("decisions surface: import prior decisions learned from Gmail (Spam/Trash)", async ({
