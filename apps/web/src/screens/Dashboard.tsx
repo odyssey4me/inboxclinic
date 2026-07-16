@@ -3,6 +3,7 @@ import {
   applyDecision,
   computeTrustScore,
   enforce,
+  resolveEffectiveDecision,
   senderToSnapshot,
   type Domain,
   type GmailClient,
@@ -150,6 +151,29 @@ export function Dashboard({
       new Map(domains.map((d) => [d.id, averageDomainScore(membersByDomain.get(d.domain) ?? [])])),
     [domains, membersByDomain],
   );
+  const domainByName = useMemo(() => new Map(domains.map((d) => [d.domain, d])), [domains]);
+
+  // A domain-scope decision covers its members (design-trust-decisions.md Decision 2) without
+  // rewriting their sender records, so resolve each sender's *effective* status for the sender
+  // surface — otherwise a domain-trusted sender would still read "pending" here.
+  const effectiveStatusById = useMemo(() => {
+    const map = new Map<string, TrustStatus>();
+    for (const s of senders) {
+      const d = domainByName.get(s.domain);
+      map.set(
+        s.id,
+        resolveEffectiveDecision({
+          addressStatus: s.trustStatus === "pending" ? null : s.trustStatus,
+          addressIsException: d?.exceptionAddresses.includes(s.email) ?? false,
+          domainStatus: d && d.trustStatus !== "pending" ? d.trustStatus : null,
+          domainScope: d?.decisionScope ?? null,
+        }).status,
+      );
+    }
+    return map;
+  }, [senders, domainByName]);
+  const effectiveStatus = (sender: Sender): TrustStatus =>
+    effectiveStatusById.get(sender.id) ?? sender.trustStatus;
 
   const q = query.trim().toLowerCase();
   const onSort = (key: SortKey): void => {
@@ -178,19 +202,19 @@ export function Dashboard({
       s.email.toLowerCase().includes(q) ||
       s.domain.toLowerCase().includes(q) ||
       s.category.toLowerCase().includes(q) ||
-      s.trustStatus.toLowerCase().includes(q),
+      effectiveStatus(s).toLowerCase().includes(q),
   );
   const senderCounts = {
-    pending: searchFiltered.filter((s) => s.trustStatus === "pending").length,
-    decided: searchFiltered.filter((s) => s.trustStatus !== "pending").length,
+    pending: searchFiltered.filter((s) => effectiveStatus(s) === "pending").length,
+    decided: searchFiltered.filter((s) => effectiveStatus(s) !== "pending").length,
     all: searchFiltered.length,
   };
   const inTab = searchFiltered.filter((s) =>
     tab === "all"
       ? true
       : tab === "pending"
-        ? s.trustStatus === "pending"
-        : s.trustStatus !== "pending",
+        ? effectiveStatus(s) === "pending"
+        : effectiveStatus(s) !== "pending",
   );
   const compareSender = (a: Sender, b: Sender): number => {
     switch (sortKey) {
@@ -211,7 +235,7 @@ export function Dashboard({
       case "recency":
         return a.lastSeenAt - b.lastSeenAt;
       case "status":
-        return STATUS_ORDER[a.trustStatus] - STATUS_ORDER[b.trustStatus];
+        return STATUS_ORDER[effectiveStatus(a)] - STATUS_ORDER[effectiveStatus(b)];
     }
   };
   const sortedSenders = [...inTab].sort((a, b) => {
@@ -243,11 +267,15 @@ export function Dashboard({
     switch (sortKey) {
       case "name":
         return a.domain.localeCompare(b.domain);
-      case "score":
-        return (
-          (domainScoreById.get(a.id) ?? Number.NEGATIVE_INFINITY) -
-          (domainScoreById.get(b.id) ?? Number.NEGATIVE_INFINITY)
-        );
+      case "score": {
+        // A domain with no scoreable members sorts last regardless of direction (mirrors the
+        // sender "unread" null-handling), so it's applied here and skipped in the wrapper.
+        const sa = domainScoreById.get(a.id) ?? null;
+        const sb = domainScoreById.get(b.id) ?? null;
+        if (sa === null) return sb === null ? 0 : 1;
+        if (sb === null) return -1;
+        return sortDir === "asc" ? sa - sb : -(sa - sb);
+      }
       case "status":
         return STATUS_ORDER[a.trustStatus] - STATUS_ORDER[b.trustStatus];
       default: // volume (and any non-domain key coerced on toggle)
@@ -256,7 +284,7 @@ export function Dashboard({
   };
   const sortedDomains = [...domainsInTab].sort((a, b) => {
     const raw = compareDomain(a, b);
-    const primary = sortDir === "asc" ? raw : -raw;
+    const primary = sortKey === "score" ? raw : sortDir === "asc" ? raw : -raw;
     return primary !== 0 ? primary : b.totalEmails - a.totalEmails;
   });
   const shownDomains = sortedDomains.slice(0, ROW_CAP);
@@ -306,6 +334,7 @@ export function Dashboard({
 
   const renderSenderActions = (sender: Sender) => {
     const disabled = !online || busyId === sender.id;
+    const status = effectiveStatus(sender);
     return (
       <div
         className="flex items-center gap-1"
@@ -313,7 +342,7 @@ export function Dashboard({
         aria-label={`Decide ${sender.email}`}
         onClick={(event) => event.stopPropagation()}
       >
-        {sender.trustStatus !== "trusted" && (
+        {status !== "trusted" && (
           <Button
             variant="trust"
             className="px-2 py-1 text-xs"
@@ -323,7 +352,7 @@ export function Dashboard({
             Trust
           </Button>
         )}
-        {sender.trustStatus !== "blocked" && (
+        {status !== "blocked" && (
           <Button
             variant="danger"
             className="px-2 py-1 text-xs"
@@ -333,7 +362,7 @@ export function Dashboard({
             Block
           </Button>
         )}
-        {sender.trustStatus === "pending" && (
+        {status === "pending" && (
           <Button
             variant="ghost"
             className="px-2 py-1 text-xs"
@@ -466,7 +495,7 @@ export function Dashboard({
               </td>
               <td className="py-2 pr-4 text-muted">{relativeTime(sender.lastSeenAt)}</td>
               <td className="py-2 pr-4">
-                <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
+                <Badge tone={statusTone(effectiveStatus(sender))}>{effectiveStatus(sender)}</Badge>
               </td>
               <td className="py-2 pl-4 text-right tabular-nums">{sender.totalEmails}</td>
               <td className="py-2 pl-4">
@@ -501,7 +530,7 @@ export function Dashboard({
                   {unread === null ? "" : ` · ${Math.round(unread * 100)}% unread`}
                 </p>
               </div>
-              <Badge tone={statusTone(sender.trustStatus)}>{sender.trustStatus}</Badge>
+              <Badge tone={statusTone(effectiveStatus(sender))}>{effectiveStatus(sender)}</Badge>
             </div>
             <div className="flex items-center justify-between gap-2">
               <ScoreIndicator score={scoreById.get(sender.id) ?? 0} />

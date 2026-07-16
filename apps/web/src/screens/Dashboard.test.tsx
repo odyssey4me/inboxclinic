@@ -256,4 +256,25 @@ describe("Dashboard — group by domain", () => {
     const drawer = await screen.findByRole("dialog", { name: /actions for shop\.com/i });
     expect(within(drawer).getByText("a@shop.com")).toBeInTheDocument();
   });
+
+  it("reflects a domain decision on the sender surface (effective status)", async () => {
+    const { store, gmail } = setup();
+    // The sender is undecided at the address level, but its domain is trusted domain-wide.
+    await store.senders.put(senderBuilder("a@shop.com"));
+    await store.domains.put(
+      domainBuilder("shop.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+
+    renderDashboard(store, gmail);
+
+    // Effectively trusted via the domain → counted as Decided, not Pending.
+    expect(await screen.findByRole("tab", { name: /decided \(1\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pending \(0\)/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /decided \(1\)/i }));
+    expect(await screen.findByText("a@shop.com")).toBeInTheDocument();
+    expect(screen.getByText("trusted")).toBeInTheDocument();
+    // Already trusted → no inline Trust action on the sender row.
+    expect(screen.queryByRole("button", { name: "Trust" })).not.toBeInTheDocument();
+  });
 });
