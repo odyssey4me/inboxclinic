@@ -1,6 +1,6 @@
 # Design: Frontend
 
-> **Status:** Draft (Alpha)
+> **Status:** Approved (Alpha)
 >
 > **Last Updated:** 2026-07-16
 
@@ -106,16 +106,16 @@ single seam between UI and IndexedDB.
 |------|-------|-----------|
 | **Persistent (app state)** | senders, domains, prompts, decisions, analytics, settings | Dexie via the core **repository interface**; React subscribes with `useLiveQuery` (Dexie React hooks) |
 | **Ephemeral (UI state)** | modal open, selected tab, form drafts, wizard step | React `useState` / context |
-| **Server state (Google only)** | in-flight Gmail/People API calls | **Optional** TanStack Query, scoped to Google calls only |
+| **Server state (Google only)** | in-flight Gmail/People API calls | Core-owned **`fetchWithRetry`** (retry/backoff, in-flight handling) — **no** TanStack Query |
 
 Reads and writes go through the repository (`core/store`), never directly to Dexie from a
 component. `useLiveQuery` makes the UI reactive: when core writes a decision, every view
 re-renders from IndexedDB automatically.
 
 **Rationale:** A single local source of truth removes cache-coherency problems and works
-fully offline. TanStack Query is **optional and only for Google API calls** (retry,
-in-flight de-dupe, background refetch during scan/sync) — never for app data, because there
-is no app backend to fetch from.
+fully offline. Google API calls use a thin core-owned **`fetchWithRetry`** (retry/backoff,
+in-flight handling) — **not** TanStack Query and never app-data caching, because there is no
+app backend to fetch from and IndexedDB + `useLiveQuery` already provide reactive app state.
 
 **Alternatives considered:** Redux/Zustand global store — redundant when IndexedDB +
 `useLiveQuery` already provide reactive shared state.
@@ -302,7 +302,8 @@ or "Back" chrome); a screen may render its own `<h2>` title. The **signed-out la
 page is the one exception (its own centred layout).
 
 Navigation is **in-memory view state** in `App` and the shell highlights the active view;
-a URL router (hash vs. history) stays deferred (see Open Questions). The **Trust-decision
+**history routing** (clean, bookmarkable URLs; Cloudflare Pages SPA fallback) is adopted
+alongside the home-page redesign so the active tab / an open detail are linkable. The **Trust-decision
 workflow** is launched from the Dashboard and renders inside the shell as a focused
 sub-flow (with its own progress header + exit), so the anchor is never lost mid-flow.
 
@@ -464,10 +465,19 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 
 ## Open Questions
 
-- [ ] Adopt TanStack Query for Google API calls, or a thinner core-owned fetch wrapper? (Decision 3 leaves it optional.)
-- [ ] Periodic Background Sync is unavailable on iOS Safari — is on-open sync sufficient there until the Capacitor build lands?
-- [ ] Shareable analytics snapshot format (image vs. self-contained HTML/JSON) and how achievements render in it.
-- [ ] Routing approach for a static SPA (hash vs. history routing) given GitHub/Cloudflare Pages constraints.
+None — the previously-open items are now resolved:
+
+- **Google-call fetching:** a thin core-owned **`fetchWithRetry`** (retry/backoff, in-flight
+  handling) — **no** TanStack Query (Decision 3; IndexedDB + `useLiveQuery` already give
+  reactive app state).
+- **iOS background sync:** **on-open sync** is the accepted behaviour on iOS Safari (no
+  Periodic Background Sync there); native background sync arrives with the deferred Capacitor
+  wrap (Decision 4, §9).
+- **Routing:** **history routing** (clean, bookmarkable URLs; Cloudflare Pages SPA fallback),
+  adopted alongside the home-page redesign; navigation is in-memory view state until then
+  (Application shell & navigation).
+- **Shareable analytics snapshot format:** an Analytics concern — resolved as a **PNG image**
+  in [design-analytics.md](design-analytics.md).
 
 ---
 
@@ -491,3 +501,4 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Functional pass: replace the ambiguous **Sync/Scan** pair with one **Refresh** (incremental sync) + a last-synced/result indicator; move the full **Rescan** to Settings; add Settings **export / delete-all** data controls. | Claude |
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |
 | 2026-07-16 | **Home-page redesign (proposal, #99):** make the home page one **searchable, sortable decisions surface** — a table on desktop / card list on mobile — with `Pending · Decided · All` tabs (counts in the labels), a **group-by-domain** toggle, a status column + **inline Trust/Block/Defer**, and row → detail **side-panel (desktop) / bottom sheet (mobile)** to view/change. **Remove** the standalone count tiles and the **inbox-health hero** from the home (health stays on Analytics). The guided workflow becomes an optional **"Triage pending →"** fast-path — primary on mobile, an escape hatch on desktop. Move the **`LayoutSwitch`** into the account menu. Add a **User Journeys** section; revise **Decision 8** and the shell/layout section; fixes the desktop pending-aside/table overlap. | Claude |
+| 2026-07-16 | **Approved (Alpha):** the frontend design — including the #99 home-page decisions-surface redesign — is the authoritative source for its topic; changes now require discussion. Open Questions are deferred (not blockers). | Claude |

@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Last Updated:** 2026-06-28
+> **Last Updated:** 2026-07-16
 
 ## Overview
 
@@ -130,8 +130,10 @@ referral/tracking code.
 numbers only** — health score, time saved, blocked/trusted/pending counts, blocked-email
 volume, per-category counts, and earned achievement names. It **excludes every
 identifier** (no sender addresses, no domain names, no message content). The user
-exports it as JSON or copies a plain-text summary (`snapshotText`); both are produced
-on-device, and sharing is an explicit user action with no automatic egress.
+exports it as a **shareable PNG image** (the primary share form, rendered on-device from
+the aggregate numbers), with the JSON / plain-text summary (`snapshotText`) available for
+data/portability; all are produced on-device, and sharing is an explicit user action with no
+automatic egress.
 
 **Rationale:** Lets users share progress without exposing who emails them; the exclusion
 of domains/addresses is enforced in the pure builder and covered by a test.
@@ -201,7 +203,6 @@ provided — existing local analytics records, if any, are simply re-accumulated
 
 - [ ] Should the health-score weights adapt to inbox size (e.g. de-emphasise hygiene for
   tiny inboxes)?
-- [ ] Add a visual (PNG/SVG) snapshot in addition to JSON/text? (design-frontend.md Open Questions.)
 - [ ] Lifetime totals vs. windowed totals for time-saved and achievements — v1 uses the
   read window (default 30 days); revisit once longer histories exist.
 
@@ -212,3 +213,4 @@ provided — existing local analytics records, if any, are simply re-accumulated
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-06-28 | Initial draft: health score, time-saved, breakdowns, achievements, daily-counter persistence, and the privacy-safe shareable snapshot (M6). | Claude |
+| 2026-07-16 | Resolve the shareable-snapshot **format** (open question, cross-ref #99): the primary share form is a **PNG image** rendered on-device from the aggregate numbers, alongside the existing JSON / plain-text export. | Claude |
