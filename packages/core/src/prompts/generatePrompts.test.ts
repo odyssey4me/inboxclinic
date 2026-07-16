@@ -28,6 +28,7 @@ function senderFixture(
     readRate: 0.5,
     starredCount: 0,
     spamMarkedCount: 0,
+    deletedUnreadCount: 0,
     replyCount: 0,
     inContacts: false,
     frequency: "weekly",

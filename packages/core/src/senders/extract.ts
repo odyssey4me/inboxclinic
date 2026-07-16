@@ -252,6 +252,8 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
       readRate: acc.totalEmails > 0 ? 1 - acc.unreadCount / acc.totalEmails : null,
       starredCount: acc.starredCount,
       spamMarkedCount: acc.spamMarkedCount,
+      // Populated from the prior-decisions learn pass (Trash scan), not the inbox scan.
+      deletedUnreadCount: 0,
       replyCount: 0,
       inContacts: false,
       frequency: frequencyFor(emails30d),

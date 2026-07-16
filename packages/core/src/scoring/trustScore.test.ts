@@ -20,6 +20,7 @@ function snap(overrides: Partial<SenderSnapshot> = {}): SenderSnapshot {
     replyCount: 0,
     starredCount: 0,
     spamMarkedCount: 0,
+    deletedUnreadCount: 0,
     recencyBuckets: { d30: 10, d90: 0, d180: 0, older: 0 },
     auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
     ...overrides,
@@ -42,6 +43,19 @@ describe("computeTrustScore — user signals", () => {
   it("penalises repeatedly-marked-spam more (−3, not −2)", () => {
     const result = computeTrustScore(snap({ readRate: 0.5, spamMarkedCount: 2 }));
     expect(result.components.user).toBeCloseTo(-3, 5);
+  });
+
+  it("penalises frequently-deleted-unread (−1) at ≥2, stacking with never-opened", () => {
+    // readRate 0 → neverOpened (−1); deletedUnreadCount 2 → frequentlyDeletedUnread (−1) → −2.
+    const result = computeTrustScore(snap({ readRate: 0, deletedUnreadCount: 2 }));
+    expect(result.components.user).toBeCloseTo(-2, 5);
+    expect(result.signals.some((s) => s.label === "frequentlyDeletedUnread")).toBe(true);
+  });
+
+  it("does not count a single deleted-unread message as 'frequently'", () => {
+    const result = computeTrustScore(snap({ readRate: 0.5, deletedUnreadCount: 1 }));
+    expect(result.components.user).toBe(0);
+    expect(result.signals.some((s) => s.label === "frequentlyDeletedUnread")).toBe(false);
   });
 
   it("does not count a single star as 'frequently starred'", () => {

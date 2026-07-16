@@ -11,6 +11,10 @@
  *
  * Subjects already decided (trusted or blocked) are never re-suggested. The UI presents
  * these as a confirm-first import; nothing is destructive (Gmail already handled them).
+ *
+ * Side effect: while scanning Trash it also persists each existing sender's
+ * `deletedUnreadCount` (mail binned while unread) — a trust-scoring input (Decision 8) that
+ * the inbox scan can't see. This is the sole populator of that count.
  */
 
 import { isBlockFilter, parseFilterSubjects } from "../enforcement/filterShape";
@@ -56,9 +60,13 @@ export async function learnPriorDecisions(
   const unreadThreshold = options.unreadThreshold ?? 0.5;
 
   // Never re-suggest a subject the user has already decided (trusted or blocked).
+  const allSenders = await store.senders.query({});
   const decidedSenders = new Set(
-    (await store.senders.query({})).filter((s) => s.trustStatus !== "pending").map((s) => s.id),
+    allSenders.filter((s) => s.trustStatus !== "pending").map((s) => s.id),
   );
+  // Per-sender count of mail trashed **while unread** — a scoring input (Decision 8),
+  // collected during the Trash scan below and persisted after.
+  const trashUnreadById = new Map<string, number>();
   const decidedDomains = new Set(
     (await store.domains.query({})).filter((d) => d.trustStatus !== "pending").map((d) => d.id),
   );
@@ -110,6 +118,9 @@ export async function learnPriorDecisions(
       for (const sender of senders) {
         if (reason === "trash") {
           const unreadShare = sender.readRate === null ? 1 : 1 - sender.readRate;
+          // Record the unread-trashed count for scoring, independent of the suggestion's
+          // unread-share gate (Decision 8; the score threshold is applied in trustScore).
+          trashUnreadById.set(sender.id, Math.round(sender.totalEmails * unreadShare));
           if (unreadShare < unreadThreshold) continue; // read-then-deleted — not a signal
         }
         add({
@@ -126,6 +137,15 @@ export async function learnPriorDecisions(
   };
   await scanFolder("in:spam", "spam");
   await scanFolder("in:trash", "trash");
+
+  // Persist the deleted-while-unread scoring input. Reflects the current Trash window:
+  // senders no longer in Trash reset to 0 (bounded by `maxMessages` per folder).
+  for (const sender of allSenders) {
+    const count = trashUnreadById.get(sender.id) ?? 0;
+    if (sender.deletedUnreadCount !== count) {
+      await store.senders.put({ ...sender, deletedUnreadCount: count });
+    }
+  }
 
   return [...byId.values()].sort(
     (a, b) => REASON_RANK[b.reason] - REASON_RANK[a.reason] || b.messageCount - a.messageCount,
