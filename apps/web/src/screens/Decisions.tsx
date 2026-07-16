@@ -4,6 +4,7 @@ import {
   defaultBlockActions,
   enforce,
   importLearnedDecisions,
+  keyFor,
   learnPriorDecisions,
   simulateEnforcement,
   type BlockAction,
@@ -58,6 +59,49 @@ const REASON_TEXT: Record<LearnReason, string> = {
   trash: "binned unread",
 };
 
+/** Per-suggestion choice: import at its suggested scope, escalate to the domain, or skip. */
+type SuggestionChoice = DecisionScope | "skip";
+
+function rowKey(s: LearnedSuggestion): string {
+  return `${s.scope}:${s.subjectId}`;
+}
+
+function domainOf(email: string): string {
+  return email.slice(email.indexOf("@") + 1).toLowerCase();
+}
+
+/** The underlying signal, spelled out — so the user judges it, not an internal assumption. */
+function suggestionDetail(s: LearnedSuggestion): string {
+  if (s.reason === "trash" && s.unreadShare !== null) {
+    const pct = Math.round(s.unreadShare * 100);
+    return `${REASON_TEXT.trash} · ${pct}% unread of ${s.messageCount} message${s.messageCount === 1 ? "" : "s"}`;
+  }
+  if (s.reason === "spam" && s.messageCount > 0) {
+    return `${REASON_TEXT.spam} · ${s.messageCount} message${s.messageCount === 1 ? "" : "s"}`;
+  }
+  return REASON_TEXT[s.reason];
+}
+
+/** Resolve a suggestion + the user's per-row choice to what to import (or null to skip). */
+function effectiveSuggestion(
+  s: LearnedSuggestion,
+  choice: SuggestionChoice,
+): LearnedSuggestion | null {
+  if (choice === "skip") return null;
+  if (choice === "domain" && s.scope === "address") {
+    const domain = domainOf(s.label);
+    return {
+      subjectId: keyFor(domain),
+      scope: "domain",
+      label: domain,
+      reason: s.reason,
+      messageCount: s.messageCount,
+      unreadShare: s.unreadShare,
+    };
+  }
+  return s;
+}
+
 /**
  * Decisions view: every recorded trust/block, revisable at any time. Changing a decision
  * previews its impact (a read-only dry-run), then applies it and reconciles Gmail filters
@@ -74,6 +118,9 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
   const [suggestions, setSuggestions] = useState<LearnedSuggestion[]>([]);
   const [dismissed, setDismissed] = useState(false);
   const [importing, setImporting] = useState(false);
+  // Per-suggestion scope choice, keyed by rowKey; a missing entry defaults to the
+  // suggested scope (never "skip") so every row starts pre-selected for import.
+  const [choices, setChoices] = useState<Map<string, SuggestionChoice>>(new Map());
   // Bumped on every openChange call; a resolving simulateEnforcement only applies its
   // result if it's still the most recent request (guards against a second subject being
   // opened before the first one's simulation resolves).
@@ -92,16 +139,28 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
     };
   }, [store, gmail, online]);
 
-  const importAll = async (): Promise<void> => {
+  const choiceFor = (s: LearnedSuggestion): SuggestionChoice => choices.get(rowKey(s)) ?? s.scope;
+
+  const setChoice = (s: LearnedSuggestion, choice: SuggestionChoice): void => {
+    setChoices((prev) => new Map(prev).set(rowKey(s), choice));
+  };
+
+  const selected = suggestions
+    .map((s) => effectiveSuggestion(s, choiceFor(s)))
+    .filter((s): s is LearnedSuggestion => s !== null);
+
+  const importSelected = async (): Promise<void> => {
+    if (selected.length === 0) return;
     setImporting(true);
     setError(null);
     try {
-      const count = await importLearnedDecisions(store, suggestions, Date.now());
+      const count = await importLearnedDecisions(store, selected, Date.now());
       await enforce(gmail, store);
       await reload();
       onChanged();
       setNote(`Imported ${count} prior decision${count === 1 ? "" : "s"} as blocked.`);
       setSuggestions([]);
+      setChoices(new Map());
     } catch (caught) {
       setError(`Import failed: ${errorMessage(caught)}`);
     } finally {
@@ -216,24 +275,57 @@ export function Decisions({ store, gmail, online, onChanged }: DecisionsProps) {
               Found {suggestions.length} prior decision{suggestions.length === 1 ? "" : "s"}
             </h3>
             <p className="text-sm text-muted">
-              Senders you already filter or bin. Import them as Blocked? Nothing is deleted — Gmail
-              already handles them; this just records the decisions here.
+              Senders you already filter or bin. Review each and choose to block just the address,
+              the whole domain, or skip it. Nothing is deleted — Gmail already handles them; this
+              just records the decisions here.
             </p>
           </div>
-          <ul className="space-y-1 text-sm">
-            {suggestions.map((s) => (
-              <li
-                key={`${s.scope}:${s.subjectId}`}
-                className="flex items-center justify-between gap-2"
-              >
-                <span className="truncate text-ink">{s.label}</span>
-                <span className="shrink-0 text-xs text-muted">{REASON_TEXT[s.reason]}</span>
-              </li>
-            ))}
+          <ul className="space-y-3 text-sm">
+            {suggestions.map((s) => {
+              const choice = choiceFor(s);
+              const hasAddress = s.label.includes("@");
+              const options: { value: SuggestionChoice; text: string }[] = [
+                ...(hasAddress ? [{ value: "address" as const, text: "This address" }] : []),
+                { value: "domain" as const, text: "Whole domain" },
+                { value: "skip" as const, text: "Skip" },
+              ];
+              return (
+                <li
+                  key={rowKey(s)}
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-ink">{s.label}</p>
+                    <p className="text-xs text-muted">{suggestionDetail(s)}</p>
+                  </div>
+                  <div
+                    className="flex gap-1"
+                    role="group"
+                    aria-label={`Choose scope for ${s.label}`}
+                  >
+                    {options.map((option) => (
+                      <Button
+                        key={option.value}
+                        variant={option.value === choice ? "secondary" : "ghost"}
+                        className="px-2 py-1"
+                        aria-pressed={option.value === choice}
+                        onClick={() => setChoice(s, option.value)}
+                        disabled={importing}
+                      >
+                        {option.text}
+                      </Button>
+                    ))}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
           <div className="flex gap-2">
-            <Button onClick={() => void importAll()} disabled={importing || !online}>
-              {importing ? "Importing…" : "Import all as Blocked"}
+            <Button
+              onClick={() => void importSelected()}
+              disabled={importing || !online || selected.length === 0}
+            >
+              {importing ? "Importing…" : `Import selected as Blocked (${selected.length})`}
             </Button>
             <Button variant="ghost" onClick={() => setDismissed(true)} disabled={importing}>
               Dismiss

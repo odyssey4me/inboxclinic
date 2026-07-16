@@ -58,6 +58,25 @@ describe("learnPriorDecisions", () => {
     expect(out[0]?.reason).toBe("trash");
   });
 
+  it("carries the unread share for trash-derived suggestions, null otherwise", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    gmail.seedInbox([
+      msg("1", "junk@spam.com", ["SPAM", "UNREAD"]),
+      msg("2", "blast@ads.com", ["TRASH", "UNREAD"]),
+      msg("3", "blast@ads.com", ["TRASH"]),
+    ]);
+
+    const out = await learnPriorDecisions(gmail, store, { now: NOW });
+
+    expect(out.find((s) => s.label === "spam@x.com")?.unreadShare).toBeNull();
+    expect(out.find((s) => s.label === "junk@spam.com")?.unreadShare).toBeNull();
+    expect(out.find((s) => s.label === "blast@ads.com")?.unreadShare).toBeCloseTo(0.5);
+  });
+
   it("never re-suggests a subject already decided", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));

@@ -31,6 +31,13 @@ export interface LearnedSuggestion {
   reason: LearnReason;
   /** Messages seen in Spam/Trash for this subject (0 for filter-derived). */
   messageCount: number;
+  /**
+   * Share of `messageCount` that was unread when binned (0..1). Only meaningful for
+   * `reason: "trash"` — the read-weighted signal behind the suggestion (Decision 8);
+   * `null` for filter/spam-derived suggestions. Surfaced so the UI can show *why*
+   * instead of the caller treating the suggestion as a flat assumption.
+   */
+  unreadShare: number | null;
 }
 
 export interface LearnPriorOptions {
@@ -73,12 +80,11 @@ export async function learnPriorDecisions(
       byId.set(suggestion.subjectId, suggestion);
       return;
     }
+    const reasonUpgraded = REASON_RANK[suggestion.reason] >= REASON_RANK[prev.reason];
     byId.set(suggestion.subjectId, {
       ...prev,
-      reason:
-        REASON_RANK[suggestion.reason] >= REASON_RANK[prev.reason]
-          ? suggestion.reason
-          : prev.reason,
+      reason: reasonUpgraded ? suggestion.reason : prev.reason,
+      unreadShare: reasonUpgraded ? suggestion.unreadShare : prev.unreadShare,
       messageCount: Math.max(prev.messageCount, suggestion.messageCount),
     });
   };
@@ -94,6 +100,7 @@ export async function learnPriorDecisions(
           label: subject.value,
           reason: "filter",
           messageCount: 0,
+          unreadShare: null,
         });
       }
     }
@@ -108,8 +115,9 @@ export async function learnPriorDecisions(
       const metas = await Promise.all(ids.map((id) => client.getMessageMeta(id)));
       const { senders } = extractSenders(metas, now);
       for (const sender of senders) {
+        let unreadShare: number | null = null;
         if (reason === "trash") {
-          const unreadShare = sender.readRate === null ? 1 : 1 - sender.readRate;
+          unreadShare = sender.readRate === null ? 1 : 1 - sender.readRate;
           if (unreadShare < unreadThreshold) continue; // read-then-deleted — not a signal
         }
         add({
@@ -118,6 +126,7 @@ export async function learnPriorDecisions(
           label: sender.email,
           reason,
           messageCount: sender.totalEmails,
+          unreadShare,
         });
       }
     } catch {

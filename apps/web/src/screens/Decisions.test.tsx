@@ -1,18 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-import { keyFor, type Store } from "@inboxclinic/core";
+import { keyFor, type MessageMeta, type Store } from "@inboxclinic/core";
 import {
   createInMemoryStore,
   inboxFromSender,
   MockGmailClient,
   senderBuilder,
 } from "@inboxclinic/core/testing";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Decisions } from "./Decisions";
 
 function setup(): { store: Store; gmail: MockGmailClient } {
   return { store: createInMemoryStore(), gmail: new MockGmailClient() };
+}
+
+function spamMsg(id: string, from: string): MessageMeta {
+  return {
+    id,
+    threadId: `t-${id}`,
+    labelIds: ["SPAM", "UNREAD"],
+    internalDate: Date.now(),
+    headers: { from },
+  };
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -188,5 +198,39 @@ describe("Decisions view", () => {
     );
     expect(screen.getByText(/archive 1 existing email/i)).toBeInTheDocument();
     expect(screen.queryByText(/archive 5 existing emails/i)).not.toBeInTheDocument();
+  });
+
+  it("imports prior decisions per suggestion, skipping the ones marked Skip", async () => {
+    const { store, gmail } = setup();
+    gmail.seedInbox([spamMsg("1", "junk1@a.com"), spamMsg("2", "junk2@b.com")]);
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={vi.fn()} />);
+
+    await screen.findByText(/found 2 prior decisions/i);
+    const group = screen.getByRole("group", { name: /choose scope for junk2@b\.com/i });
+    fireEvent.click(within(group).getByRole("button", { name: /^skip$/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /import selected as blocked \(1\)/i }));
+
+    expect(await screen.findByText(/imported 1 prior decision as blocked/i)).toBeInTheDocument();
+    expect((await store.senders.get(keyFor("junk1@a.com")))?.trustStatus).toBe("blocked");
+    expect(await store.senders.get(keyFor("junk2@b.com"))).toBeUndefined();
+  });
+
+  it("escalates a suggested address block to the whole domain", async () => {
+    const { store, gmail } = setup();
+    gmail.seedInbox([spamMsg("1", "escalate@shop.example")]);
+
+    render(<Decisions store={store} gmail={gmail} online onChanged={vi.fn()} />);
+
+    await screen.findByText(/found 1 prior decision/i);
+    const group = screen.getByRole("group", { name: /choose scope for escalate@shop\.example/i });
+    fireEvent.click(within(group).getByRole("button", { name: /whole domain/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /import selected as blocked \(1\)/i }));
+
+    expect(await screen.findByText(/imported 1 prior decision as blocked/i)).toBeInTheDocument();
+    expect((await store.domains.get(keyFor("shop.example")))?.trustStatus).toBe("blocked");
+    expect(await store.senders.get(keyFor("escalate@shop.example"))).toBeUndefined();
   });
 });
