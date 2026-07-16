@@ -75,4 +75,25 @@ describe("Analytics view", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("offers the PNG snapshot image as the primary share action", async () => {
+    const store = await seeded();
+    render(<Analytics store={store} />);
+
+    expect(
+      await screen.findByRole("button", { name: /download image \(png\)/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a status message when the browser can't render the snapshot image", async () => {
+    // jsdom has no canvas backend, so rendering fails just like it would in a browser
+    // without canvas support — the button must degrade gracefully, not throw.
+    const store = await seeded();
+    render(<Analytics store={store} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /download image \(png\)/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /couldn't render the snapshot image/i,
+    );
+  });
 });
