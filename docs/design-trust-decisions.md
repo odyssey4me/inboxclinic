@@ -315,16 +315,20 @@ These constants are owned by this design — architecture.md §4 defines the tru
 
 **User signals** (−10…+10 before weighting): replied **+3**, in contacts **+2**
 _(deferred — see below)_, frequently starred **+2**, consistently opened >80% **+1**,
-never opened **−1**, frequently deleted-unread **−1** _(deferred — not yet
-implemented)_, manually marked spam **−2**, repeatedly marked spam **−3**.
+never opened **−1**, frequently deleted-unread **−1** _(≥2 messages binned while unread;
+stacks with never-opened)_, manually marked spam **−2**, repeatedly marked spam **−3**.
 
-> **Deferred signals:** `inContacts` and "frequently deleted-unread" are **not live in
-> v1** — see [ROADMAP.md](ROADMAP.md#deferred-post-v1). `inContacts` has a schema field
-> and scoring branch in place as a seam (`SenderSnapshot.inContacts`,
-> `computeTrustScore`), but the Tier-3 People API lookup that would populate it is not
-> built, so the field is always `false` and the +2 branch never fires
-> (`packages/core/src/ports/GmailClient.ts` — Tier 3 scopes). "Frequently deleted-unread"
-> has no field or scoring branch yet.
+> **Deferred signal:** `inContacts` is **not live in v1** — see
+> [ROADMAP.md](ROADMAP.md#deferred-post-v1). It has a schema field and scoring branch in
+> place as a seam (`SenderSnapshot.inContacts`, `computeTrustScore`), but the Tier-3 People
+> API lookup that would populate it is not built, so the field is always `false` and the +2
+> branch never fires (`packages/core/src/ports/GmailClient.ts` — Tier 3 scopes).
+>
+> **"Frequently deleted-unread"** is **live (#98):** `SenderSnapshot.deletedUnreadCount`
+> fires the −1 at **≥2** messages binned while unread, stacking with never-opened. It is
+> populated from the prior-decisions learn pass's Trash scan (not the inbox scan — the score
+> input the inbox can't see), so it reflects the current Trash window and refreshes when that
+> pass runs. Exposure is **score-only** (it moves the visible score/tier; no bespoke UI text).
 
 **Recency weights:** ≤30d **×1.0**, 30–90d **×0.7**, 90–180d **×0.4**, >180d **×0.2**.
 
@@ -442,6 +446,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-16 | **Implement the "frequently deleted-unread" (−1) signal (#98).** Adds `deletedUnreadCount` to the store `Sender` + `SenderSnapshot`; `computeTrustScore` fires −1 at **≥2** messages binned while unread, **stacking** with never-opened. Populated from the prior-decisions learn pass's Trash scan (no extra Gmail calls; carried across rescans); exposure is **score-only**. Moved off the ROADMAP Deferred list. | Claude |
 | 2026-07-12 | Clarify that `inContacts` (+2) and "frequently deleted-unread" (−1) are **deferred, not implemented** in v1 — matches the code and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scoring or scope change. | Claude |
 | 2026-07-05 | Add the **Decisions milestone** model: Decision 6 **revisable decisions** (change later → reconcile filters + rescue from Trash); Decision 7 **impact preview + explicit confirm** before applying (deletes are loud; block trashes future by default, delete-existing opt-in); Decision 8 **learn prior decisions** from filters + **read-weighted** Spam/Trash as confirm-first suggestions. | Claude |
 | 2026-06-28 | Rewritten for the client-only, local-first, all-TypeScript PWA model: pure on-device `packages/core` interfaces, network signals deferred (v1 User×0.77 + Compliance×0.23), no backend. Supersedes the backend-API design. | Claude |

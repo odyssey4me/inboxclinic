@@ -83,6 +83,7 @@ export function senderBuilder(email: string, overrides: Partial<Sender> = {}): S
     readRate: null,
     starredCount: 0,
     spamMarkedCount: 0,
+    deletedUnreadCount: 0,
     replyCount: 0,
     inContacts: false,
     frequency: "rare",

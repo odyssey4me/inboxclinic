@@ -58,6 +58,22 @@ describe("learnPriorDecisions", () => {
     expect(out[0]?.reason).toBe("trash");
   });
 
+  it("persists a per-sender deleted-while-unread count as a scoring input", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    // An existing (undecided) sender that also has mail sitting in Trash, mostly unread.
+    await store.senders.put(senderBuilder("blast@ads.com"));
+    gmail.seedInbox([
+      msg("1", "blast@ads.com", ["TRASH", "UNREAD"]),
+      msg("2", "blast@ads.com", ["TRASH", "UNREAD"]),
+      msg("3", "blast@ads.com", ["TRASH"]), // read-then-deleted — not part of the unread count
+    ]);
+
+    await learnPriorDecisions(gmail, store, { now: NOW });
+
+    expect((await store.senders.get(keyFor("blast@ads.com")))?.deletedUnreadCount).toBe(2);
+  });
+
   it("never re-suggests a subject already decided", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));

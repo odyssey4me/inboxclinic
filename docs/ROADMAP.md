@@ -123,7 +123,6 @@ empty static PWA shell.
 | **Server-side real-time triage** | Deliberately avoided (would reintroduce a backend + token custody). |
 | **Periodic auto-backup** | v1 is manual "Back up now" only; see [design-backup-restore.md](design-backup-restore.md) Decision 4. |
 | **`inContacts` trust signal (+2)** | Tier-3 `contacts.readonly` (People API) lookup. The schema field, scope tier, and scoring branch exist as a seam; the lookup itself is not built, so the field is always `false` and the signal never fires. See [design-trust-decisions.md](design-trust-decisions.md) and [design-gmail-integration.md](design-gmail-integration.md). |
-| **"Frequently deleted-unread" trust signal (−1)** | A User-group scoring signal in the trust model; not implemented in `computeTrustScore`. See [design-trust-decisions.md](design-trust-decisions.md). |
 
 ## Notes
 

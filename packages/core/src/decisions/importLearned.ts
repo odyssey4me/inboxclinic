@@ -42,6 +42,7 @@ function blockedSender(email: string, now: number): Sender {
     readRate: null,
     starredCount: 0,
     spamMarkedCount: 0,
+    deletedUnreadCount: 0,
     replyCount: 0,
     inContacts: false,
     frequency: "rare",

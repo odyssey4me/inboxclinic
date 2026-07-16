@@ -111,6 +111,10 @@ export interface Sender {
   starredCount: number;
   /** Messages carrying the Gmail `SPAM` label. */
   spamMarkedCount: number;
+  /** Messages found trashed **while unread** (deleted without opening) — a Block signal
+   *  (design-trust-decisions.md Decision 8). Populated from the prior-decisions learn pass;
+   *  `0` until it runs. */
+  deletedUnreadCount: number;
   /** Replies the user sent to this sender. Deferred (SENT scan) — `0` for now. */
   replyCount: number;
   /** Whether the sender is in the user's contacts. Deferred (People API) — `false`. */

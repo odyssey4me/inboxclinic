@@ -108,6 +108,8 @@ export async function runScan(
     sender.decisionScope = prev.decisionScope;
     sender.decisionContext = prev.decisionContext;
     sender.pendingActions = prev.pendingActions;
+    // Learn-pass-derived scoring input (Trash scan); an inbox rescan mustn't wipe it.
+    sender.deletedUnreadCount = prev.deletedUnreadCount;
   }
 
   const priorDomains = new Map<string, Domain>();

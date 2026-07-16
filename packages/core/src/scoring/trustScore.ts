@@ -11,7 +11,9 @@
  * aggregate recency factor `R` (recency weights ≤30d ×1.0 … >180d ×0.2), except
  * `inContacts`, which is a current-state fact:
  *   replied +3, in contacts +2, frequently starred +2, consistently opened >80% +1,
- *   never opened −1, manually marked spam −2, repeatedly marked spam −3.
+ *   never opened −1, frequently deleted-unread (≥2 binned unread) −1, manually marked
+ *   spam −2, repeatedly marked spam −3. "Never opened" and "deleted-unread" can both
+ *   apply (a binned-unread sender is usually also never opened) — they stack.
  *
  * **Compliance signals:** SPF+DKIM+DMARC all pass +2 (two pass +1; spoofed −3);
  * `List-Unsubscribe` present +1 (absent −1).
@@ -32,6 +34,7 @@ const SCORE_MAX = 10;
 
 const STARRED_FREQUENT = 2;
 const SPAM_REPEATED = 2;
+const DELETED_UNREAD_FREQUENT = 2;
 const OPENED_CONSISTENTLY = 0.8;
 
 /** One weighted contribution, surfaced as supporting evidence in the UI. */
@@ -73,6 +76,9 @@ export function computeTrustScore(sender: SenderSnapshot): TrustScoreResult {
     addUser("consistentlyOpened", 1);
   }
   if (sender.readRate !== null && sender.readRate === 0) addUser("neverOpened", -1);
+  // Actively binned while unread — a stronger "no" than passive ignoring; stacks with the
+  // above (design-trust-decisions.md Decision 8).
+  if (sender.deletedUnreadCount >= DELETED_UNREAD_FREQUENT) addUser("frequentlyDeletedUnread", -1);
   if (sender.spamMarkedCount >= SPAM_REPEATED) addUser("repeatedlyMarkedSpam", -3);
   else if (sender.spamMarkedCount >= 1) addUser("markedSpam", -2);
 

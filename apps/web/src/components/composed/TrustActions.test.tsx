@@ -24,6 +24,7 @@ function makeSender(overrides: Partial<Sender>): Sender {
     readRate: null,
     starredCount: 0,
     spamMarkedCount: 0,
+    deletedUnreadCount: 0,
     replyCount: 0,
     inContacts: false,
     frequency: "rare",
