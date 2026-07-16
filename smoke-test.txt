@@ -1,1 +1,1 @@
-Smoke test for the adress-review PAT push. Delete me.
+Smoke test for the address-review PAT push. Delete me.
