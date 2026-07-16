@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-07-16
 
 ## Overview
 
@@ -35,6 +35,31 @@ It does not restate them; it defines how the UI realises them.
 | 6 | Core Interfaces | The UI depends on the store and provider-client ports; it renders their output and holds no business rules |
 | 7 | Access, Openness & Funding | Static, reproducible build; opt-in **local** shareable snapshot (no server, no referral tracking) |
 | 8 | User Settings & Opt-in Features | User-controlled opt-in toggles stored on-device |
+
+## User Journeys
+
+The interface is designed around four primary journeys. The **same on-device decision
+model** underlies them all; the **decisions surface** (a table on desktop, a card list on
+mobile — Decision 8) and the **guided workflow** (Decision 6) are two entry paths to the
+same decisions, and the **home page leads with the decisions surface** on both layouts.
+
+1. **Blast through pending decisions fast.** The guided **Triage → Review → Execution**
+   workflow: evidence + Trust/Block/Defer inline, one tap (or `T`/`B`/`D`/`S`) per sender,
+   auto-advancing. It is the **primary** triage path on **mobile** (touch, sequential); on
+   **desktop** it is an optional fast-path launched from the decisions surface via
+   **"Triage pending →"**.
+2. **Find a specific sender or domain and act.** The decisions surface: **search** + **sort**
+   (message volume, unread/ignored rate, recency, trust score, decision status, name/domain)
+   locate the subject; **inline Trust/Block/Defer** or the detail panel act on it.
+3. **Review and change a past decision.** The same surface, filtered to **Decided**; the
+   row opens the detail panel to change the decision (re-previews impact, reconciles filters).
+4. **Block a whole domain and manage address exceptions.** **Group by domain** in the
+   surface: a domain acts on all its members (`scope: "domain"`), with per-address exceptions
+   managed in the detail panel.
+
+Scoring, prioritisation, and decision semantics are owned by
+[design-trust-decisions.md](design-trust-decisions.md) / architecture.md §4 — the UI renders
+their output.
 
 ## Design Decisions
 
@@ -174,38 +199,52 @@ consistent from one source.
 - Emphasis buttons use `bg-ink text-bg` (always high-contrast in both themes); the
   destructive **Block** action is the only coloured fill (`bg-block`).
 
-### Decision 8: Dashboard senders and domains are actionable in place via detail drawers
+### Decision 8: The home page is one searchable, sortable decisions surface (+ a detail panel)
 
-**Context:** The dashboard invites clicking — senders, domains, and pending-decision rows
-all *look* like they lead somewhere — but originally none were interactive: the only way to
-act on a sender was to enter the guided workflow, and the **Domains** count had no
-destination at all. That mismatch between affordance and behaviour is a UX dead-end.
+**Context:** The dashboard originally juxtaposed an inbox-health hero, clickable **count
+tiles**, a separate **Pending decisions** panel, and a **senders/domains** list — surfacing
+the same senders and domains as links across several competing widgets (and on desktop the
+pending aside **overlapped** the table). The real work — deciding senders quickly and
+revisiting past decisions — is served better by one powerful list than by juxtaposed
+dashboard widgets.
 
-**Decision:** Every sender and domain surface on the dashboard opens a **detail drawer** — a
-right-side panel on desktop, a bottom sheet on mobile. Both drawers share one shell
-(`ui/Drawer`: overlay, labelled `role="dialog"`/`aria-modal`, Escape / backdrop-click
-dismissal, header) and differ only in body.
+**Decision:** The home page is a **single decisions surface** over senders (and domains),
+rendered as a **table on desktop** and a **card list on mobile** (the existing two-layout
+split — Application shell & navigation), with a shared detail panel:
 
-- **`SenderDetail`** opens from a sender (table row on desktop, card on mobile), a
-  pending-decision row, or the **Pending** summary tile (which routes to the workflow). It
-  reuses `PromptCard` (evidence/score) and `TrustActions` (decision + address/domain scope).
-- **`DomainDetail`** opens from the **Domains** list or the **Domains** summary tile. The
-  sender list gains a **Senders / Domains** segmented toggle; the two summary tiles switch
-  it. The domain body shows the aggregate (sender count, volume, status), an **averaged
-  member trust score** (the established stand-in — there is no per-domain score; see
-  [design-trust-decisions.md](design-trust-decisions.md)), and the member senders — each
-  drillable into `SenderDetail`. A domain decision applies with `scope: "domain"` and
-  `subjectId = keyFor(domain)`; **Block** always filters new mail (`create_filter`) and
-  offers archive/delete for existing mail.
-- **Safety mirrors the workflow (see [design-trust-decisions.md](design-trust-decisions.md)
-  Decision 7):** Trust and Defer apply immediately; **Block** first simulates and shows the
-  impact (archive/delete counts, weekly volume) and requires an explicit **Confirm block**.
-- The drawers are presentation-only: they call `applyDecision` + `enforce` and notify the
-  dashboard to refresh via an `onChanged` callback. They hold no business rules (Decision 2).
+- **Searchable and sortable** — sort by message volume, unread/ignored rate, recency, trust
+  score, decision status, and name/domain (sortable column headers on desktop; a sort
+  control / sheet on mobile). Search filters the list. **Search + sort are the primary
+  "decide quickly" tools** the desktop canvas rewards.
+- **Filter tabs `Pending · Decided · All`**, with the **counts in the tab labels** (e.g.
+  "Pending 12") — the standalone clickable **count tiles are removed**.
+- A **Group by domain** toggle so a domain and its member senders are decided together (a
+  domain decision applies with `scope: "domain"`, `subjectId = keyFor(domain)`; per-address
+  exceptions in the detail panel).
+- A **status column** and **inline Trust / Block / Defer** per row for fast triage (a
+  primary action + overflow on a mobile card, to keep ≥44px touch targets). Safety is
+  unchanged (design-trust-decisions.md Decision 7): **Trust/Defer apply immediately**;
+  **Block** simulates and shows the impact (archive/delete counts, weekly volume), then
+  requires an explicit **Confirm block**.
+- **Row click opens the detail panel** — a **right-side panel on desktop**, a **bottom sheet
+  on mobile** (the shared `ui/Drawer` shell: labelled `role="dialog"`/`aria-modal`, Escape /
+  backdrop dismissal). `SenderDetail` reuses `PromptCard` (evidence/score) + `TrustActions`
+  (address/domain scope, per-address exceptions) + the **impact preview** + decision history;
+  `DomainDetail` shows the aggregate (sender count, volume, status), an averaged member
+  score, and drillable members. **Changing a decision happens here too.** Both are
+  presentation-only (Decision 2) — they call `applyDecision` + `enforce` and notify the home
+  page via `onChanged`.
+- The **inbox-health score is not on the home page** — its meaning and next action aren't
+  clear here; it lives on **Analytics**. The home page leads with the decisions surface.
+- The **guided workflow (Decision 6)** remains an optional **"Triage pending →"** fast-path
+  launched from the surface — the *primary* triage path on **mobile**, an escape hatch on
+  **desktop** where the table + inline actions is primary.
 
-**Rationale:** Reusable detail+action surfaces make any sender *or domain* actionable without
-a mode switch, close the affordance/behaviour gap (including the dead-end Domains count), and
-keep decision behaviour identical across the dashboard and the guided workflow.
+**Rationale:** One list — searchable, sortable, filterable, group-able, with inline actions
+and a detail panel — serves all four home-page journeys without duplicating senders across
+competing widgets, makes **search + sort** the fast path the desktop canvas rewards, and
+fixes the overlap by making the detail a proper side-panel / bottom sheet rather than a
+fixed aside.
 
 ## Interfaces
 
@@ -274,11 +313,12 @@ different layouts, chosen by `useLayout` (`layout/context.ts` + `LayoutProvider`
 |-|--------------|---------------|
 | Structure | Top bar; single content column | Left **sidebar** (brand, vertical nav, account); wide content |
 | Nav | Horizontal pills | Vertical list in the sidebar |
-| Account + layout switch | In a header disclosure menu | Pinned to the sidebar foot |
-| Content width | `max-w-3xl`, stacked | up to `max-w-6xl`; screens go multi-column (e.g. Dashboard = senders + pending aside) |
+| Account menu (**holds the layout switch**) | Header disclosure menu | At the sidebar foot |
+| Content width | `max-w-3xl`, stacked | up to `max-w-6xl`; the home **decisions table** gains its **detail side-panel**, and Analytics goes multi-column |
 
 The layout is not merely CSS breakpoints: a **`LayoutSwitch`** (Auto / Desktop / Mobile)
-lets the user pin either layout, remembered on-device (`localStorage`). `auto` follows the
+lets the user pin either layout, remembered on-device (`localStorage`). It lives inside the
+**account menu** (an occasional preference, not persistent chrome). `auto` follows the
 `(min-width: 1024px)` breakpoint. Because a page can be forced to a layout its viewport
 wouldn't otherwise choose, screens branch on the JS `layout` value (not `lg:` utilities).
 Pinning **Desktop** on a small screen also widens the `viewport` meta to `width=1024` so the
@@ -304,8 +344,8 @@ for the Tier-3 Playwright suite (see [design-testing.md](design-testing.md) Deci
 
 | Screen | Composed of | Notes |
 |--------|-------------|-------|
-| **Dashboard** | health-score card, stat cards, `domain-card` list | Inbox health score, blocked count, pending decisions, 30-day summary, top domains. |
-| **Trust-decision workflow** | the four phases above | Entry point from Dashboard "pending decisions". |
+| **Dashboard (home)** | decisions table / card list, filter tabs, search + sort, `SenderDetail` / `DomainDetail` detail panel | The single **decisions surface** (Decision 8): search/sort senders, group by domain, `Pending · Decided · All` tabs, inline Trust/Block/Defer, row → detail panel to view/change. **Subsumes the standalone Decisions view and Domain explorer** (their browsing lives here now); Settings keeps exceptions/privacy/export. Inbox-health moved to Analytics; the workflow launches from **"Triage pending →"**. |
+| **Trust-decision workflow** | the three phases above | Optional **"Triage pending →"** fast-path launched from the home surface (the primary triage path on mobile). |
 | **Domain explorer** | `domain-card` grid, drill-in sender list, unsubscribe tracker | Browse by volume/status; start a workflow on a selection. |
 | **Past decisions / settings** | `decision-row` list, filters, exception editor, toggles | Review/revoke; domain exceptions; **privacy toggle** (`contributeToAggregate`); **export/delete**; undo. |
 | **Analytics** | trend charts, category breakdown, achievements, share | Daily/monthly trends, top blocked domains, achievements, **opt-in local shareable snapshot** — produces a self-contained artefact the user chooses to publish; **no server, no referral tracking** (§7). |
@@ -352,18 +392,22 @@ using exponential backoff + jitter for 429 / 403 rate-limit / 5xx / 408 (see
 ### Reactive read via the repository
 
 ```tsx
-// apps/web/src/screens/Dashboard.tsx
+// apps/web/src/screens/Dashboard.tsx — the single decisions surface (Decision 8)
 import { useLiveQuery } from 'dexie-react-hooks';
 import { repo } from '@/core';
 
 export function Dashboard() {
-  const summary = useLiveQuery(() => repo.dashboardSummary());
-  if (!summary) return <DashboardSkeleton />;
+  const [tab, setTab] = useState<'pending' | 'decided' | 'all'>('pending');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<Sort>('priority');
+  const senders = useLiveQuery(() => repo.listDecisions({ tab, query, sort, groupByDomain }));
+  if (!senders) return <DashboardSkeleton />;
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
-      <HealthScoreCard score={summary.inboxHealthScore} />
-      <StatGrid blocked={summary.blockedCount} pending={summary.pendingCount} />
-      <TopDomains domains={summary.topDomains} />
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      {/* Tabs carry the counts ("Pending 12"); plus search, sort, and group-by-domain. */}
+      <DecisionsToolbar tab={tab} onTab={setTab} onSearch={setQuery} onSort={setSort} />
+      <DecisionsList senders={senders} onInline={applyDecisionInline} onOpen={openDetail} />
+      {/* detail panel: right-side on desktop, bottom sheet on mobile */}
     </main>
   );
 }
@@ -446,3 +490,4 @@ IndexedDB. There is no running implementation to migrate yet (Alpha).
 | 2026-07-05 | Extend Decision 8 to **domains**: a **Senders / Domains** segmented toggle on the dashboard list (switched by the summary tiles), a domains explorer, and a `DomainDetail` drawer (shared `ui/Drawer` shell) showing the aggregate, an averaged member score, drillable member senders, and a domain-scoped Trust/Block/Defer — closing the dead-end **Domains** count. | Claude |
 | 2026-07-05 | Functional pass: replace the ambiguous **Sync/Scan** pair with one **Refresh** (incremental sync) + a last-synced/result indicator; move the full **Rescan** to Settings; add Settings **export / delete-all** data controls. | Claude |
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |
+| 2026-07-16 | **Home-page redesign (proposal, #99):** make the home page one **searchable, sortable decisions surface** — a table on desktop / card list on mobile — with `Pending · Decided · All` tabs (counts in the labels), a **group-by-domain** toggle, a status column + **inline Trust/Block/Defer**, and row → detail **side-panel (desktop) / bottom sheet (mobile)** to view/change. **Remove** the standalone count tiles and the **inbox-health hero** from the home (health stays on Analytics). The guided workflow becomes an optional **"Triage pending →"** fast-path — primary on mobile, an escape hatch on desktop. Move the **`LayoutSwitch`** into the account menu. Add a **User Journeys** section; revise **Decision 8** and the shell/layout section; fixes the desktop pending-aside/table overlap. | Claude |
