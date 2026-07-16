@@ -35,6 +35,7 @@ without the service ever seeing their email or holding their credentials.
 | **Delegate enforcement** | Continuous email handling is delegated to the email provider's own rules, so it keeps working when the app is closed. |
 | **Minimal operational surface** | The service runs no application servers and stores no user data; a solo maintainer can sustain it indefinitely at negligible cost. |
 | **No lock-in** | Favour portable, replaceable choices; avoid corners that are hard to back out of. |
+| **Use the ecosystem** | Prefer well-supported, replaceable libraries when they give substantive benefit at acceptable risk and lock-in; don't hand-roll what a stable library does well. |
 | **User-controlled** | Optional behaviour is the user's choice, made and stored on their device — not configured per-user by the maintainer. |
 | **Mobile-ready** | The system is structured so additional clients (e.g. mobile) can reuse the core without re-architecting. |
 
@@ -237,6 +238,7 @@ later as an extension rather than a rewrite.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.2 | 2026-07-16 | §1: add the **"Use the ecosystem"** principle — prefer well-supported, replaceable libraries that give substantive benefit at acceptable risk/lock-in over hand-rolling; complements **No lock-in**. |
 | 3.1 | 2026-07-05 | §5: add a **second opt-in egress class** — *opt-in diagnostic report* (user-submitted, on-screen-reviewed, redacted; no content/credentials/address) alongside the deferred anonymous aggregate. §6: add the **Reporting client** interface (one-way, cloud-neutral). See [design-error-reporting.md](design-error-reporting.md). |
 | 3.0 | 2026-06-28 | Re-levelled to a **technology-agnostic** spec — principles, constraints, and stable interfaces only. Moved technology choices, implementation detail, and algorithm constants to the design docs. |
 | 2.0 | 2026-06-28 | Rewrote for the solo, client-only local-first PWA model (superseded the hybrid-cloud commercial spec). |

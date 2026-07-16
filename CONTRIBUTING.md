@@ -108,6 +108,12 @@ All-TypeScript: **ESLint + Prettier + `tsc` (strict)**, tested with **Vitest**. 
 the core (`packages/core`) framework-agnostic and pure where possible. No dead code or
 stale documentation (see [CLAUDE.md](CLAUDE.md)).
 
+**Dependencies — use the ecosystem.** Reach for a well-supported, replaceable library
+when it gives substantive benefit at acceptable risk and lock-in, rather than hand-rolling
+what a stable library does well (architecture.md §1, *Use the ecosystem*). Add it to the
+relevant workspace, and let CI (which gates every dependency PR) and Dependabot keep it
+current.
+
 ## Pull request process
 
 PRs must pass: Prettier (format), ESLint (lint), `tsc` (types), and Vitest (tests,
