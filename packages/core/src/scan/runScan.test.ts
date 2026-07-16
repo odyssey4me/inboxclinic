@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
+import { applyDecision } from "../decisions/applyDecision";
 import { keyFor } from "../keys";
 import type { MessageMeta } from "../ports/GmailClient";
 import {
@@ -239,6 +240,31 @@ describe("runScan", () => {
       decisionScope: "address",
       pendingActions: ["create_filter", "archive"],
     });
+  });
+
+  it("does not re-prompt a domain-decided sender's members on rescan (#123)", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "a@x.com" } }),
+      messageMetaBuilder({ headers: { from: "b@x.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+    // Block the whole domain — its members are now covered (effectively decided).
+    await applyDecision(store, {
+      subjectId: keyFor("x.com"),
+      scope: "domain",
+      decision: "block",
+      actions: ["create_filter"],
+      decidedVia: "dashboard",
+      now: NOW,
+    });
+
+    // A later full rescan must not regenerate prompts for the domain-covered members.
+    await runScan(client, store, { now: NOW + 1000 });
+
+    const open = (await store.prompts.query({})).filter((p) => p.resolvedAt === null);
+    expect(open).toHaveLength(0);
   });
 
   it("preserves a learn-populated deletedUnreadCount across a rescan", async () => {

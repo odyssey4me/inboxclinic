@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
+import { domainBuilder } from "../testing";
 import type { Sender, TrustStatus } from "../store/types";
 import { generatePrompts, PROMPT_TTL_MS } from "./generatePrompts";
 
@@ -53,6 +54,56 @@ describe("generatePrompts", () => {
       { now: NOW },
     );
     expect(prompts.map((p) => p.senderId)).toEqual([keyFor("pending@a.com")]);
+  });
+
+  it("does not prompt a sender covered by a domain decision (#123)", () => {
+    const prompts = generatePrompts(
+      [
+        senderFixture("a@blocked.com", "pending"),
+        senderFixture("b@blocked.com", "pending"),
+        senderFixture("c@open.com", "pending"),
+      ],
+      {
+        now: NOW,
+        domains: [
+          domainBuilder("blocked.com", { trustStatus: "blocked", decisionScope: "domain" }),
+        ],
+      },
+    );
+    // blocked.com's members are effectively decided → excluded; the undecided domain stays.
+    expect(prompts.map((p) => p.senderId)).toEqual([keyFor("c@open.com")]);
+  });
+
+  it("excludes a decided per-address exception like any decided sender (#123)", () => {
+    const prompts = generatePrompts(
+      [
+        senderFixture("keep@blocked.com", "trusted"), // own address decision → an exception
+        senderFixture("other@blocked.com", "pending"), // covered by the domain block
+      ],
+      {
+        now: NOW,
+        domains: [
+          domainBuilder("blocked.com", {
+            trustStatus: "blocked",
+            decisionScope: "domain",
+            exceptionAddresses: ["keep@blocked.com"],
+          }),
+        ],
+      },
+    );
+    // The exception's own (trusted) decision wins → excluded; the other member is
+    // domain-covered → excluded. Neither is re-prompted.
+    expect(prompts).toHaveLength(0);
+  });
+
+  it("still prompts members of an undecided domain — suppression only fires for decided domains (#123)", () => {
+    const prompts = generatePrompts(
+      [senderFixture("a@open.com", "pending"), senderFixture("b@open.com", "pending")],
+      { now: NOW, domains: [domainBuilder("open.com")] }, // default trustStatus: pending
+    );
+    expect(new Set(prompts.map((p) => p.senderId))).toEqual(
+      new Set([keyFor("a@open.com"), keyFor("b@open.com")]),
+    );
   });
 
   it("sets createdAt = now and a 30-day expiresAt, with resolvedAt null", () => {
