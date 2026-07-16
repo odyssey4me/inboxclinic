@@ -76,7 +76,9 @@ describe("App", () => {
     render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
-    await screen.findByText("owner@gmail.com");
+    // The email appears twice — the sidebar-foot account menu's closed summary and its
+    // (unopened) panel — so match all rather than assuming a single node.
+    await screen.findAllByText("owner@gmail.com");
     const seededHistoryId = (await store.profile.get())?.lastHistoryId;
     expect(seededHistoryId).not.toBeNull();
 
@@ -99,8 +101,9 @@ describe("App", () => {
       <App gmail={gmail} store={store} backup={backup} demo initialEmail={DEMO_ACCOUNT_EMAIL} />,
     );
 
-    // Signed-in as the demo identity, with a clearly-labelled demo banner + exit.
-    expect(await screen.findByText(DEMO_ACCOUNT_EMAIL)).toBeInTheDocument();
+    // Signed-in as the demo identity, with a clearly-labelled demo banner + exit. The
+    // email appears twice (account menu summary + panel), so match all.
+    expect((await screen.findAllByText(DEMO_ACCOUNT_EMAIL)).length).toBeGreaterThan(0);
     expect(screen.getByText(/demo mode/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /exit demo/i })).toBeInTheDocument();
 
@@ -118,8 +121,10 @@ describe("App", () => {
     render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
-    await screen.findByText("owner@gmail.com");
+    await screen.findAllByText("owner@gmail.com");
 
+    // Disconnect lives inside the sidebar-foot account menu; open it first.
+    fireEvent.click(screen.getAllByText("owner@gmail.com")[0]!.closest("summary")!);
     fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
 
     expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
@@ -133,10 +138,13 @@ describe("App", () => {
     render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
-    await screen.findByText("owner@gmail.com");
+    await screen.findAllByText("owner@gmail.com");
 
     // With no matchMedia (jsdom), Auto resolves to the desktop shell — a sidebar.
     expect(screen.getByRole("complementary")).toBeInTheDocument();
+
+    // The layout switch lives inside the sidebar-foot account menu; open it first.
+    fireEvent.click(screen.getAllByText("owner@gmail.com")[0]!.closest("summary")!);
 
     // Pinning Mobile swaps to the single-column shell (no sidebar) and is persisted.
     fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
@@ -151,7 +159,8 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
-    expect(await screen.findByText("owner@gmail.com")).toBeInTheDocument();
+    // The email appears twice (account menu summary + panel), so match all.
+    expect((await screen.findAllByText("owner@gmail.com")).length).toBeGreaterThan(0);
 
     // sync-on-open populates the senders table (no manual scan needed).
     expect((await screen.findAllByText("jane@acme.com")).length).toBeGreaterThan(0);

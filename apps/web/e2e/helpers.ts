@@ -11,8 +11,8 @@ export async function gotoDemo(page: Page): Promise<void> {
 }
 
 /**
- * Make the layout switch reachable. On the desktop shell it lives in the always-visible
- * sidebar; on the mobile shell it's inside the account disclosure, which must be opened.
+ * Make the layout switch reachable. It lives inside the account menu in both shells — a
+ * sidebar-foot disclosure on desktop, a header disclosure on mobile — which must be opened.
  */
 export async function revealLayoutSwitch(page: Page): Promise<void> {
   const auto = page.getByRole("button", { name: "Auto" });

@@ -304,8 +304,21 @@ function DesktopShell({
               );
             })}
           </nav>
-          <div className="mt-auto space-y-3 border-t border-line px-5 py-4">
-            <AccountControls email={email} onDisconnect={onDisconnect} />
+          <div className="mt-auto border-t border-line px-5 py-4">
+            <details className="group">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-md text-sm text-muted marker:hidden">
+                <span className="max-w-[9rem] truncate font-medium text-ink">{email}</span>
+                <span
+                  aria-hidden="true"
+                  className="ml-auto transition-transform group-open:rotate-180"
+                >
+                  ▾
+                </span>
+              </summary>
+              <div className="mt-3 space-y-3">
+                <AccountControls email={email} onDisconnect={onDisconnect} />
+              </div>
+            </details>
           </div>
         </aside>
 

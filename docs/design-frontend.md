@@ -320,7 +320,7 @@ different layouts, chosen by `useLayout` (`layout/context.ts` + `LayoutProvider`
 |-|--------------|---------------|
 | Structure | Top bar; single content column | Left **sidebar** (brand, vertical nav, account); wide content |
 | Nav | Horizontal pills | Vertical list in the sidebar |
-| Account menu (**holds the layout switch**) | Header disclosure menu | At the sidebar foot |
+| Account menu (**holds the layout switch**) | Header disclosure menu | Sidebar-foot disclosure menu |
 | Content width | `max-w-3xl`, stacked | up to `max-w-6xl`; the home **decisions table** gains its **detail side-panel**, and Analytics goes multi-column |
 
 The layout is not merely CSS breakpoints: a **`LayoutSwitch`** (Auto / Desktop / Mobile)
