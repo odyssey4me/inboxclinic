@@ -10,17 +10,22 @@
 #   - github.event.review.user.login == 'odyssey4me'  (only YOUR review triggers it)
 #   - PR branch is in THIS repo, not a fork          (only Claude's own branches)
 #   - the review body must mention @claude            (explicit opt-in per review)
-# Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription).
+# Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription, for the model). Git pushes use a
+# fine-grained PAT (CLAUDE_PAT: Contents + Pull requests R/W on this repo) passed as
+# `github_token`, because the action's own OIDC-minted app token intermittently lacks
+# push permission (anthropics/claude-code-action#907) → 403 as github-actions[bot].
+# `persist-credentials: false` stops checkout leaving those bad fallback creds in git.
 name: Address review (Claude)
 
 on:
   pull_request_review:
     types: [submitted]
 
-# Revising the PR needs write to code + PRs. id-token: write for the OIDC exchange.
+# Least privilege: the PAT (github_token below) performs ALL writes (push + PR reply),
+# so the job's own GITHUB_TOKEN stays read-only. id-token: write for the OIDC exchange.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
   id-token: write
 
 jobs:
@@ -36,10 +41,16 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+          # Don't cache the github-actions[bot] token — the PAT below does the pushing.
+          persist-credentials: false
 
       - name: Address the submitted review
         uses: anthropics/claude-code-action@e90deca47693f9457b72f2b53c17d7c445a87342 # v1
         with:
+          # Explicit writable token for git push + PR reply, bypassing the buggy OIDC
+          # app token (anthropics/claude-code-action#907). A PAT push also triggers CI,
+          # so the PR's CI gate no longer goes stale/BLOCKED after a revision.
+          github_token: ${{ secrets.CLAUDE_PAT }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             The maintainer submitted a review on PR
