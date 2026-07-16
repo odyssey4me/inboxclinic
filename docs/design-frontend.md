@@ -55,7 +55,9 @@ same decisions, and the **home page leads with the decisions surface** on both l
    row opens the detail panel to change the decision (re-previews impact, reconciles filters).
 4. **Block a whole domain and manage address exceptions.** **Group by domain** in the
    surface: a domain acts on all its members (`scope: "domain"`), with per-address exceptions
-   managed in the detail panel.
+   managed in the detail panel. *(Phased: #100 ships senders-only; the group-by-domain view
+   lands in #104 — until then a whole-domain decision is made from any member sender's
+   detail-panel scope toggle.)*
 
 Scoring, prioritisation, and decision semantics are owned by
 [design-trust-decisions.md](design-trust-decisions.md) / architecture.md §4 — the UI renders
@@ -208,9 +210,10 @@ pending aside **overlapped** the table). The real work — deciding senders quic
 revisiting past decisions — is served better by one powerful list than by juxtaposed
 dashboard widgets.
 
-**Decision:** The home page is a **single decisions surface** over senders (and domains),
-rendered as a **table on desktop** and a **card list on mobile** (the existing two-layout
-split — Application shell & navigation), with a shared detail panel:
+**Decision:** The home page is a **single decisions surface** over senders (whole-domain
+grouping is **phased to #104** — see the Group-by-domain bullet below), rendered as a **table
+on desktop** and a **card list on mobile** (the existing two-layout split — Application shell &
+navigation), with a shared detail panel:
 
 - **Searchable and sortable** — sort by message volume, unread/ignored rate, recency, trust
   score, decision status, and name/domain (sortable column headers on desktop; a sort
@@ -220,7 +223,9 @@ split — Application shell & navigation), with a shared detail panel:
   "Pending 12") — the standalone clickable **count tiles are removed**.
 - A **Group by domain** toggle so a domain and its member senders are decided together (a
   domain decision applies with `scope: "domain"`, `subjectId = keyFor(domain)`; per-address
-  exceptions in the detail panel).
+  exceptions in the detail panel). *Phased: the initial surface (#100) ships **senders-only**
+  — whole-domain decisions remain available via a sender's detail-panel scope toggle — and
+  the group-by-domain view (with `DomainDetail`) lands in **#104**.*
 - A **status column** and **inline Trust / Block / Defer** per row for fast triage (a
   primary action + overflow on a mobile card, to keep ≥44px touch targets). Safety is
   unchanged (design-trust-decisions.md Decision 7): **Trust/Defer apply immediately**;
@@ -230,8 +235,9 @@ split — Application shell & navigation), with a shared detail panel:
   on mobile** (the shared `ui/Drawer` shell: labelled `role="dialog"`/`aria-modal`, Escape /
   backdrop dismissal). `SenderDetail` reuses `PromptCard` (evidence/score) + `TrustActions`
   (address/domain scope, per-address exceptions) + the **impact preview** + decision history;
-  `DomainDetail` shows the aggregate (sender count, volume, status), an averaged member
-  score, and drillable members. **Changing a decision happens here too.** Both are
+  `DomainDetail` (the group-by-domain view, **phased to #104**) shows the aggregate (sender
+  count, volume, status), an averaged member score, and drillable members. **Changing a
+  decision happens here too.** Both are
   presentation-only (Decision 2) — they call `applyDecision` + `enforce` and notify the home
   page via `onChanged`.
 - The **inbox-health score is not on the home page** — its meaning and next action aren't
@@ -345,9 +351,9 @@ for the Tier-3 Playwright suite (see [design-testing.md](design-testing.md) Deci
 
 | Screen | Composed of | Notes |
 |--------|-------------|-------|
-| **Dashboard (home)** | decisions table / card list, filter tabs, search + sort, `SenderDetail` / `DomainDetail` detail panel | The single **decisions surface** (Decision 8): search/sort senders, group by domain, `Pending · Decided · All` tabs, inline Trust/Block/Defer, row → detail panel to view/change. **Subsumes the standalone Decisions view and Domain explorer** (their browsing lives here now); Settings keeps exceptions/privacy/export. Inbox-health moved to Analytics; the workflow launches from **"Triage pending →"**. |
+| **Dashboard (home)** | decisions table / card list, filter tabs, search + sort, `SenderDetail` detail panel | The single **decisions surface** (Decision 8): search/sort senders, group by domain *(phased to #104)*, `Pending · Decided · All` tabs, inline Trust/Block/Defer, row → detail panel to view/change. **Subsumes the standalone Decisions view and Domain explorer** (their browsing lives here now); Settings keeps exceptions/privacy/export. Inbox-health moved to Analytics; the workflow launches from **"Triage pending →"**. |
 | **Trust-decision workflow** | the three phases above | Optional **"Triage pending →"** fast-path launched from the home surface (the primary triage path on mobile). |
-| **Domain explorer** | `domain-card` grid, drill-in sender list, unsubscribe tracker | Browse by volume/status; start a workflow on a selection. |
+| **Domain explorer** | `domain-card` grid, drill-in sender list, unsubscribe tracker | **Folded into the decisions surface** via the group-by-domain view (Decision 8); **phased to #104** (the initial surface, #100, is senders-only). Browse by volume/status; start a workflow on a selection. |
 | **Past decisions / settings** | `decision-row` list, filters, exception editor, toggles | Review/revoke; domain exceptions; **privacy toggle** (`contributeToAggregate`); **export/delete**; undo. |
 | **Analytics** | trend charts, category breakdown, achievements, share | Daily/monthly trends, top blocked domains, achievements, **opt-in local shareable snapshot** — produces a self-contained artefact the user chooses to publish; **no server, no referral tracking** (§7). |
 
@@ -405,7 +411,7 @@ export function Dashboard() {
   if (!senders) return <DashboardSkeleton />;
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      {/* Tabs carry the counts ("Pending 12"); plus search, sort, and group-by-domain. */}
+      {/* Tabs carry the counts ("Pending 12"); plus search, sort, and group-by-domain (#104). */}
       <DecisionsToolbar tab={tab} onTab={setTab} onSearch={setQuery} onSort={setSort} />
       <DecisionsList senders={senders} onInline={applyDecisionInline} onOpen={openDetail} />
       {/* detail panel: right-side on desktop, bottom sheet on mobile */}
@@ -502,3 +508,4 @@ None — the previously-open items are now resolved:
 | 2026-07-05 | UI review pass: Dashboard leads with an **inbox-health hero** (score + tone-tinted bar + the "Review N" primary action); senders reflow to a **card list on mobile** (was a clipped table) with **status chips**; tone-aware `ProgressBar`; **active nav** given a distinct accent treatment (was identical to hover). | Claude |
 | 2026-07-16 | **Home-page redesign (proposal, #99):** make the home page one **searchable, sortable decisions surface** — a table on desktop / card list on mobile — with `Pending · Decided · All` tabs (counts in the labels), a **group-by-domain** toggle, a status column + **inline Trust/Block/Defer**, and row → detail **side-panel (desktop) / bottom sheet (mobile)** to view/change. **Remove** the standalone count tiles and the **inbox-health hero** from the home (health stays on Analytics). The guided workflow becomes an optional **"Triage pending →"** fast-path — primary on mobile, an escape hatch on desktop. Move the **`LayoutSwitch`** into the account menu. Add a **User Journeys** section; revise **Decision 8** and the shell/layout section; fixes the desktop pending-aside/table overlap. | Claude |
 | 2026-07-16 | **Approved (Alpha):** the frontend design — including the #99 home-page decisions-surface redesign — is the authoritative source for its topic; changes now require discussion. Open Questions are deferred (not blockers). | Claude |
+| 2026-07-16 | **Phased-delivery note (#106):** the decisions-surface rebuild (#100) ships **senders-only**; whole-domain decisions stay reachable via a sender's detail-panel scope toggle, and the **group-by-domain** toggle + `DomainDetail` are deferred to **#104**. The orphaned `DomainDetail` component was removed for now (git history preserves it) per the No-Dead-Code rule; #104 rebuilds it against the new surface. Doc synced to match: annotated Decision 8 (lead sentence, the group-by-domain bullet, the detail-panel bullet), User Journey #4, and the Screens table (dropped the now-deleted `DomainDetail`; marked the Domain explorer folded-in/#104). | Claude |

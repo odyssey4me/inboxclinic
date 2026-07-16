@@ -14,7 +14,7 @@ import { ReportProblem } from "./ReportProblem";
 
 /** Views reachable from the primary nav. `App`'s View union may include more (e.g. the
  *  workflow sub-flow), which simply leaves no tab highlighted. */
-export type ShellView = "dashboard" | "decisions" | "analytics" | "settings";
+export type ShellView = "dashboard" | "analytics" | "settings";
 
 export interface AppShellProps {
   /** On-device store — the global feedback panel reads it (install id, redaction). */
@@ -40,8 +40,7 @@ export interface AppShellProps {
 }
 
 const NAV: { id: ShellView; label: string }[] = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "decisions", label: "Decisions" },
+  { id: "dashboard", label: "Decisions" },
   { id: "analytics", label: "Analytics" },
   { id: "settings", label: "Settings" },
 ];

@@ -7,7 +7,7 @@ test("trust workflow: Triage → Review → Execution", async ({ page }) => {
   await gotoDemo(page);
 
   // Enter the workflow from the dashboard's pending decisions.
-  await page.getByRole("button", { name: /^Review \d+$/ }).click();
+  await page.getByRole("button", { name: /triage \d+ pending/i }).click();
 
   // Triage: actions are inline — trust the current sender in one tap.
   await page.getByRole("button", { name: /^Trust$/ }).click();
@@ -21,14 +21,14 @@ test("trust workflow: Triage → Review → Execution", async ({ page }) => {
   await expect(page.getByText(/done —/i)).toBeVisible();
   await page.getByRole("button", { name: /^Done$/ }).click();
 
-  // Back on the dashboard.
-  await expect(page.getByRole("heading", { name: /^Inbox health$/ })).toBeVisible();
+  // Back on the home decisions surface.
+  await expect(page.getByRole("heading", { name: /^Decisions$/ })).toBeVisible();
 });
 
 test("block workflow: stage a block with actions", async ({ page }) => {
   await gotoDemo(page);
 
-  await page.getByRole("button", { name: /^Review \d+$/ }).click();
+  await page.getByRole("button", { name: /triage \d+ pending/i }).click();
 
   // Block in one tap (smart defaults staged; the impact preview shows before applying).
   await page.getByRole("button", { name: /^Block$/ }).click();

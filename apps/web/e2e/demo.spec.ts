@@ -13,7 +13,9 @@ test("landing offers a demo that opens a populated dashboard, and can exit", asy
   await expect(page.getByText(/demo mode/i)).toBeVisible();
   await expect(page.getByText(DEMO_EMAIL).first()).toBeVisible();
 
-  // The dashboard is populated from the seeded store.
+  // The decisions surface is populated from the seeded store. It opens on Pending; switch
+  // to All to see the seeded decided senders (jane trusted, deals blocked).
+  await page.getByRole("tab", { name: /^all/i }).click();
   await expect(page.getByText("jane.cooper@gmail.com").first()).toBeVisible();
   await expect(page.getByText("deals@retailco.com").first()).toBeVisible();
 
