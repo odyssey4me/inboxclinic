@@ -216,12 +216,18 @@ it neither creates the duplicate nor auto-adopts the untracked filter. `suggestF
 `applyFilterAdoptions` (`adoptFilters.ts`) mirror Decision 9's suggest/apply split: adoption only
 records the filter's id into `filterSyncState.managedFilterIds` (no Gmail mutation — the filter
 already has the desired shape) once the user explicitly accepts the suggestion in Settings.
+`applyFilterAdoptions` re-derives the desired filter set from the store's *current* blocked
+senders/domains (via `compileFilters`) before recording, and records only the accepted adoptions
+whose `from` still matches that set — closing the TOCTOU window where unblocking a sender between
+"Check" and "Adopt" would otherwise let the next `enforce()` delete the adopted filter as an
+unexpected loss (#89). It returns `{ adopted, skipped }` so the caller can surface any drops.
 
 **Rationale:** Adoption and deletion are two doors into the same risk — once adopted, a filter
 becomes eligible for deletion later if the matching sender/domain is unblocked, so guessing
 ownership automatically is exactly as unsafe in this direction as in #29's. Requiring explicit
 confirmation, like Decision 9's optimisation suggestions, closes the duplicate gap without
-silently guessing provenance either way.
+silently guessing provenance either way. Re-validating at apply time closes the same gap against
+store state that changed *during* the confirmation window, not just before it.
 
 ## Interfaces
 
@@ -430,6 +436,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-16 | Update **Decision 10** to describe `applyFilterAdoptions`'s apply-time re-validation: it re-derives the desired filter set from current blocked senders/domains and records only adoptions that still match, returning `{ adopted, skipped }` — closes a TOCTOU gap where unblocking a sender during the confirm window could otherwise cause the next `enforce()` to delete the adopted filter (#89). | Claude |
 | 2026-07-14 | Add **Decision 10: confirm-first filter adoption** (#80) — `reconcileFilters` no longer creates a duplicate filter when an untracked existing filter already matches a desired one; it surfaces the match in a new `adoptable` list instead, and `suggestFilterAdoptions`/`applyFilterAdoptions` let the user opt in before its id is tracked as managed. Closes the duplicate-create gap left by Decision 5 point 6's #29 fix without inferring ownership automatically in either direction. | Claude |
 | 2026-07-14 | Resolve the filter-ownership open question: Decision 5 adds a point 6 — `reconcileFilters` now gates deletion on `filterSyncState.managedFilterIds` (an id set populated when this app creates a filter), not on matching the block action shape, so a user's own hand-built "Trash + skip inbox" filter is never silently deleted (#29). | Claude |
 | 2026-07-12 | Clarify that Tier-3 `contacts.readonly`/`lookupContacts`/`contacts.cacheTtlHours` are **deferred, not implemented** in v1 — matches the code (`GmailClient.ts` `SCOPES_BY_TIER`) and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scope or code change. | Claude |
