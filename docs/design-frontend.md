@@ -237,6 +237,12 @@ navigation), with a shared detail panel:
   here too.** Both are
   presentation-only (Decision 2) — they call `applyDecision` + `enforce` and notify the home
   page via `onChanged`.
+  - **Prior-block signals in the panel (#96):** when a sender already carries a prior-block
+    signal (spam/trash/filter), `SenderDetail` surfaces **same-domain flagged siblings** and
+    offers **block this / block both / block domain**, plus a two-way dismissal — remembered
+    **"Keep"** vs session-only **"Not now"** (#97). Semantics: design-trust-decisions.md
+    Decision 8. This replaces the standalone "Import all as Blocked" card; the guided workflow
+    shows a compact version.
 - The **inbox-health score is not on the home page** — its meaning and next action aren't
   clear here; it lives on **Analytics**. The home page leads with the decisions surface.
 - The **guided workflow (Decision 6)** remains an optional **"Triage pending →"** fast-path
@@ -512,3 +518,4 @@ None — the previously-open items are now resolved:
 | 2026-07-16 | **Phased-delivery note (#106):** the decisions-surface rebuild (#100) ships **senders-only**; whole-domain decisions stay reachable via a sender's detail-panel scope toggle, and the **group-by-domain** toggle + `DomainDetail` are deferred to **#104**. The orphaned `DomainDetail` component was removed for now (git history preserves it) per the No-Dead-Code rule; #104 rebuilds it against the new surface. Doc synced to match: annotated Decision 8 (lead sentence, the group-by-domain bullet, the detail-panel bullet), User Journey #4, and the Screens table (dropped the now-deleted `DomainDetail`; marked the Domain explorer folded-in/#104). | Claude |
 | 2026-07-16 | **#104 — group-by-domain shipped:** the deferred group-by-domain view landed — a **Group by domain** toggle on the home surface (domain aggregates with averaged member score, sender count, inline domain-scoped Trust/Block/Defer, and row → restored `DomainDetail` with member drill-in + per-address exceptions). The sender surface now resolves each sender's **effective** status (`resolveEffectiveDecision`) so a domain decision reflects on its members. Closes the #106 phase note; the "phased to #104" qualifiers are removed across Decision 8 and the Screens table. | Claude |
 | 2026-07-16 | **#102 — history routing:** move navigation from in-memory view state to **`react-router-dom`** (routes `/`, `/triage`, `/analytics`, `/settings`; back/forward; unknown-path fallback to home; `?demo=1` preserved), served by the existing Cloudflare Pages SPA fallback (`_redirects`). Library chosen per architecture.md §1 *Use the ecosystem*. Linking the decisions tab / open detail into the URL is deferred to a follow-up. | Claude |
+| 2026-07-16 | **Prior-block signals woven into the decision (#96, #97 — design lock):** the detail panel surfaces same-domain flagged siblings with **block this / both / domain** and a two-way dismissal (remembered **Keep** vs session **Not now**); prior-block signals raise score/priority so flagged senders surface in normal triage; the standalone **"Import all as Blocked" card is removed**. Semantics in design-trust-decisions.md Decision 8. | Claude |
