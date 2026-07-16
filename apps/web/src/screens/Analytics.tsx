@@ -18,14 +18,14 @@ import { Card } from "../components/ui/Card";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { useLayout } from "../layout/context";
 import { healthTone } from "../lib/health";
+import { snapshotPngBlob } from "../lib/snapshotImage";
 
 export interface AnalyticsProps {
   store: Store;
 }
 
-/** Trigger a local download of `text` as a named file (no network). */
-function downloadText(filename: string, text: string, type: string): void {
-  const blob = new Blob([text], { type });
+/** Trigger a local download of `blob` as a named file (no network). */
+function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -34,6 +34,11 @@ function downloadText(filename: string, text: string, type: string): void {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+/** Trigger a local download of `text` as a named file (no network). */
+function downloadText(filename: string, text: string, type: string): void {
+  downloadBlob(filename, new Blob([text], { type }));
 }
 
 /** Analytics dashboard: inbox health, a 30-day summary, breakdowns, and achievements. */
@@ -58,14 +63,28 @@ export function Analytics({ store }: AnalyticsProps) {
     return <p className="p-6 text-center text-muted">Loading analytics…</p>;
   }
 
-  const onDownloadSnapshot = (): void => {
+  const onDownloadSnapshotImage = async (): Promise<void> => {
+    try {
+      const blob = await snapshotPngBlob(buildSnapshot(summary));
+      downloadBlob("inbox-clinic-snapshot.png", blob);
+      setShareNote(
+        "Snapshot image downloaded — it contains only aggregate numbers, never addresses.",
+      );
+    } catch {
+      setShareNote(
+        "Couldn't render the snapshot image in this browser — try the text summary instead.",
+      );
+    }
+  };
+
+  const onDownloadSnapshotData = (): void => {
     const snapshot = buildSnapshot(summary);
     downloadText(
       "inbox-clinic-snapshot.json",
       JSON.stringify(snapshot, null, 2),
       "application/json",
     );
-    setShareNote("Snapshot downloaded — it contains only aggregate numbers, never addresses.");
+    setShareNote("Snapshot data downloaded — it contains only aggregate numbers, never addresses.");
   };
 
   const onCopySummary = async (): Promise<void> => {
@@ -129,8 +148,11 @@ export function Analytics({ store }: AnalyticsProps) {
           tracking.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={onDownloadSnapshot}>
-            Export snapshot (JSON)
+          <Button variant="primary" onClick={() => void onDownloadSnapshotImage()}>
+            Download image (PNG)
+          </Button>
+          <Button variant="secondary" onClick={onDownloadSnapshotData}>
+            Export data (JSON)
           </Button>
           <Button variant="secondary" onClick={() => void onCopySummary()}>
             Copy text summary
