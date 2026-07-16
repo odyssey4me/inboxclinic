@@ -304,11 +304,15 @@ re-declaring its own header. Screens are therefore **content-only** (no per-scre
 or "Back" chrome); a screen may render its own `<h2>` title. The **signed-out landing**
 page is the one exception (its own centred layout).
 
-Navigation is **in-memory view state** in `App` and the shell highlights the active view;
-**history routing** (clean, bookmarkable URLs; Cloudflare Pages SPA fallback) is adopted
-alongside the home-page redesign so the active tab / an open detail are linkable. The **Trust-decision
-workflow** is launched from the Dashboard and renders inside the shell as a focused
-sub-flow (with its own progress header + exit), so the anchor is never lost mid-flow.
+Navigation uses **history routing** via **`react-router-dom`** (a standard, replaceable router —
+architecture.md §1 *Use the ecosystem*): clean, bookmarkable URLs (`/`, `/triage`, `/analytics`,
+`/settings`) with a **Cloudflare Pages SPA fallback** (`apps/web/public/_redirects`), and the
+shell highlights the active route. `App` derives the view from the path, preserves `?demo=1`
+across navigation, and falls back to the home surface for an unknown path. The **Trust-decision
+workflow** is launched from the home surface and renders inside the shell as a focused sub-flow
+(`/triage`, with its own progress header + exit), so the anchor is never lost mid-flow. *(Linking
+the active decisions **tab** and an open **detail** into the URL is a follow-up on this
+foundation.)*
 
 **Two distinct layouts, user-switchable.** The shell renders one of two structurally
 different layouts, chosen by `useLayout` (`layout/context.ts` + `LayoutProvider`):
@@ -476,9 +480,9 @@ None — the previously-open items are now resolved:
 - **iOS background sync:** **on-open sync** is the accepted behaviour on iOS Safari (no
   Periodic Background Sync there); native background sync arrives with the deferred Capacitor
   wrap (Decision 4, §9).
-- **Routing:** **history routing** (clean, bookmarkable URLs; Cloudflare Pages SPA fallback),
-  adopted alongside the home-page redesign; navigation is in-memory view state until then
-  (Application shell & navigation).
+- **Routing:** **history routing** via `react-router-dom` (clean, bookmarkable URLs; Cloudflare
+  Pages SPA fallback) — **implemented (#102)**. Linking the active decisions tab / an open detail
+  into the URL is a follow-up on this foundation (**#120**).
 - **Shareable analytics snapshot format:** an Analytics concern — resolved as a **PNG image**
   in [design-analytics.md](design-analytics.md).
 
@@ -507,3 +511,4 @@ None — the previously-open items are now resolved:
 | 2026-07-16 | **Approved (Alpha):** the frontend design — including the #99 home-page decisions-surface redesign — is the authoritative source for its topic; changes now require discussion. Open Questions are deferred (not blockers). | Claude |
 | 2026-07-16 | **Phased-delivery note (#106):** the decisions-surface rebuild (#100) ships **senders-only**; whole-domain decisions stay reachable via a sender's detail-panel scope toggle, and the **group-by-domain** toggle + `DomainDetail` are deferred to **#104**. The orphaned `DomainDetail` component was removed for now (git history preserves it) per the No-Dead-Code rule; #104 rebuilds it against the new surface. Doc synced to match: annotated Decision 8 (lead sentence, the group-by-domain bullet, the detail-panel bullet), User Journey #4, and the Screens table (dropped the now-deleted `DomainDetail`; marked the Domain explorer folded-in/#104). | Claude |
 | 2026-07-16 | **#104 — group-by-domain shipped:** the deferred group-by-domain view landed — a **Group by domain** toggle on the home surface (domain aggregates with averaged member score, sender count, inline domain-scoped Trust/Block/Defer, and row → restored `DomainDetail` with member drill-in + per-address exceptions). The sender surface now resolves each sender's **effective** status (`resolveEffectiveDecision`) so a domain decision reflects on its members. Closes the #106 phase note; the "phased to #104" qualifiers are removed across Decision 8 and the Screens table. | Claude |
+| 2026-07-16 | **#102 — history routing:** move navigation from in-memory view state to **`react-router-dom`** (routes `/`, `/triage`, `/analytics`, `/settings`; back/forward; unknown-path fallback to home; `?demo=1` preserved), served by the existing Cloudflare Pages SPA fallback (`_redirects`). Library chosen per architecture.md §1 *Use the ecosystem*. Linking the decisions tab / open detail into the URL is deferred to a follow-up. | Claude |

@@ -6,12 +6,18 @@ import {
   MockBackupClient,
   MockGmailClient,
 } from "@inboxclinic/core/testing";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { App } from "./App";
 
 const DEMO_NOW = Date.UTC(2026, 6, 5);
+
+// App now owns a BrowserRouter over jsdom's shared history, so reset the URL between tests
+// (otherwise a test that navigated leaves the next one on the wrong route).
+beforeEach(() => {
+  window.history.pushState({}, "", "/");
+});
 
 function setup() {
   const gmail = new MockGmailClient(
@@ -170,5 +176,53 @@ describe("App", () => {
 
     // Refresh replaces the old Sync/Scan pair.
     expect(screen.getByRole("button", { name: /^refresh$/i })).toBeInTheDocument();
+  });
+
+  it("navigating updates the URL (history routing)", async () => {
+    const { gmail, store, backup } = await createDemoEnvironment({ now: DEMO_NOW });
+    render(
+      <App gmail={gmail} store={store} backup={backup} demo initialEmail={DEMO_ACCOUNT_EMAIL} />,
+    );
+    await screen.findAllByText(DEMO_ACCOUNT_EMAIL);
+    expect(window.location.pathname).toBe("/");
+
+    fireEvent.click(screen.getByRole("button", { name: "Analytics" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/analytics"));
+  });
+
+  it("a deep link renders the target screen directly", async () => {
+    window.history.pushState({}, "", "/settings");
+    const { gmail, store, backup } = await createDemoEnvironment({ now: DEMO_NOW });
+    render(
+      <App gmail={gmail} store={store} backup={backup} demo initialEmail={DEMO_ACCOUNT_EMAIL} />,
+    );
+
+    // Settings renders straight from the URL (no in-app navigation needed).
+    expect(await screen.findByRole("button", { name: /rescan inbox/i })).toBeInTheDocument();
+  });
+
+  it("the back button returns to the previous view", async () => {
+    const { gmail, store, backup } = await createDemoEnvironment({ now: DEMO_NOW });
+    render(
+      <App gmail={gmail} store={store} backup={backup} demo initialEmail={DEMO_ACCOUNT_EMAIL} />,
+    );
+    await screen.findAllByText(DEMO_ACCOUNT_EMAIL);
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/settings"));
+    await screen.findByRole("button", { name: /rescan inbox/i });
+
+    window.history.back();
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+  });
+
+  it("an unknown deep link falls back to the home surface", async () => {
+    window.history.pushState({}, "", "/does-not-exist");
+    const { gmail, store, backup } = await createDemoEnvironment({ now: DEMO_NOW });
+    render(
+      <App gmail={gmail} store={store} backup={backup} demo initialEmail={DEMO_ACCOUNT_EMAIL} />,
+    );
+    await screen.findAllByText(DEMO_ACCOUNT_EMAIL);
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 });
