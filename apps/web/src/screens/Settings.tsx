@@ -148,7 +148,13 @@ export function Settings({
     setAdoptBusy("applying");
     try {
       const result = await applyFilterAdoptions(store, adoptions);
-      setNote(`Adopted ${result.adopted} existing filter${result.adopted === 1 ? "" : "s"}.`);
+      const skippedNote =
+        result.skipped > 0
+          ? ` (${result.skipped} skipped — no longer matches a currently blocked sender)`
+          : "";
+      setNote(
+        `Adopted ${result.adopted} existing filter${result.adopted === 1 ? "" : "s"}${skippedNote}.`,
+      );
       setAdoptions([]);
     } catch (caught) {
       setError(`Could not update filters: ${errorMessage(caught)}`);
@@ -466,10 +472,7 @@ export function Settings({
                 <li key={adoption.filterId}>{adoption.description}</li>
               ))}
             </ul>
-            <Button
-              onClick={() => void onApplyAdoptions()}
-              disabled={!online || adoptBusy !== null}
-            >
+            <Button onClick={() => void onApplyAdoptions()} disabled={adoptBusy !== null}>
               {adoptBusy === "applying"
                 ? "Adopting…"
                 : `Adopt ${adoptions.length} filter${adoptions.length === 1 ? "" : "s"}`}

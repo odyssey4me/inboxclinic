@@ -178,4 +178,72 @@ describe("Settings view", () => {
     expect(sync?.managedFilterIds).toEqual(["hand-made"]);
     expect(gmail.createdFilters).toEqual([]);
   });
+
+  it("skips an adoption whose sender was unblocked after checking (#89)", async () => {
+    const { store, backup, gmail } = setup();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    gmail.seedFilters([
+      { id: "hand-made", from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    render(
+      <Settings
+        store={store}
+        backup={backup}
+        gmail={gmail}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /check for adoptable filters/i }));
+    expect(await screen.findByText(/spam@a.com/i)).toBeInTheDocument();
+
+    // Unblocked between "Check" and "Adopt" — the filter no longer matches anything.
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "trusted" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /adopt 1 filter/i }));
+
+    expect(await screen.findByText(/adopted 0 existing filters/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 skipped/i)).toBeInTheDocument();
+    const sync = await store.filterSync.get();
+    expect(sync?.managedFilterIds ?? []).toEqual([]);
+  });
+
+  it("keeps the Adopt button enabled while offline once filters were already checked", async () => {
+    const { store, backup, gmail } = setup();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    gmail.seedFilters([
+      { id: "hand-made", from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    const { rerender } = render(
+      <Settings
+        store={store}
+        backup={backup}
+        gmail={gmail}
+        online
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /check for adoptable filters/i }));
+    expect(await screen.findByText(/spam@a.com/i)).toBeInTheDocument();
+
+    rerender(
+      <Settings
+        store={store}
+        backup={backup}
+        gmail={gmail}
+        online={false}
+        onRestored={vi.fn()}
+        onRescan={vi.fn()}
+        rescanning={false}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /adopt 1 filter/i })).toBeEnabled();
+  });
 });

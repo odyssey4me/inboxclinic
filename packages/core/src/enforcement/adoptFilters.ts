@@ -51,14 +51,34 @@ export async function suggestFilterAdoptions(
  * Record accepted adoptions as managed — no Gmail mutation is needed since the filter
  * already has the desired criteria + action; it only becomes eligible for future
  * reconciliation (including deletion once no longer desired) once its id is tracked.
+ *
+ * Re-derives the desired set from the store's *current* blocked senders/domains before
+ * recording, since a sender may have been unblocked between `suggestFilterAdoptions`
+ * and this call; an adoption whose `from` no longer matches a currently-desired filter
+ * is dropped rather than recorded (it would otherwise be deleted by the very next
+ * `enforce()` — an unexpected filter loss, #89).
  */
 export async function applyFilterAdoptions(
   store: Store,
   adoptions: ReadonlyArray<FilterAdoption>,
-): Promise<{ adopted: number }> {
+  options: CompileFiltersOptions = {},
+): Promise<{ adopted: number; skipped: number }> {
+  const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
+  const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
+  const compiled = compileFilters(blockedSenders, blockedDomains, options);
+  const desiredFroms = new Set(compiled.filters.map((filter) => filter.from.toLowerCase()));
+
   const previousSync = await store.filterSync.get();
   const managedFilterIds = new Set(previousSync?.managedFilterIds ?? []);
-  for (const adoption of adoptions) managedFilterIds.add(adoption.filterId);
+
+  let skipped = 0;
+  for (const adoption of adoptions) {
+    if (!desiredFroms.has(adoption.from.toLowerCase())) {
+      skipped += 1;
+      continue;
+    }
+    managedFilterIds.add(adoption.filterId);
+  }
 
   await store.filterSync.put({
     key: FILTER_SYNC_KEY,
@@ -67,5 +87,5 @@ export async function applyFilterAdoptions(
     managedFilterIds: [...managedFilterIds],
   });
 
-  return { adopted: adoptions.length };
+  return { adopted: adoptions.length - skipped, skipped };
 }

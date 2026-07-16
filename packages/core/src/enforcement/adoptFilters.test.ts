@@ -54,6 +54,7 @@ describe("suggestFilterAdoptions", () => {
 describe("applyFilterAdoptions", () => {
   it("records accepted adoptions into managedFilterIds without mutating Gmail", async () => {
     const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
     gmail.seedFilters([block("hand-made", "spam@a.com")]);
 
@@ -62,6 +63,7 @@ describe("applyFilterAdoptions", () => {
     ]);
 
     expect(result.adopted).toBe(1);
+    expect(result.skipped).toBe(0);
     const sync = await store.filterSync.get();
     expect(sync?.managedFilterIds).toEqual(["hand-made"]);
     expect(gmail.createdFilters).toEqual([]);
@@ -70,6 +72,7 @@ describe("applyFilterAdoptions", () => {
 
   it("merges into any existing managed ids rather than replacing them", async () => {
     const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
     await store.filterSync.put({
       key: FILTER_SYNC_KEY,
       lastSyncAt: 1000,
@@ -85,5 +88,45 @@ describe("applyFilterAdoptions", () => {
     expect(sync?.managedFilterIds.sort()).toEqual(["existing", "newly-adopted"]);
     expect(sync?.lastSyncAt).toBe(1000);
     expect(sync?.totalFilters).toBe(2);
+  });
+
+  it("drops an adoption whose sender was unblocked since it was suggested (#89)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([block("hand-made", "spam@a.com")]);
+
+    const suggestions = await suggestFilterAdoptions(gmail, store);
+    expect(suggestions).toHaveLength(1);
+
+    // Unblocked between "Check" and "Adopt" — the filter no longer matches anything.
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "trusted" }));
+
+    const result = await applyFilterAdoptions(store, suggestions);
+
+    expect(result.adopted).toBe(0);
+    expect(result.skipped).toBe(1);
+    const sync = await store.filterSync.get();
+    expect(sync?.managedFilterIds ?? []).toEqual([]);
+  });
+
+  it("adopts the ones that still match and skips only the ones that don't", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("junk@b.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([block("still-blocked", "spam@a.com"), block("now-unblocked", "junk@b.com")]);
+
+    const suggestions = await suggestFilterAdoptions(gmail, store);
+    expect(suggestions).toHaveLength(2);
+
+    await store.senders.put(senderBuilder("junk@b.com", { trustStatus: "trusted" }));
+
+    const result = await applyFilterAdoptions(store, suggestions);
+
+    expect(result.adopted).toBe(1);
+    expect(result.skipped).toBe(1);
+    const sync = await store.filterSync.get();
+    expect(sync?.managedFilterIds).toEqual(["still-blocked"]);
   });
 });
