@@ -29,5 +29,7 @@ The project is in **Alpha**; only the latest `main` is supported. Fixes land on 
 
 ## Handling
 
-Dependencies are kept current by Renovate (updates + vulnerability alerts), code is scanned
-with CodeQL, and pull requests run dependency review — see the workflows in `.github/workflows/`.
+Dependencies are kept current by Renovate, which opens the update PRs (security fixes
+included). Vulnerabilities are surfaced by GitHub's **Dependabot alerts**, which Renovate
+consumes to raise fix PRs; code is scanned with CodeQL, and pull requests run dependency
+review — see the workflows in `.github/workflows/`.

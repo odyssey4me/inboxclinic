@@ -7,13 +7,20 @@
   "platformAutomerge": true,
   "packageRules": [
     {
+      "description": "Other npm minor/patch — one grouped PR, auto-merge on green (low risk). GENERAL rule first: Renovate merges packageRules last-match-wins, so the specific vite/typescript-toolchain/types rules below override this for their own packages.",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "minor-and-patch",
+      "automerge": true
+    },
+    {
       "description": "vite — ships in the bundle, so review manually (all update types).",
       "matchManagers": ["npm"],
       "matchPackageNames": [
         "vite",
         "vitest",
         "@tailwindcss/vite",
-        "vite-plugin-{/,}**",
+        "vite-plugin-**",
         "@vitejs/**",
         "@vitest/**"
       ],
@@ -40,13 +47,6 @@
       "matchManagers": ["npm"],
       "matchPackageNames": ["@types/**"],
       "groupName": "types",
-      "automerge": true
-    },
-    {
-      "description": "Other npm minor/patch — one grouped PR, auto-merge on green (low risk).",
-      "matchManagers": ["npm"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "minor-and-patch",
       "automerge": true
     },
     {
