@@ -267,6 +267,24 @@ describe("runScan", () => {
     expect(open).toHaveLength(0);
   });
 
+  it("preserves a learn-populated coveredByBlockFilter across a rescan (#96)", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+    // The learn pass (filter scan) later marks this sender as filter-covered.
+    const sender = await store.senders.get(keyFor("news@promo.com"));
+    await store.senders.put({ ...sender!, coveredByBlockFilter: true });
+
+    // A full rescan rebuilds senders from the inbox (which can't see filters) — it must not
+    // wipe the learn-derived flag.
+    await runScan(client, store, { now: NOW + 1000 });
+
+    expect((await store.senders.get(keyFor("news@promo.com")))?.coveredByBlockFilter).toBe(true);
+  });
+
   it("preserves a learn-populated deletedUnreadCount across a rescan", async () => {
     const client = new MockGmailClient([
       messageMetaBuilder({ headers: { from: "news@promo.com" } }),

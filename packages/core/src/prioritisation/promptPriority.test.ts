@@ -26,6 +26,7 @@ function snap(overrides: Partial<SenderSnapshot> = {}): SenderSnapshot {
     starredCount: 0,
     spamMarkedCount: 0,
     deletedUnreadCount: 0,
+    coveredByBlockFilter: false,
     recencyBuckets: { d30: 10, d90: 10, d180: 0, older: 30 },
     auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
     ...overrides,

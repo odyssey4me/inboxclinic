@@ -340,8 +340,8 @@ These constants are owned by this design — architecture.md §4 defines the tru
 **User signals** (−10…+10 before weighting): replied **+3**, in contacts **+2**
 _(deferred — see below)_, frequently starred **+2**, consistently opened >80% **+1**,
 never opened **−1**, frequently deleted-unread **−1** _(≥2 messages binned while unread;
-stacks with never-opened)_, covered by an existing block filter **−2** _(#96 design — see
-below)_, manually marked spam **−2**, repeatedly marked spam **−3**.
+stacks with never-opened)_, covered by an existing block filter **−2** _(current-state,
+not recency-scaled; see below)_, manually marked spam **−2**, repeatedly marked spam **−3**.
 
 > **Deferred signal:** `inContacts` is **not live in v1** — see
 > [ROADMAP.md](ROADMAP.md#deferred-post-v1). It has a schema field and scoring branch in
@@ -355,11 +355,14 @@ below)_, manually marked spam **−2**, repeatedly marked spam **−3**.
 > input the inbox can't see), so it reflects the current Trash window and refreshes when that
 > pass runs. Exposure is **score-only** (it moves the visible score/tier; no bespoke UI text).
 >
-> **"Covered by a block filter"** (`coveredByBlockFilter` −2) is the **#96 design — not yet
-> implemented.** Populated from the learn pass (existing block filters), score-only and tunable.
-> Spam and trashed-while-unread reuse the existing `spamMarkedCount` / `deletedUnreadCount`
-> signals (not new fields), so a sender seen by both the inbox scan and the learn pass isn't
-> double-counted (Decision 8).
+> **"Covered by a block filter"** (`coveredByBlockFilter` −2) is **live** (the scoring slice of
+> #96). Populated from the learn pass's filter scan (address or `*@domain`), score-only, **not
+> recency-scaled** (a standing filter is a current-state fact), and carried across rescans. Spam
+> and trashed-while-unread reuse the existing `spamMarkedCount` / `deletedUnreadCount` signals
+> (not new fields), so a sender seen by both the inbox scan and the learn pass isn't
+> double-counted. A filter that routes to **Spam** also raises `spamMarkedCount`; that stacking
+> is **intentional** — both point to "block" for a sender the user already filters, and the
+> score is clamped to −10. The in-flow surfacing UI (sibling consolidation, card removal) follows.
 
 **Recency weights:** ≤30d **×1.0**, 30–90d **×0.7**, 90–180d **×0.4**, >180d **×0.2**.
 
@@ -477,6 +480,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-17 | **Implement the `coveredByBlockFilter` −2 signal (#96 scoring slice).** Adds the field to `Sender` + `SenderSnapshot`; `computeTrustScore` applies a flat −2 (current-state, not recency-scaled) when an existing block filter (address or `*@domain`) covers the sender. Populated from the learn pass's filter scan, carried across rescans. Spam/trash reuse existing signals (no double-count). The in-flow surfacing UI follows. | Claude |
 | 2026-07-17 | **Rework Decision 8 (#96, #97):** prior-block signals are **woven into the per-sender decision**. Scoring is **trust-score-sort only** (no new `prioritisePrompts` term): spam reuses `spamMarkedCount`, trash reuses `deletedUnreadCount`, and a new **`coveredByBlockFilter` −2** signal covers existing filters (no double-counting). The detail panel offers **block this / all-flagged / domain** for same-domain flagged siblings (through Decision 7's preview+confirm; filter-covered = #88 rule-adoption); the standalone "Import all as Blocked" card is removed. Dismissal is two-way (#97): a remembered **"Keep"** (allow decision, same granularity as Block) vs **"Not now"** = the existing Defer. | Claude |
 | 2026-07-16 | **Implement the "frequently deleted-unread" (−1) signal (#98).** Adds `deletedUnreadCount` to the store `Sender` + `SenderSnapshot`; `computeTrustScore` fires −1 at **≥2** messages binned while unread, **stacking** with never-opened. Populated from the prior-decisions learn pass's Trash scan (no extra Gmail calls; carried across rescans); exposure is **score-only**. Moved off the ROADMAP Deferred list. | Claude |
 | 2026-07-12 | Clarify that `inContacts` (+2) and "frequently deleted-unread" (−1) are **deferred, not implemented** in v1 — matches the code and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scoring or scope change. | Claude |

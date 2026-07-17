@@ -21,6 +21,7 @@ function snap(overrides: Partial<SenderSnapshot> = {}): SenderSnapshot {
     starredCount: 0,
     spamMarkedCount: 0,
     deletedUnreadCount: 0,
+    coveredByBlockFilter: false,
     recencyBuckets: { d30: 10, d90: 0, d180: 0, older: 0 },
     auth: { spf: false, dkim: false, dmarc: false, spoofed: false },
     ...overrides,
@@ -56,6 +57,16 @@ describe("computeTrustScore — user signals", () => {
     const result = computeTrustScore(snap({ readRate: 0.5, deletedUnreadCount: 1 }));
     expect(result.components.user).toBe(0);
     expect(result.signals.some((s) => s.label === "frequentlyDeletedUnread")).toBe(false);
+  });
+
+  it("penalises a sender covered by a block filter (−2, not recency-scaled)", () => {
+    // Low recency (all mail is old) — a recency-scaled signal would shrink to ×0.2, but a
+    // standing filter is a current-state fact, so the full −2 still applies.
+    const result = computeTrustScore(
+      snap({ coveredByBlockFilter: true, recencyBuckets: { d30: 0, d90: 0, d180: 0, older: 10 } }),
+    );
+    expect(result.components.user).toBeCloseTo(-2, 5);
+    expect(result.signals.some((s) => s.label === "coveredByBlockFilter")).toBe(true);
   });
 
   it("does not count a single star as 'frequently starred'", () => {

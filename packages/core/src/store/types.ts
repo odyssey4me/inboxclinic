@@ -115,6 +115,10 @@ export interface Sender {
    *  (design-trust-decisions.md Decision 8). Populated from the prior-decisions learn pass;
    *  `0` until it runs. */
   deletedUnreadCount: number;
+  /** Whether an existing Gmail block-filter (address or `*@domain`) already covers this
+   *  sender — a standing Block signal (design-trust-decisions.md Decision 8). Populated from
+   *  the prior-decisions learn pass; `false` until it runs. */
+  coveredByBlockFilter: boolean;
   /** Replies the user sent to this sender. Deferred (SENT scan) — `0` for now. */
   replyCount: number;
   /** Whether the sender is in the user's contacts. Deferred (People API) — `false`. */

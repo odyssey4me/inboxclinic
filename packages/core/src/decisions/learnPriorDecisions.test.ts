@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { keyFor } from "../keys";
 import type { MessageMeta } from "../ports/GmailClient";
@@ -72,6 +72,47 @@ describe("learnPriorDecisions", () => {
     await learnPriorDecisions(gmail, store, { now: NOW });
 
     expect((await store.senders.get(keyFor("blast@ads.com")))?.deletedUnreadCount).toBe(2);
+  });
+
+  it("persists coveredByBlockFilter from existing block filters (address + domain)", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    await store.senders.put(senderBuilder("a@x.com")); // covered by an address filter
+    await store.senders.put(senderBuilder("b@promo.com")); // covered by *@promo.com
+    await store.senders.put(senderBuilder("c@safe.com")); // not covered
+    gmail.seedFilters([
+      { id: "f1", from: "a@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f2", from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+
+    await learnPriorDecisions(gmail, store, { now: NOW });
+
+    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("b@promo.com")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("c@safe.com")))?.coveredByBlockFilter).toBe(false);
+  });
+
+  it("resets coveredByBlockFilter when the covering filter is gone", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    await store.senders.put(senderBuilder("a@x.com", { coveredByBlockFilter: true }));
+    gmail.seedFilters([]); // no filters any more
+
+    await learnPriorDecisions(gmail, store, { now: NOW });
+
+    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(false);
+  });
+
+  it("preserves coveredByBlockFilter when the filter scan fails (no silent erase)", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    await store.senders.put(senderBuilder("a@x.com", { coveredByBlockFilter: true }));
+    vi.spyOn(gmail, "listFilters").mockRejectedValueOnce(new Error("rate limited"));
+
+    await learnPriorDecisions(gmail, store, { now: NOW });
+
+    // A transient failure must not wipe the previously-recorded signal.
+    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(true);
   });
 
   it("never re-suggests a subject already decided", async () => {
