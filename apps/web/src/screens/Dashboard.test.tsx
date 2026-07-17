@@ -327,3 +327,18 @@ describe("Dashboard — mobile wizard-forward", () => {
     expect(screen.queryByRole("button", { name: /triage \d+ pending/i })).not.toBeInTheDocument();
   });
 });
+
+describe("Dashboard — flagged siblings (#96)", () => {
+  it("surfaces flagged same-domain siblings in the detail panel", async () => {
+    const { store, gmail } = setup();
+    // spamMarkedCount is a prior-block signal the learn pass doesn't overwrite.
+    await store.senders.put(senderBuilder("a@shop.com", { spamMarkedCount: 1 }));
+    await store.senders.put(senderBuilder("b@shop.com", { spamMarkedCount: 2 }));
+
+    renderDashboard(store, gmail);
+    fireEvent.click(await screen.findByText("a@shop.com"));
+
+    const drawer = await screen.findByRole("dialog", { name: /actions for a@shop.com/i });
+    expect(await within(drawer).findByText(/1 other flagged sender/i)).toBeInTheDocument();
+  });
+});

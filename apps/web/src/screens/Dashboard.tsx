@@ -3,6 +3,7 @@ import {
   applyDecision,
   computeTrustScore,
   enforce,
+  learnPriorDecisions,
   resolveEffectiveDecision,
   senderToSnapshot,
   type Domain,
@@ -14,13 +15,13 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DomainDetail } from "../components/composed/DomainDetail";
-import { PriorDecisionsImport } from "../components/composed/PriorDecisionsImport";
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { SenderDetail } from "../components/composed/SenderDetail";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 import { useLayout } from "../layout/context";
+import { hasPriorBlockSignal } from "../lib/priorBlockSignal";
 import { relativeTime } from "../lib/relativeTime";
 import { statusTone } from "../lib/statusTone";
 
@@ -126,6 +127,26 @@ export function Dashboard({
     }
     reload();
   }, [refreshKey, reload]);
+
+  // Learn prior "no" decisions from Gmail (existing filters + Spam/Trash) — this populates the
+  // prior-block scoring inputs (coveredByBlockFilter, deletedUnreadCount) so flagged senders
+  // sort to the top, and surfaces flagged siblings in the detail panel (#96). Replaces the old
+  // standalone "Import all as Blocked" card.
+  useEffect(() => {
+    if (!online) return;
+    let active = true;
+    void (async () => {
+      try {
+        await learnPriorDecisions(gmail, store);
+        if (active) reload();
+      } catch {
+        // A learn failure just leaves the prior-block signals unrefreshed this pass.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [store, gmail, online, reload]);
 
   const senders = useMemo(() => data?.senders ?? [], [data]);
   const domains = useMemo(() => data?.domains ?? [], [data]);
@@ -711,8 +732,6 @@ export function Dashboard({
         </p>
       )}
 
-      <PriorDecisionsImport store={store} gmail={gmail} online={online} onImported={onChanged} />
-
       <section aria-label="Decisions" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div
@@ -802,6 +821,17 @@ export function Dashboard({
 
       <SenderDetail
         sender={selected}
+        flaggedSiblings={
+          selected === null
+            ? []
+            : senders.filter(
+                (s) =>
+                  s.id !== selected.id &&
+                  s.domain === selected.domain &&
+                  effectiveStatus(s) === "pending" &&
+                  hasPriorBlockSignal(s),
+              )
+        }
         store={store}
         gmail={gmail}
         online={online}
