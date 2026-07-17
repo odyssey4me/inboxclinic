@@ -1,0 +1,108 @@
+# Loop C — auto-review Claude's own PRs (v1). When a PR is OPENED by the Claude app
+# (Loop A / `claude-issue-implement.yml`, etc.), a fresh, less-self-biased reviewer runs
+# ONCE: it reviews across several lenses, auto-fixes the clear nits (pushing to the PR
+# branch), and posts a formal review. It NEVER approves or merges — the maintainer owns
+# the merge gate.
+#
+# Single-shot & bounded: applies all lenses INLINE (no subagents / ScheduleWakeup — the
+# pattern that stranded #68), in one run. Fires on `opened` only, so the auto-fix commit
+# doesn't re-trigger it (no review→fix→re-review ping-pong, no round-cap needed for v1).
+#
+# Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription, for the model). Git pushes AND the review
+# post use a fine-grained PAT (CLAUDE_PAT: Contents + Pull requests R/W on this repo)
+# passed as `github_token`, because the action's OIDC-minted app token intermittently
+# lacks push permission (anthropics/claude-code-action#907). `persist-credentials: false`
+# keeps those bad fallback creds out of git. See #83 for the design and CONTRIBUTING.md
+# for conventions.
+name: Auto-review Claude PRs (Claude)
+
+on:
+  pull_request:
+    types: [opened]
+
+# Least privilege: the PAT (github_token below) performs ALL writes (push + review post),
+# so the job's own GITHUB_TOKEN stays read-only. actions:read lets Claude read the PR's CI
+# results (to cite, not re-run). id-token:write for the OIDC exchange.
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  id-token: write
+
+jobs:
+  autoreview:
+    # Only PRs opened by the Claude app, and only branches in THIS repo (never forks or
+    # human-authored PRs). `claude[bot]` is the raw webhook `user.login` (gh shows it as
+    # `app/claude`).
+    if: >-
+      github.event.pull_request.user.login == 'claude[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout the PR branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0 # full history so Claude can diff and push
+          # Don't cache the github-actions[bot] token — the PAT below does the pushing.
+          persist-credentials: false
+
+      - name: Review + auto-fix the Claude PR
+        uses: anthropics/claude-code-action@1298632ce7736903d02a1435002705aa2a594a6c # v1
+        with:
+          # Explicit writable token for git push + posting the review, bypassing the buggy
+          # OIDC app token (anthropics/claude-code-action#907). A PAT push also triggers CI,
+          # so the auto-fix commit is validated by the gate.
+          github_token: ${{ secrets.CLAUDE_PAT }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Let Claude read CI results on the PR (cite, don't re-run).
+          additional_permissions: |
+            actions: read
+          prompt: |
+            You are giving PR #${{ github.event.pull_request.number }} a FRESH,
+            less-self-biased review. It was opened by the Claude implementation loop, which
+            already self-checked — your job is the independent second look that catches what
+            self-review misses. Review it, auto-fix the clear nits, and post a formal review.
+
+            IMPORTANT — you run in a SINGLE-SHOT CI job with NO continuation. Do NOT use the
+            Agent/Task or ScheduleWakeup tools, and do NOT spawn subagents — that strands
+            work uncommitted (the #68 failure mode). Apply every lens YOURSELF, inline.
+
+            Do NOT run the test suite, lint, or typecheck, and do NOT caveat about being
+            unable to: the CI gate (`ci.yml` → `ci-gate`) is the authoritative validation
+            and you have `actions: read` to see it. If you speak to validation, CITE the
+            PR's CI run (e.g. "CI gate green as of <sha>"). Follow the "Reviewing Pull
+            Requests" guidance in CLAUDE.md.
+
+            Review across ALL of these lenses, inline:
+            - correctness / bugs
+            - test coverage & quality — missing tests, and tests that don't actually
+              reproduce the bug they claim to (see #73)
+            - privacy / architecture invariants — apply the "Reviewing for privacy &
+              architecture invariants" checklist in CONTRIBUTING.md and the
+              inbox-clinic-auditor role (.claude/agents/inbox-clinic-auditor.md) YOURSELF
+            - simplicity / reuse — a simpler approach, or existing code to reuse
+            - completeness vs the issue — does the PR actually close what it claims to
+
+            Then:
+            1. AUTO-FIX the clear, safe nits on the PR branch
+               (`${{ github.event.pull_request.head.ref }}`) — one focused commit per fix,
+               following CLAUDE.md and the design-doc conventions. Only fix things that are
+               clearly correct improvements; leave judgement calls, larger refactors, or
+               anything risky for the maintainer. Run only the TARGETED checks for what you
+               touched. Push the commit(s) to the PR branch. Do NOT push to `main`, do NOT
+               open another PR.
+            2. POST A FORMAL REVIEW with `gh pr review` — use `--comment` (or
+               `--request-changes` only if there is a genuinely blocking issue), with inline
+               comments where useful. **NEVER `--approve`**: the maintainer owns the merge
+               gate, and the PAT is the maintainer's identity, so an approval would bypass
+               it. Never merge the PR.
+            3. In the review body, SUMMARISE what you auto-fixed (with commit shas) vs. what
+               you left for the maintainer, and why. Do NOT write "@claude" anywhere in the
+               review or commits — it would trigger other automation.
+
+            If a change is unclear, unsafe, or conflicts with an architectural invariant, do
+            NOT make it — raise it in the review instead.
+          claude_args: |
+            --allowedTools Read,Grep,Glob,Edit,Write,Bash
+            --max-turns 40
