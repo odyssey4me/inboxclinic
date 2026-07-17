@@ -12,8 +12,13 @@
 # post use a fine-grained PAT (CLAUDE_PAT: Contents + Pull requests R/W on this repo)
 # passed as `github_token`, because the action's OIDC-minted app token intermittently
 # lacks push permission (anthropics/claude-code-action#907). `persist-credentials: false`
-# keeps those bad fallback creds out of git. See #83 for the design and CONTRIBUTING.md
-# for conventions.
+# keeps those bad fallback creds out of git.
+#
+# The never-`--approve` rule is enforced by the prompt and backstopped by main's branch
+# protection, which requires only the `ci-gate` status check (no approval count) — so a
+# stray approval can't by itself unblock a merge; the maintainer still merges manually.
+#
+# See #83 for the design and CONTRIBUTING.md for conventions.
 name: Auto-review Claude PRs (Claude)
 
 on:
@@ -38,6 +43,7 @@ jobs:
       github.event.pull_request.user.login == 'claude[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
+    timeout-minutes: 30 # --max-turns 40 finishes well inside this; caps a thrash tail
     steps:
       - name: Checkout the PR branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -98,8 +104,17 @@ jobs:
                gate, and the PAT is the maintainer's identity, so an approval would bypass
                it. Never merge the PR.
             3. In the review body, SUMMARISE what you auto-fixed (with commit shas) vs. what
-               you left for the maintainer, and why. Do NOT write "@claude" anywhere in the
-               review or commits — it would trigger other automation.
+               you left for the maintainer, and why.
+
+            CRITICAL anti-loop rule: never let the literal string "@claude" appear in your
+            review body, in ANY inline review comment, or in a commit message — each is
+            posted under the maintainer's identity (the PAT), and would trigger
+            claude-address-review.yml / claude.yml and start a loop. Note this repo's own
+            .github/workflows/*.yml files contain that string: do NOT quote such lines
+            verbatim — reference them by file:line and paraphrase instead.
+
+            If a fix would need to edit .github/workflows/*, do NOT try to push it — the PAT
+            lacks the `workflow` scope, so the push would 403. Raise it in the review instead.
 
             If a change is unclear, unsafe, or conflicts with an architectural invariant, do
             NOT make it — raise it in the review instead.
