@@ -85,6 +85,11 @@
       "groupName": "github-actions"
     },
     {
+      "description": "GitHub-hosted runner versions in runs-on (github-runners datasource, e.g. ubuntu-24.04) — pinned, not ubuntu-latest (was #79). Auto-merge on green: the gating CI runs on the NEW image on the PR itself, so a bad bump turns CI red before it can merge — same logic as actions.",
+      "matchDatasources": ["github-runners"],
+      "automerge": true
+    },
+    {
       "description": "Hold TypeScript on 6.x — TS 7 is the native-compiler rewrite (breaking major) and its toolchain lags it; revisit as a deliberate migration (was #19). Minors/patches still flow.",
       "matchManagers": ["npm"],
       "matchPackageNames": ["typescript"],
