@@ -81,8 +81,10 @@ export function SenderDetail({
 
   if (sender === null) return null;
 
+  // The scope-toggle (single-sender domain) path always supplies concrete actions from
+  // TrustActions; the fallback only fires for the address-scoped flagged batch.
   const blockActions = (target: Target, actions: BlockAction[] | undefined): BlockAction[] =>
-    actions ?? (target.scope === "domain" ? ["create_filter"] : defaultBlockActions(target.sender));
+    actions ?? defaultBlockActions(target.sender);
 
   // Block can archive/delete mail — preview + confirm first (over all targets).
   const previewBlock = async (
