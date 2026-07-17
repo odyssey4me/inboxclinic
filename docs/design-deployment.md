@@ -108,7 +108,9 @@ Both `build` and `e2e` run on every push/PR as the quality gate. **Publishing** 
 `deploy` job that runs only on `main` and **`needs: [build, e2e]`**, so a broken build or a
 failing E2E run can never publish — it deploys `apps/web/dist` to **Cloudflare Pages** via
 `wrangler pages deploy` with a minimal Cloudflare API token. `build` and `e2e` are also the
-**required status checks** on `main`.
+**required status checks** on `main`. GitHub-hosted runners are **pinned** to a specific
+Ubuntu LTS (`ubuntu-24.04`), never `ubuntu-latest`, so a new image can't silently change CI;
+Renovate keeps them current (see *Dependency updates*).
 
 ### Dependency updates (Renovate)
 
@@ -125,6 +127,7 @@ so the worst case is a red CI (merge blocked), never a broken app. Encoded **nat
 |--------|----------------------|-----|
 | npm **minor/patch** | ✅ | Low risk. |
 | **GitHub Actions** (incl. majors) | ✅ | The action runs *inside* the gating CI — green = proof. A bad deploy-only action just fails the next deploy (Pages keeps serving the last good build). Actions are SHA-pinned; Renovate maintains the hash + `# vX` comment. |
+| **GitHub-hosted runners** (`runs-on`, e.g. `ubuntu-24.04`) | ✅ | Pinned (not `ubuntu-latest`); Renovate's `github-runners` datasource opens the LTS bump PR. Safe to auto-merge because the gating CI runs on the **new** image on the PR itself — a bad image turns CI red before it can merge, same "green = proof" logic as Actions. |
 | npm **majors** — non-shipping dev tooling + type defs | ✅ | `@types/*`, `jsdom`, `eslint`/`@eslint/*`/`eslint-plugin-*`/`typescript-eslint`, `prettier`, `@testing-library/*`, `globals`, and **`typescript`** (used only for `tsc --noEmit` — vite/esbuild transpiles, so a TS major never touches the shipped bundle). These never ship; a break only turns CI red. |
 | npm **majors** — everything else (incl. **vite**) | ❌ manual | Bundle-affecting build tools (`vite`, `vite-plugin-*`, `@vitejs/*`) can pass the build yet change runtime output; runtime deps (`react`, `dexie`, …) can pass build and break at runtime. The **vite** group is manual for **all** update types (it ships). |
 
@@ -179,6 +182,7 @@ enabled, no merge commits); confirm Renovate merges via rebase after install.
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-17 | **Pin CI runners to `ubuntu-24.04` (#79).** Every `runs-on` is pinned (no `ubuntu-latest`) so a new Ubuntu LTS can't silently change CI; Renovate's `github-runners` datasource opens the bump PR, auto-merging on green (the gating CI runs on the new image on the PR — same "green = proof" logic as Actions). | Claude |
 | 2026-07-17 | **Migrate dependency automation from Dependabot to Renovate (#78).** `renovate.json` replicates the ecosystems, grouping (`vite`/`typescript-toolchain`/`types`/minor-and-patch), and the "can it reach users?" auto-merge policy **natively** (no separate auto-merge workflow); the TS-7 major hold (#19) carries over. Removes `.github/dependabot.yml` + `.github/workflows/dependabot-automerge.yml`. `vite` is now manual for all update types. Maintainer one-time: install the Renovate App + disable Dependabot. | Claude |
 | 2026-06-28 | Initial draft — hosting, no-secrets, access/testing-mode, Tally waitlist, Sponsors, licence, moved out of the re-levelled architecture.md. | Claude |
 | 2026-07-05 | M8: resolve open questions (host = GitHub Pages via OIDC; manual allowlist runbook); align build inputs to `VITE_`-prefixed names + `BASE_PATH`; note the SPDX per-file header convention; split CI/deploy workflows with a zero-secrets check. | Claude |
