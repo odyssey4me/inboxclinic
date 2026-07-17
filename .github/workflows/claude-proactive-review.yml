@@ -85,7 +85,7 @@ jobs:
             - Deduplicate against ALL existing issues, and do NOT re-raise anything a prior
               `claude-proposed` issue was CLOSED without action (a closed proposal =
               declined).
-            - Do NOT re-report findings already covered by CodeQL, Scorecard, Dependabot,
+            - Do NOT re-report findings already covered by CodeQL, Scorecard, Renovate,
               or the doc-sync hook — complement them, don't echo.
             - Granularity (two tiers):
               • SUBSTANTIVE findings — one issue each, where "one problem" = one coherent

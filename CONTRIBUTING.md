@@ -82,11 +82,11 @@ Coverage gate: **≥80%** on `packages/core` and `packages/store` logic.
 
 ### Dependency updates
 
-Dependabot opens update PRs; CI gates every merge. Coupled ecosystems (vite, eslint, types)
+**Renovate** opens update PRs; CI gates every merge. Coupled ecosystems (vite, eslint, types)
 are **grouped** so they move atomically, and low-risk updates **auto-merge on green** — while
-bundle-affecting and runtime majors are held for manual review. The policy and its reasoning
-("can it reach users?") live in
-[docs/design-deployment.md](docs/design-deployment.md#dependency-updates-dependabot).
+bundle-affecting (incl. vite) and runtime majors are held for manual review. The policy and
+its reasoning ("can it reach users?") live in
+[docs/design-deployment.md](docs/design-deployment.md#dependency-updates-renovate).
 
 ## Working with the documentation
 
@@ -111,7 +111,7 @@ stale documentation (see [CLAUDE.md](CLAUDE.md)).
 **Dependencies — use the ecosystem.** Reach for a well-supported, replaceable library
 when it gives substantive benefit at acceptable risk and lock-in, rather than hand-rolling
 what a stable library does well (architecture.md §1, *Use the ecosystem*). Add it to the
-relevant workspace, and let CI (which gates every dependency PR) and Dependabot keep it
+relevant workspace, and let CI (which gates every dependency PR) and Renovate keep it
 current.
 
 ## Pull request process

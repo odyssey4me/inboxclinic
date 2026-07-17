@@ -37,7 +37,7 @@ done
 
 if [ "$fail" -ne 0 ]; then
   echo "Reconcile the ecosystem so each critical package has a single major (see the"
-  echo "Vite/Vitest Dependabot group and 'npm dedupe' / 'npm why <pkg>')."
+  echo "Vite/Vitest Renovate group and 'npm dedupe' / 'npm why <pkg>')."
   exit 1
 fi
 echo "✅ No duplicate major versions among: ${critical[*]}"

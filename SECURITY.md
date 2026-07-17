@@ -29,5 +29,5 @@ The project is in **Alpha**; only the latest `main` is supported. Fixes land on 
 
 ## Handling
 
-Dependencies are monitored by Dependabot (alerts + security updates), code is scanned with
-CodeQL, and pull requests run dependency review — see the workflows in `.github/workflows/`.
+Dependencies are kept current by Renovate (updates + vulnerability alerts), code is scanned
+with CodeQL, and pull requests run dependency review — see the workflows in `.github/workflows/`.
