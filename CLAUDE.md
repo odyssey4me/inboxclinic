@@ -119,6 +119,27 @@ ESLint, Prettier, and `tsc`; tests use Vitest. See [CONTRIBUTING.md](CONTRIBUTIN
 for how to run them and [docs/design-testing.md](docs/design-testing.md) for test
 conventions.
 
+### Reviewing Pull Requests
+
+When reviewing a PR — including the interactive `@claude` responder in
+[.github/workflows/claude.yml](.github/workflows/claude.yml) — **the CI gate is the
+authoritative validation.** Do **not** run tests, lint, or typecheck yourself, and do
+**not** caveat about being unable to. Every PR is gated by `ci-gate`
+([.github/workflows/ci.yml](.github/workflows/ci.yml)), the single required status check
+covering `build` (lint + typecheck + `test:coverage` + build), `e2e` (the full Playwright
+matrix), and `docs` (doc-sync). To speak to validation at all, **cite the PR's CI run**
+(the reviewer has `actions: read`) — e.g. "CI gate green as of `<sha>`" — never reproduce it.
+
+Spend review effort on what CI **cannot** check:
+
+- **Architecture & design-doc conformance** — alignment with architecture.md and the
+  relevant design docs (the altitude rule below).
+- **Privacy & client-only invariants** — apply the *Reviewing for privacy & architecture
+  invariants* checklist in [CONTRIBUTING.md](CONTRIBUTING.md) (automated by the
+  `inbox-clinic-auditor` subagent).
+- **Dead code, stale docs, edge cases, and test-coverage gaps** — flagging a *missing*
+  test is more useful than re-running the existing ones.
+
 ## Working with the Documentation
 
 Documentation follows **Reference, Don't Repeat** and **Keep It DRY** — one
