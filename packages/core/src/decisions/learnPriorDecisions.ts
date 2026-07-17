@@ -100,6 +100,7 @@ export async function learnPriorDecisions(
   };
 
   // 1. Existing native filters → block suggestions.
+  let filterScanOk = true;
   try {
     for (const filter of await client.listFilters()) {
       if (!isBlockFilter(filter)) continue;
@@ -116,11 +117,13 @@ export async function learnPriorDecisions(
       }
     }
   } catch {
-    // A filter read failure just yields fewer suggestions.
+    // A filter read failure just yields fewer suggestions — and must not erase the signal.
+    filterScanOk = false;
   }
 
-  // 2 & 3. Spam (strong) and Trash (read-weighted) folder scans.
-  const scanFolder = async (query: string, reason: "spam" | "trash"): Promise<void> => {
+  // 2 & 3. Spam (strong) and Trash (read-weighted) folder scans. Returns whether the scan
+  // succeeded, so a transient failure doesn't reset the persisted scoring inputs below.
+  const scanFolder = async (query: string, reason: "spam" | "trash"): Promise<boolean> => {
     try {
       const ids = await client.listMessageIds(`${query} newer_than:${windowDays}d`, maxMessages);
       const metas = await Promise.all(ids.map((id) => client.getMessageMeta(id)));
@@ -141,18 +144,23 @@ export async function learnPriorDecisions(
           messageCount: sender.totalEmails,
         });
       }
+      return true;
     } catch {
-      // A folder read failure just yields fewer suggestions.
+      // A folder read failure just yields fewer suggestions — and must not erase the signal.
+      return false;
     }
   };
   await scanFolder("in:spam", "spam");
-  await scanFolder("in:trash", "trash");
+  const trashScanOk = await scanFolder("in:trash", "trash");
 
-  // Persist the deleted-while-unread scoring input. Reflects the current Trash window:
-  // senders no longer in Trash reset to 0 (bounded by `maxMessages` per folder).
+  // Persist the learn-derived scoring inputs, but **only for scans that succeeded** — a
+  // transient Gmail failure must not silently erase a previously-recorded signal. Otherwise
+  // this reflects the current Trash window / filter set (senders no longer matched reset).
   for (const sender of allSenders) {
-    const count = trashUnreadById.get(sender.id) ?? 0;
-    const covered = filterAddressIds.has(sender.id) || filterDomains.has(sender.domain);
+    const count = trashScanOk ? (trashUnreadById.get(sender.id) ?? 0) : sender.deletedUnreadCount;
+    const covered = filterScanOk
+      ? filterAddressIds.has(sender.id) || filterDomains.has(sender.domain)
+      : sender.coveredByBlockFilter;
     if (sender.deletedUnreadCount !== count || sender.coveredByBlockFilter !== covered) {
       await store.senders.put({
         ...sender,

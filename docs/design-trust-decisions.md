@@ -360,7 +360,9 @@ not recency-scaled; see below)_, manually marked spam **−2**, repeatedly marke
 > recency-scaled** (a standing filter is a current-state fact), and carried across rescans. Spam
 > and trashed-while-unread reuse the existing `spamMarkedCount` / `deletedUnreadCount` signals
 > (not new fields), so a sender seen by both the inbox scan and the learn pass isn't
-> double-counted. The in-flow surfacing UI (sibling consolidation, card removal) follows.
+> double-counted. A filter that routes to **Spam** also raises `spamMarkedCount`; that stacking
+> is **intentional** — both point to "block" for a sender the user already filters, and the
+> score is clamped to −10. The in-flow surfacing UI (sibling consolidation, card removal) follows.
 
 **Recency weights:** ≤30d **×1.0**, 30–90d **×0.7**, 90–180d **×0.4**, >180d **×0.2**.
 
