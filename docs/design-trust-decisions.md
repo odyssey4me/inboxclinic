@@ -150,26 +150,50 @@ default**, while **deleting existing mail is opt-in**.
 **Rationale:** Reversibility (Trash, not permanent delete) + preview + confirm makes
 aggressive-but-safe blocking trustworthy.
 
-### Decision 8: Learn prior decisions from Gmail (confirm-first, read-weighted)
+### Decision 8: Learn prior decisions from Gmail (woven into the per-sender decision)
 
 **Context:** Most inboxes already encode the user's judgement — existing filters, spam-marks,
 binned mail. Showing everything as "pending" ignores decisions already made.
 
-**Decision:** On first run, **derive suggested Block decisions** from the account's existing
-state and present them as a **confirm-first import** ("Found N prior decisions — import as
-Blocked?"). Sources and weighting:
+**Decision:** Prior-block signals are **woven into the normal per-sender decision** rather than
+a separate all-or-nothing import. Sources (unchanged):
 - **Existing native filters** that trash/archive/spam a sender/domain → strong Block signal.
 - **Spam-labelled** mail → strong Block signal.
-- **Trashed** mail → a Block signal **only when it was unread when binned** (deleted without
-  opening). **Read-then-deleted is normal triage and is _not_ a signal** — weighted by the
-  sender's read-rate (the unread-share threshold is a tunable constant).
+- **Trashed while unread** → a Block signal (read-then-deleted is normal triage and is _not_ a
+  signal — weighted by read-rate; the unread-share threshold is a tunable constant). Scored via
+  `deletedUnreadCount` (implemented, #98).
 
-Suggestions are **never auto-applied and never destructive** (the mail is already handled by
-Gmail); the user reviews and imports. Imported blocks then behave like any decision (revisable,
-Decision 6). The read scope for learning is in design-gmail-integration.md Decision 7.
+How they surface (#96):
+- **Scoring (trust-score sort, not the prompt queue):** prior-block reasons fold into the
+  **trust score** only, so flagged senders sort to the top of the decisions surface and carry
+  the reason as **evidence** in their decision. There is **no new `prioritisePrompts` term** —
+  the guided-workflow queue is unchanged. To avoid double-counting the same real-world fact:
+  - **Spam** reuses the existing `spamMarkedCount` signals (marked −2 / repeatedly −3).
+  - **Trashed-while-unread** reuses `deletedUnreadCount` (−1, #98).
+  - **Existing block filter** adds a new **`coveredByBlockFilter`** signal — **−2** (a strong
+    Block signal, tunable), populated from the learn pass like `deletedUnreadCount`; score-only.
 
-**Rationale:** Confirm-first respects agency (an old filter may be stale); read-weighting avoids
-mislabelling senders the user actually reads and then clears.
+  This **replaces** the standalone "Import all as Blocked" card.
+- **Consolidation in the detail panel:** when deciding a sender, `SenderDetail` surfaces
+  **same-domain siblings that also carry a prior-block signal** and offers **block this address
+  / block all flagged siblings / block the whole domain** (with two siblings this reads "block
+  both"; with 3+ it is "block all flagged"). The guided workflow shows a compact version. Any
+  Block here goes through **Decision 7's impact preview + explicit confirm** (not a lighter
+  gate). Filter-covered siblings reuse the existing **confirm-first filter adoption**
+  (design-gmail-integration.md Decision 10, `suggestFilterAdoptions`, #80): blocking one
+  **adopts the matching existing filter** rather than creating a redundant one.
+- **Dismissal is two-way (#97):** **"Keep — these are fine"** records a remembered
+  **allow/trust** decision with the **same this / both-flagged / domain granularity as Block**
+  (never resurfaces). **"Not now"** applies the **existing Defer** (Decision 3: priority decays
+  ×0.9/week, resurfaces via the 30-day TTL) — not a new ephemeral, session-scoped state.
+
+Nothing is auto-applied or destructive (Gmail already handles the mail); every action is
+confirm-first and revisable (Decision 6). The read scope for learning is in
+design-gmail-integration.md Decision 7.
+
+**Rationale:** Deciding in context — with related siblings and one-step consolidation — beats an
+all-or-nothing bulk import: the user sees *why* a sender is flagged and can act on related
+senders together. The keep/defer split removes today's dismiss ambiguity.
 
 ## Interfaces
 
@@ -316,7 +340,8 @@ These constants are owned by this design — architecture.md §4 defines the tru
 **User signals** (−10…+10 before weighting): replied **+3**, in contacts **+2**
 _(deferred — see below)_, frequently starred **+2**, consistently opened >80% **+1**,
 never opened **−1**, frequently deleted-unread **−1** _(≥2 messages binned while unread;
-stacks with never-opened)_, manually marked spam **−2**, repeatedly marked spam **−3**.
+stacks with never-opened)_, covered by an existing block filter **−2** _(#96 design — see
+below)_, manually marked spam **−2**, repeatedly marked spam **−3**.
 
 > **Deferred signal:** `inContacts` is **not live in v1** — see
 > [ROADMAP.md](ROADMAP.md#deferred-post-v1). It has a schema field and scoring branch in
@@ -329,6 +354,12 @@ stacks with never-opened)_, manually marked spam **−2**, repeatedly marked spa
 > populated from the prior-decisions learn pass's Trash scan (not the inbox scan — the score
 > input the inbox can't see), so it reflects the current Trash window and refreshes when that
 > pass runs. Exposure is **score-only** (it moves the visible score/tier; no bespoke UI text).
+>
+> **"Covered by a block filter"** (`coveredByBlockFilter` −2) is the **#96 design — not yet
+> implemented.** Populated from the learn pass (existing block filters), score-only and tunable.
+> Spam and trashed-while-unread reuse the existing `spamMarkedCount` / `deletedUnreadCount`
+> signals (not new fields), so a sender seen by both the inbox scan and the learn pass isn't
+> double-counted (Decision 8).
 
 **Recency weights:** ≤30d **×1.0**, 30–90d **×0.7**, 90–180d **×0.4**, >180d **×0.2**.
 
@@ -446,6 +477,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-17 | **Rework Decision 8 (#96, #97):** prior-block signals are **woven into the per-sender decision**. Scoring is **trust-score-sort only** (no new `prioritisePrompts` term): spam reuses `spamMarkedCount`, trash reuses `deletedUnreadCount`, and a new **`coveredByBlockFilter` −2** signal covers existing filters (no double-counting). The detail panel offers **block this / all-flagged / domain** for same-domain flagged siblings (through Decision 7's preview+confirm; filter-covered = #88 rule-adoption); the standalone "Import all as Blocked" card is removed. Dismissal is two-way (#97): a remembered **"Keep"** (allow decision, same granularity as Block) vs **"Not now"** = the existing Defer. | Claude |
 | 2026-07-16 | **Implement the "frequently deleted-unread" (−1) signal (#98).** Adds `deletedUnreadCount` to the store `Sender` + `SenderSnapshot`; `computeTrustScore` fires −1 at **≥2** messages binned while unread, **stacking** with never-opened. Populated from the prior-decisions learn pass's Trash scan (no extra Gmail calls; carried across rescans); exposure is **score-only**. Moved off the ROADMAP Deferred list. | Claude |
 | 2026-07-12 | Clarify that `inContacts` (+2) and "frequently deleted-unread" (−1) are **deferred, not implemented** in v1 — matches the code and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scoring or scope change. | Claude |
 | 2026-07-05 | Add the **Decisions milestone** model: Decision 6 **revisable decisions** (change later → reconcile filters + rescue from Trash); Decision 7 **impact preview + explicit confirm** before applying (deletes are loud; block trashes future by default, delete-existing opt-in); Decision 8 **learn prior decisions** from filters + **read-weighted** Spam/Trash as confirm-first suggestions. | Claude |
