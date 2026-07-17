@@ -34,18 +34,12 @@ test("decisions surface: re-decide a trusted sender to blocked, previewed and co
   await expect(janeItem).toContainText("blocked");
 });
 
-test("decisions surface: import prior decisions learned from Gmail (Spam/Trash)", async ({
+test("decisions surface: no standalone prior-decisions import card (folded into scoring)", async ({
   page,
 }) => {
   await gotoDemo(page);
-
-  // Learned from the demo's Spam/Trash, the prior-decisions card surfaces on the home.
-  await expect(page.getByRole("heading", { name: /found \d+ prior decision/i })).toBeVisible();
-  await page.getByRole("button", { name: /import all as blocked/i }).click();
-  await expect(page.getByText(/imported \d+ prior decision/i)).toBeVisible();
-
-  // The imported spam sender is now a blocked decision — find it via search on the All tab.
-  await page.getByRole("tab", { name: /^all/i }).click();
-  await page.getByRole("searchbox", { name: /search senders/i }).fill("megacasino");
-  await expect(page.getByText("wins@megacasino.example")).toBeVisible();
+  // The "Import all as Blocked" card was removed (#96) — prior-block signals now fold into the
+  // trust score and the detail panel instead.
+  await expect(page.getByRole("button", { name: /import all as blocked/i })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /^Decisions$/ })).toBeVisible();
 });
