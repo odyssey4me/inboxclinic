@@ -2,10 +2,12 @@
 /**
  * Curated demo inbox fixtures (design-frontend.md — Demo mode).
  *
- * A hand-authored set of ~16 senders spanning every M1 category (personal,
+ * A hand-authored set of ~19 senders spanning every M1 category (personal,
  * transactional, promotional, other) and a spread of trust signals (read-rate,
  * auth posture, list-unsubscribe, spam marks, a spoofed look-alike). Two addresses
- * share `retailco.com` so the workflow's domain batch-offer appears.
+ * share `retailco.com` so the workflow's domain batch-offer appears. Three more share
+ * `bargainhub.example`, each still pending in the inbox but also binned unread in Trash,
+ * so opening one in `SenderDetail` surfaces the flagged-siblings consolidation (#96, #128).
  *
  * The fixtures are authored as `MessageMeta` so the real scan/extraction pipeline
  * derives the senders — the demo is genuinely scan-driven, and `Scan`/`Sync` are
@@ -46,6 +48,13 @@ interface DemoSenderSpec {
   auth?: AuthPosture;
   /** Messages are spread over the last N days (recency + frequency). */
   withinDays: number;
+  /**
+   * Extra messages from this same address already binned **unread** — seeds the
+   * `deletedUnreadCount` prior-block signal (learned by `learnPriorDecisions`) for a sender
+   * that's otherwise still pending in the inbox, so its detail panel can offer the
+   * same-domain flagged-siblings consolidation (#96, #128).
+   */
+  trashedUnread?: number;
 }
 
 const DAY_MS = 86_400_000;
@@ -87,6 +96,12 @@ const DEMO_SENDERS: DemoSenderSpec[] = [
   { name: "MegaCasino", email: "wins@megacasino.example", total: 5, unread: 5, folder: "spam", auth: "fail", withinDays: 12 }, // prettier-ignore
   { name: "Flash Deals", email: "blast@flashdeals.example", total: 6, unread: 6, folder: "trash", listUnsub: true, auth: "pass", withinDays: 15 }, // prettier-ignore
   { name: "Corner Shop", email: "receipts@cornershop.example", total: 4, unread: 0, folder: "trash", auth: "pass", withinDays: 20 }, // prettier-ignore
+
+  // -- Same-domain flagged siblings, still pending in the inbox — showcases the #96
+  // consolidation offer (Block all / Keep all / Not now) on a real sender's detail panel.
+  { name: "BargainHub Deals", email: "deals@bargainhub.example", total: 8, unread: 7, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 16, trashedUnread: 3 }, // prettier-ignore
+  { name: "BargainHub Offers", email: "offers@bargainhub.example", total: 6, unread: 5, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 20, trashedUnread: 2 }, // prettier-ignore
+  { name: "BargainHub News", email: "news@bargainhub.example", total: 5, unread: 4, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 24, trashedUnread: 2 }, // prettier-ignore
 ];
 
 /** Addresses pre-decided when the store is seeded (a realistic starting mix). */
@@ -169,6 +184,23 @@ function expand(spec: DemoSenderSpec, now: number): MessageMeta[] {
         ...(spec.listUnsub === true ? { listUnsubscribe: `<mailto:unsubscribe@${domain}>` } : {}),
         ...(spec.listId === true ? { listId: `<list.${domain}>` } : {}),
         ...(spec.auth !== undefined ? { authenticationResults: authHeader(spec.auth) } : {}),
+      },
+    });
+  }
+
+  // Extra Trash-binned unread messages from the same address, independent of the inbox
+  // `total` above — the source `learnPriorDecisions` reads to set `deletedUnreadCount`.
+  for (let i = 0; i < (spec.trashedUnread ?? 0); i += 1) {
+    const trashedUnread = spec.trashedUnread ?? 0;
+    const ageDays = Math.floor((i / trashedUnread) * spec.withinDays);
+    out.push({
+      id: `${spec.email}#trash${i}`,
+      threadId: `thread:${spec.email}#trash${i}`,
+      labelIds: ["TRASH", "UNREAD"],
+      internalDate: now - ageDays * DAY_MS,
+      headers: {
+        from: `${spec.name} <${spec.email}>`,
+        subject: `Message trash-${i + 1} from ${spec.name}`,
       },
     });
   }
