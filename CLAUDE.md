@@ -126,8 +126,8 @@ When reviewing a PR — including the interactive `@claude` responder in
 authoritative validation.** Do **not** run tests, lint, or typecheck yourself, and do
 **not** caveat about being unable to. Every PR is gated by `ci-gate`
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)), the single required status check
-covering `build` (lint + typecheck + `test:coverage` + build), `e2e` (the full Playwright
-matrix), and `docs` (doc-sync). To speak to validation at all, **cite the PR's CI run**
+covering `build` (zero-secrets + no-duplicate-majors guards, lint, typecheck,
+`test:coverage`, build), `e2e` (the full Playwright matrix), and `docs` (doc-sync). To speak to validation at all, **cite the PR's CI run**
 (the reviewer has `actions: read`) — e.g. "CI gate green as of `<sha>`" — never reproduce it.
 
 Spend review effort on what CI **cannot** check:
