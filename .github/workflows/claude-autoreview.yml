@@ -113,8 +113,9 @@ jobs:
             .github/workflows/*.yml files contain that string: do NOT quote such lines
             verbatim — reference them by file:line and paraphrase instead.
 
-            If a fix would need to edit .github/workflows/*, do NOT try to push it — the PAT
-            lacks the `workflow` scope, so the push would 403. Raise it in the review instead.
+            If a fix would need to edit .github/workflows/*, do NOT edit or commit it at all
+            — the PAT lacks the `workflow` scope, so committing a workflow change (even
+            bundled with other fixes) would 403 the ENTIRE push. Raise it in the review instead.
 
             If a change is unclear, unsafe, or conflicts with an architectural invariant, do
             NOT make it — raise it in the review instead.
