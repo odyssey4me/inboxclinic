@@ -12,12 +12,13 @@
  * Subjects already decided (trusted or blocked) are never re-suggested. The UI presents
  * these as a confirm-first import; nothing is destructive (Gmail already handled them).
  *
- * Side effect: while scanning Trash it also persists each existing sender's
- * `deletedUnreadCount` (mail binned while unread) — a trust-scoring input (Decision 8) that
- * the inbox scan can't see. This is the sole populator of that count. It updates **existing
- * sender records only** (by design — the signal only matters for senders the user actually
- * sees as pending decisions, which have records). A trash-only sender with no record yet is
- * simply picked up on the next learn pass after the inbox scan creates its record.
+ * Side effect: it also persists two trust-scoring inputs the inbox scan can't see (Decision 8)
+ * — `deletedUnreadCount` (mail binned while unread) from the Trash scan, and
+ * `coveredByBlockFilter` (an existing block filter matches the sender/domain) from the filter
+ * scan. It's the sole populator of both, and updates **existing sender records only** (by
+ * design — the signals only matter for senders the user actually sees as pending decisions,
+ * which have records). A sender with no record yet is simply picked up on the next learn pass
+ * after the inbox scan creates its record.
  */
 
 import { isBlockFilter, parseFilterSubjects } from "../enforcement/filterShape";
@@ -70,6 +71,10 @@ export async function learnPriorDecisions(
   // Per-sender count of mail trashed **while unread** — a scoring input (Decision 8),
   // collected during the Trash scan below and persisted after.
   const trashUnreadById = new Map<string, number>();
+  // Senders covered by an existing block filter (by address id or by domain) — a scoring
+  // input, collected during the filter scan below and persisted after.
+  const filterAddressIds = new Set<string>();
+  const filterDomains = new Set<string>();
   const decidedDomains = new Set(
     (await store.domains.query({})).filter((d) => d.trustStatus !== "pending").map((d) => d.id),
   );
@@ -99,6 +104,8 @@ export async function learnPriorDecisions(
     for (const filter of await client.listFilters()) {
       if (!isBlockFilter(filter)) continue;
       for (const subject of parseFilterSubjects(filter.from)) {
+        if (subject.scope === "domain") filterDomains.add(subject.value);
+        else filterAddressIds.add(keyFor(subject.value));
         add({
           subjectId: keyFor(subject.value),
           scope: subject.scope,
@@ -145,8 +152,13 @@ export async function learnPriorDecisions(
   // senders no longer in Trash reset to 0 (bounded by `maxMessages` per folder).
   for (const sender of allSenders) {
     const count = trashUnreadById.get(sender.id) ?? 0;
-    if (sender.deletedUnreadCount !== count) {
-      await store.senders.put({ ...sender, deletedUnreadCount: count });
+    const covered = filterAddressIds.has(sender.id) || filterDomains.has(sender.domain);
+    if (sender.deletedUnreadCount !== count || sender.coveredByBlockFilter !== covered) {
+      await store.senders.put({
+        ...sender,
+        deletedUnreadCount: count,
+        coveredByBlockFilter: covered,
+      });
     }
   }
 

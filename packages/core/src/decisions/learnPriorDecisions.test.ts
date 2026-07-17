@@ -74,6 +74,24 @@ describe("learnPriorDecisions", () => {
     expect((await store.senders.get(keyFor("blast@ads.com")))?.deletedUnreadCount).toBe(2);
   });
 
+  it("persists coveredByBlockFilter from existing block filters (address + domain)", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    await store.senders.put(senderBuilder("a@x.com")); // covered by an address filter
+    await store.senders.put(senderBuilder("b@promo.com")); // covered by *@promo.com
+    await store.senders.put(senderBuilder("c@safe.com")); // not covered
+    gmail.seedFilters([
+      { id: "f1", from: "a@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f2", from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+
+    await learnPriorDecisions(gmail, store, { now: NOW });
+
+    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("b@promo.com")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("c@safe.com")))?.coveredByBlockFilter).toBe(false);
+  });
+
   it("never re-suggests a subject already decided", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));

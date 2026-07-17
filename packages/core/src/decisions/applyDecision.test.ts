@@ -27,6 +27,7 @@ function senderFix(email: string, overrides: Partial<Sender> = {}): Sender {
     starredCount: 0,
     spamMarkedCount: 0,
     deletedUnreadCount: 0,
+    coveredByBlockFilter: false,
     replyCount: 0,
     inContacts: false,
     frequency: "weekly",

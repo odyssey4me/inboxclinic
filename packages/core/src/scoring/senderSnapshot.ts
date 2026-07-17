@@ -34,6 +34,7 @@ export interface SenderSnapshot {
   starredCount: number;
   spamMarkedCount: number;
   deletedUnreadCount: number;
+  coveredByBlockFilter: boolean;
   recencyBuckets: RecencyBuckets;
   auth: AuthSignals;
 }
@@ -57,6 +58,7 @@ export function senderToSnapshot(sender: Sender): SenderSnapshot {
     starredCount: sender.starredCount,
     spamMarkedCount: sender.spamMarkedCount,
     deletedUnreadCount: sender.deletedUnreadCount,
+    coveredByBlockFilter: sender.coveredByBlockFilter,
     recencyBuckets,
     auth: sender.auth,
   };

@@ -108,8 +108,9 @@ export async function runScan(
     sender.decisionScope = prev.decisionScope;
     sender.decisionContext = prev.decisionContext;
     sender.pendingActions = prev.pendingActions;
-    // Learn-pass-derived scoring input (Trash scan); an inbox rescan mustn't wipe it.
+    // Learn-pass-derived scoring inputs (Trash / filters); an inbox rescan mustn't wipe them.
     sender.deletedUnreadCount = prev.deletedUnreadCount;
+    sender.coveredByBlockFilter = prev.coveredByBlockFilter;
   }
 
   const priorDomains = new Map<string, Domain>();
