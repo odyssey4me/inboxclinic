@@ -110,27 +110,27 @@ failing E2E run can never publish — it deploys `apps/web/dist` to **Cloudflare
 `wrangler pages deploy` with a minimal Cloudflare API token. `build` and `e2e` are also the
 **required status checks** on `main`.
 
-### Dependency updates (Dependabot)
+### Dependency updates (Renovate)
 
-Dependabot opens update PRs; **CI is the gate** (branch protection requires the
+**Renovate** opens update PRs; **CI is the gate** (branch protection requires the
 lint/typecheck/test/build check to pass before any merge). Three conventions keep this
 safe *and* low-toil — the reasoning matters for future changes:
 
 **1. Auto-merge policy — "can it reach users?"** A major is safe to auto-merge on green
 **only if it cannot reach users**: it never ships in the bundle and CI fully exercises it,
-so the worst case is a red CI (merge blocked), never a broken app. Encoded in
-`.github/workflows/dependabot-automerge.yml`:
+so the worst case is a red CI (merge blocked), never a broken app. Encoded **natively** in
+`renovate.json` (`packageRules` + `automerge`) — no separate auto-merge workflow:
 
 | Update | Auto-merge on green? | Why |
 |--------|----------------------|-----|
 | npm **minor/patch** | ✅ | Low risk. |
-| **GitHub Actions** (incl. majors) | ✅ | The action runs *inside* the gating CI — green = proof. A bad deploy-only action just fails the next deploy (Pages keeps serving the last good build). Actions are SHA-pinned; Dependabot maintains the hash + `# vX` comment. |
+| **GitHub Actions** (incl. majors) | ✅ | The action runs *inside* the gating CI — green = proof. A bad deploy-only action just fails the next deploy (Pages keeps serving the last good build). Actions are SHA-pinned; Renovate maintains the hash + `# vX` comment. |
 | npm **majors** — non-shipping dev tooling + type defs | ✅ | `@types/*`, `jsdom`, `eslint`/`@eslint/*`/`eslint-plugin-*`/`typescript-eslint`, `prettier`, `@testing-library/*`, `globals`, and **`typescript`** (used only for `tsc --noEmit` — vite/esbuild transpiles, so a TS major never touches the shipped bundle). These never ship; a break only turns CI red. |
-| npm **majors** — everything else | ❌ manual | Bundle-affecting build tools (`vite`, `vite-plugin-*`, `@vitejs/*`) can pass the build yet change runtime output; runtime deps (`react`, `dexie`, …) can pass build and break at runtime. |
+| npm **majors** — everything else (incl. **vite**) | ❌ manual | Bundle-affecting build tools (`vite`, `vite-plugin-*`, `@vitejs/*`) can pass the build yet change runtime output; runtime deps (`react`, `dexie`, …) can pass build and break at runtime. The **vite** group is manual for **all** update types (it ships). |
 
 **2. Grouping — coupled ecosystems move atomically.** Packages that share peer ranges must
 version together or npm leaves a duplicate/incompatible major (e.g. a lone `vite` bump
-strands `vite@6` under `vitest`). `.github/dependabot.yml` groups them (`vite`, `eslint`,
+strands `vite@6` under `vitest`). `renovate.json` groups them (`vite`, `typescript-toolchain`,
 `types`) so each ecosystem is **one all-or-nothing PR**. Grouping gives *atomicity*; it does
 **not** do peer-compatibility-aware waiting — so **CI is the compatibility gate**: an
 incompatible partial group fails and can't merge.
@@ -138,7 +138,14 @@ incompatible partial group fails and can't merge.
 **3. Duplicate-major guard.** `scripts/check-no-dup-majors.sh` (a CI step) fails if a
 critical package (`vite`, `vitest`, `react`, `react-dom`) resolves to more than one major.
 This catches the "works-but-messy" case that peer-strictness does *not* — it's duplication,
-not a peer violation. Reconcile with the relevant Dependabot group + `npm dedupe`/`npm why`.
+not a peer violation. Reconcile with the relevant Renovate group + `npm dedupe`/`npm why`.
+
+**TypeScript held on 6.x.** `renovate.json` disables `typescript` **major** updates (TS 7 is
+the native-compiler rewrite; revisit as a deliberate migration, #19) — minors/patches flow.
+
+**Setup (maintainer, one-time):** install the **Renovate GitHub App** on the repo and
+**disable Dependabot** in settings. Auto-merge uses the repo's `--rebase` (rebase + squash
+enabled, no merge commits); confirm Renovate merges via rebase after install.
 
 ## Configuration
 
@@ -172,6 +179,7 @@ not a peer violation. Reconcile with the relevant Dependabot group + `npm dedupe
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-17 | **Migrate dependency automation from Dependabot to Renovate (#78).** `renovate.json` replicates the ecosystems, grouping (`vite`/`typescript-toolchain`/`types`/minor-and-patch), and the "can it reach users?" auto-merge policy **natively** (no separate auto-merge workflow); the TS-7 major hold (#19) carries over. Removes `.github/dependabot.yml` + `.github/workflows/dependabot-automerge.yml`. `vite` is now manual for all update types. Maintainer one-time: install the Renovate App + disable Dependabot. | Claude |
 | 2026-06-28 | Initial draft — hosting, no-secrets, access/testing-mode, Tally waitlist, Sponsors, licence, moved out of the re-levelled architecture.md. | Claude |
 | 2026-07-05 | M8: resolve open questions (host = GitHub Pages via OIDC; manual allowlist runbook); align build inputs to `VITE_`-prefixed names + `BASE_PATH`; note the SPDX per-file header convention; split CI/deploy workflows with a zero-secrets check. | Claude |
 | 2026-07-05 | Add build-stamp inputs `VITE_APP_COMMIT` / `VITE_APP_BUILT_AT` (deploy sets commit from `github.sha`); shown in the footer + diagnostic reports (design-error-reporting.md). | Claude |
