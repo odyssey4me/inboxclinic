@@ -74,7 +74,7 @@ describe("compileFilters (properties)", () => {
         fc.domain(),
         (base, extra) => {
           const baseSet = [...new Set(base.map((d) => d.toLowerCase()))];
-          fc.pre(baseSet.length >= 120 && !baseSet.includes(extra.toLowerCase()));
+          fc.pre(!baseSet.includes(extra.toLowerCase()));
           const before = compileFilters([], asBlocked(baseSet)).filters.map((f) => f.from);
           const after = compileFilters(
             [],

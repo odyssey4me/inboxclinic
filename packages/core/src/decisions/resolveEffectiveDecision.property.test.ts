@@ -6,8 +6,8 @@ import { resolveEffectiveDecision } from "./resolveEffectiveDecision";
 import type { DecisionScope, TrustStatus } from "../store/types";
 
 // Property-based coverage of the Decision-2 precedence rule (design-trust-decisions.md).
-// The input space is tiny, so these exhaustively exercise every combination and assert the
-// contract laws — not a re-implementation of the branch order. See docs/design-testing.md.
+// The input space is tiny, so fast-check densely samples it and asserts the contract laws —
+// not a re-implementation of the branch order. See docs/design-testing.md.
 
 const status = fc.constantFrom<TrustStatus>("trusted", "blocked", "pending");
 const nullableStatus = fc.option(status, { nil: null });
@@ -41,6 +41,18 @@ describe("resolveEffectiveDecision (properties)", () => {
         const r = resolveEffectiveDecision(input);
         expect(r.status).toBe(input.domainStatus);
         expect(r.source).toBe("domain");
+      }),
+    );
+  });
+
+  it("a non-domain scope never overrides a present address decision", () => {
+    fc.assert(
+      fc.property(decisionInput, (input) => {
+        // Only a "domain"-scope decision overrides the address; an "address"/null scope must not.
+        fc.pre(input.domainScope !== "domain" && input.addressStatus !== null);
+        const r = resolveEffectiveDecision(input);
+        expect(r.status).toBe(input.addressStatus);
+        expect(r.source).toBe("address");
       }),
     );
   });
