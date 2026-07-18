@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 PW="$(node -p "require('./package.json').devDependencies['@playwright/test'].replace(/[^0-9.]/g,'')")"
 EXPECTED="mcr.microsoft.com/playwright:v${PW}-noble"
 
-if ! grep -qF "$EXPECTED" .github/workflows/ci.yml; then
+if ! grep -qF "container: ${EXPECTED}" .github/workflows/ci.yml; then
   echo "❌ .github/workflows/ci.yml is not pinned to the Playwright image for @playwright/test v${PW}"
   echo "   expected the e2e job's container to be: ${EXPECTED}"
   echo "   (bump them together — Renovate groups the npm package + image; see renovate.json)"
