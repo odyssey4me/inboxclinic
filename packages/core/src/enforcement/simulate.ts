@@ -15,7 +15,15 @@ import { planActions } from "./planActions";
 import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
-import type { BlockAction, Decision, DecisionScope, Sender, Store, TrustStatus } from "../store";
+import type {
+  BlockAction,
+  Decision,
+  DecisionScope,
+  Domain,
+  Sender,
+  Store,
+  TrustStatus,
+} from "../store";
 
 /** A not-yet-applied decision to preview. */
 export interface PreviewDecision {
@@ -77,6 +85,27 @@ export async function simulateEnforcement(
     else senderStatus.set(decision.subjectId, next);
   }
 
+  // A (prospectively) blocked domain's trusted exception addresses — the ones whose effective
+  // status is no longer blocked. Excluded from both the domain's `*@domain` filter (#145) and
+  // its existing-mail sweep (#151), so the preview matches what enforce actually does.
+  // Only ever called on a domain that is (prospectively) blocked; a blocked domain is always
+  // domain-scoped (applyDecision.ts writes `decisionScope: "domain"` with the block), so the
+  // `domainStatus/domainScope` here are that known state rather than re-derived per call.
+  const prospectiveDomainExclusions = (domain: Domain): string[] =>
+    domain.exceptionAddresses.filter((email) => {
+      const s = senderById.get(keyFor(email));
+      if (s === undefined) return false;
+      const addr = senderStatus.get(s.id) ?? s.trustStatus;
+      return (
+        resolveEffectiveDecision({
+          addressStatus: addr === "pending" ? null : addr,
+          addressIsException: true,
+          domainStatus: "blocked",
+          domainScope: "domain",
+        }).status !== "blocked"
+      );
+    });
+
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;
   let filtersToDelete = 0;
@@ -104,19 +133,7 @@ export async function simulateEnforcement(
         domain: d.domain,
         // Carve out exception addresses this (prospectively) blocked domain no longer blocks,
         // so the previewed filter set matches what enforce would create (#145).
-        excludeAddresses: d.exceptionAddresses.filter((email) => {
-          const s = senderById.get(keyFor(email));
-          if (s === undefined) return false;
-          const addr = senderStatus.get(s.id) ?? s.trustStatus;
-          return (
-            resolveEffectiveDecision({
-              addressStatus: addr === "pending" ? null : addr,
-              addressIsException: true,
-              domainStatus: "blocked",
-              domainScope: "domain",
-            }).status !== "blocked"
-          );
-        }),
+        excludeAddresses: prospectiveDomainExclusions(d),
       }));
     const compiled = compileFilters(blockedSenders, blockedDomains);
     const existing = await client.listFilters();
@@ -135,10 +152,9 @@ export async function simulateEnforcement(
   for (const decision of decisions) {
     if (decision.decision === "block") {
       const sender = decision.scope === "address" ? senderById.get(decision.subjectId) : undefined;
+      const domain = decision.scope === "domain" ? domainById.get(decision.subjectId) : undefined;
       const from =
-        decision.scope === "domain"
-          ? `*@${domainById.get(decision.subjectId)?.domain ?? ""}`
-          : (sender?.email ?? "");
+        decision.scope === "domain" ? `*@${domain?.domain ?? ""}` : (sender?.email ?? "");
       if (from === "" || from === "*@") continue;
       const plan = planActions({
         decision: "block",
@@ -146,7 +162,11 @@ export async function simulateEnforcement(
         hasListUnsubscribe: sender?.hasListUnsubscribe ?? false,
       });
       if (plan.messageMutation !== null) {
-        const ids = await client.listMessageIdsForSender(from);
+        // Exclude the domain's trusted exception addresses from the estimate, matching enforce's
+        // sweep — otherwise a domain block overstates its existing-mail count (#151).
+        const excludeAddresses = domain ? prospectiveDomainExclusions(domain) : [];
+        const excludeFrom = excludeAddresses.length > 0 ? excludeAddresses.join(" OR ") : undefined;
+        const ids = await client.listMessageIdsForSender(from, undefined, excludeFrom);
         if (plan.messageMutation.addLabelIds?.includes("TRASH") === true) {
           messagesToDelete += ids.length;
         } else if (plan.messageMutation.removeLabelIds?.includes("INBOX") === true) {
