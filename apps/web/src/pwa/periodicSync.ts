@@ -12,7 +12,7 @@
  * incremental sync. This registration simply asks the platform to wake the SW.
  */
 
-export { PERIODIC_SYNC_TAG, SW_SYNC_MESSAGE } from "./syncTag";
+export { SW_SYNC_MESSAGE } from "./syncTag";
 import { PERIODIC_SYNC_TAG } from "./syncTag";
 
 /** Default cadence (design-gmail-integration.md `sync.periodMinutes`, 60 minutes). */

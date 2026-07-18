@@ -333,5 +333,3 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     </AppShell>
   );
 }
-
-export default App;

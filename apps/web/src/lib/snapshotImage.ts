@@ -211,7 +211,7 @@ export function drawSnapshot(ctx: CanvasRenderingContext2D, snapshot: AnalyticsS
  * Render the snapshot onto a fresh canvas element. Throws if a 2D context isn't
  * available (no `canvas` support) so callers can present a graceful fallback.
  */
-export function renderSnapshotCanvas(snapshot: AnalyticsSnapshot): HTMLCanvasElement {
+function renderSnapshotCanvas(snapshot: AnalyticsSnapshot): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
   if (ctx === null) {
