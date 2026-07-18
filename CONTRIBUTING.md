@@ -120,9 +120,11 @@ implementing. See the boundary rules in [docs/README.md](docs/README.md).
 
 `scripts/doc-sync-validate.sh` (the Claude Code doc-sync hook + the CI `docs` job) keeps docs
 and code in sync: design-doc **status/index/changelog** must match `docs/README.md`, and a
-design doc **must not keep naming a code symbol that this change deletes** (diff-aware, so
-genuinely-planned/future components aren't flagged) — the drift that let a stale `` `DomainDetail` ``
-reference survive in #106.
+design doc **must not keep naming code that this change removes** — neither a deleted/renamed
+**module file** (#110) nor a removed **exported symbol** (a `function`/`type`/… whose `export`
+is dropped, #158). Both are diff-aware (only what *this* change removes) and clear a symbol that
+still lives elsewhere (a move/rename/barrel-refactor), so genuinely-planned/future references
+aren't flagged — the drift that let a stale `` `DomainDetail` `` reference survive in #106.
 
 ## Git workflow
 

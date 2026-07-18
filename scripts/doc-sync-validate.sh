@@ -8,6 +8,7 @@
 # 2. New/removed docs in docs/ must be reflected in docs/README.md index
 # 3. Modified design docs and architecture.md must have changelog entries
 # 4. Design docs must not reference code symbols deleted in the same change (#110)
+# 5. …nor exported symbols (functions/types/…) removed in the same change (#158)
 #
 # This script is used by the Claude Code doc-sync hook
 # (.claude/hooks/doc-sync-hook.sh) after Markdown edits, and can also be run manually.
@@ -337,6 +338,83 @@ check_doc_symbol_drift() {
 }
 
 # -----------------------------------------------------------------------------
+# Check 5: Doc ↔ code EXPORTED-SYMBOL drift (diff-aware, deletion-triggered) — #158
+# -----------------------------------------------------------------------------
+# The sibling of check 4 at symbol granularity: when a change removes an `export`ed symbol
+# (function/const/class/type/interface/enum, or a `export { … }` re-export) whose name a
+# design doc still references in backticks, flag it — catching drift when the FILE survives
+# but the named symbol is deleted/renamed (e.g. dropping `export function compileFilters`).
+# Diff-aware against origin/main, and every removed name is passed through an existence guard:
+# it is only flagged if it is no longer exported ANYWHERE in current (non-test) source, so a
+# move/rename/barrel-refactor that keeps the symbol alive never false-positives (#158).
+#
+# Deliberately conservative (favours no-false-positives over completeness). Known recall gaps,
+# acceptable because they only MISS drift, never invent it: a multiline `export { … }` block
+# *removed* across several diff lines isn't captured (single-line and declaration removals are);
+# multiple declarators in one `export const a, b` capture only the first; the ≥3-char shape guard
+# plus backtick anchoring trims but can't fully rule out a doc using a short symbol name generically.
+
+# Is NAME still a PUBLIC exported name somewhere in the current working tree (non-test source)?
+# Two matchers, both alias-aware so a symbol that is only the *source* side of a rename
+# (`export { NAME as other }`) is NOT treated as still-exported (that public name is `other`):
+#   - declaration form (single line): export [default|async|abstract]… [const enum|function|…] NAME
+#   - braced re-export (may be MULTILINE): NAME as a bare export or the target of `as`. `-z` makes
+#     grep treat each file as one record so `[^}]*` crosses the newlines Prettier inserts.
+symbol_still_exported() {
+    local name="$1"
+    {
+        grep -rlP --include='*.ts' --include='*.tsx' \
+            "export\s+(?:default\s+|async\s+|abstract\s+)*(?:const\s+enum|function|const|let|class|type|interface|enum)\s+${name}\b" \
+            apps packages 2>/dev/null
+        grep -rlzP --include='*.ts' --include='*.tsx' \
+            "export\s+(?:type\s+)?\{[^}]*(?:\bas\s+${name}\b|\b${name}\b\s*[,}])" \
+            apps packages 2>/dev/null
+    } | grep -vE '\.(test|spec)\.' | grep -q .
+}
+
+check_doc_exported_symbol_drift() {
+    local base
+    base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+    [[ -z "$base" ]] && return 0
+
+    # One diff of non-test TS since the base; renames surface as delete+add so a renamed
+    # symbol's OLD name is caught (and its new name is present → existence guard clears it).
+    local diff
+    diff=$(git diff --no-renames "$base" -- apps packages \
+        ':(exclude)**/*.test.ts' ':(exclude)**/*.test.tsx' \
+        ':(exclude)**/*.spec.ts' ':(exclude)**/*.spec.tsx' 2>/dev/null || true)
+    [[ -z "$diff" ]] && return 0
+
+    # Names removed from `export` lines: declaration forms + `export { … as name }` (alias/last
+    # identifier per clause). Removed lines start with a single '-' (not the '---' file header).
+    local removed_decls removed_braced removed_names
+    removed_decls=$(printf '%s\n' "$diff" \
+        | grep -oP '^-[[:space:]]*export[[:space:]]+(?:default[[:space:]]+|async[[:space:]]+|abstract[[:space:]]+)*(?:const[[:space:]]+enum|function|const|let|class|type|interface|enum)[[:space:]]+\K[A-Za-z_][A-Za-z0-9_]*' || true)
+    removed_braced=$(printf '%s\n' "$diff" \
+        | grep -oP '^-[[:space:]]*export[[:space:]]+(?:type[[:space:]]+)?\{\K[^}]*' \
+        | tr ',' '\n' | awk 'NF{print $NF}' | grep -oP '^[A-Za-z_][A-Za-z0-9_]*$' || true)
+    removed_names=$(printf '%s\n%s\n' "$removed_decls" "$removed_braced" | sort -u | grep -v '^$' || true)
+    [[ -z "$removed_names" ]] && return 0
+
+    local design_docs
+    design_docs=$(ls "$REPO_ROOT"/docs/design-*.md 2>/dev/null | grep -v "_template.md" || true)
+    [[ -z "$design_docs" ]] && return 0
+
+    local name doc
+    while IFS= read -r name; do
+        # Shape guard: real identifiers ≥3 chars — short/generic tokens match too much prose.
+        [[ ${#name} -ge 3 ]] || continue
+        # Skip if the symbol still lives somewhere (moved/renamed-forward/re-export refactor).
+        symbol_still_exported "$name" && continue
+        for doc in $design_docs; do
+            if grep -qF "\`${name}\`" "$doc" 2>/dev/null; then
+                ERRORS+=("Doc/code drift: $(basename "$doc") still references \`${name}\`, an exported symbol removed in this change (no longer exported anywhere). Update the doc — drop or reword the reference to the since-removed symbol.")
+            fi
+        done
+    done <<< "$removed_names"
+}
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 
@@ -347,6 +425,7 @@ check_design_doc_status
 check_doc_index_sync
 check_changelog_entries
 check_doc_symbol_drift
+check_doc_exported_symbol_drift
 
 # Report results
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
