@@ -237,6 +237,46 @@ describe("enforce", () => {
     expect(second.messagesRescued).toBe(0);
   });
 
+  it("rescues a sender trusted via a domain override, not just raw-trusted ones (#146)", async () => {
+    const store = createInMemoryStore();
+    // Address status is still "blocked", but the domain is trusted at domain scope → the
+    // sender is EFFECTIVELY trusted, so its spam-marked mail must be rescued.
+    await store.domains.put(
+      domainBuilder("good.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    await store.senders.put(
+      senderBuilder("friend@good.com", { trustStatus: "blocked", spamMarkedCount: 2 }),
+    );
+    const gmail = new MockGmailClient([msgFrom("friend@good.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.batchModifyCalls[0]?.edit).toEqual({ removeLabelIds: ["SPAM", "TRASH"] });
+    expect(result.messagesRescued).toBe(1);
+    expect((await store.senders.get(senderBuilder("friend@good.com").id))?.spamMarkedCount).toBe(0);
+  });
+
+  it("does not rescue a domain-trusted sender that is an explicit block exception (#146)", async () => {
+    const store = createInMemoryStore();
+    // Domain trusted, but this address is a recorded exception blocked at the address → it
+    // stays effectively blocked and must NOT be pulled out of SPAM/TRASH.
+    await store.domains.put(
+      domainBuilder("good.com", {
+        trustStatus: "trusted",
+        decisionScope: "domain",
+        exceptionAddresses: ["spammer@good.com"],
+      }),
+    );
+    await store.senders.put(
+      senderBuilder("spammer@good.com", { trustStatus: "blocked", spamMarkedCount: 2 }),
+    );
+    const gmail = new MockGmailClient([msgFrom("spammer@good.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(result.messagesRescued).toBe(0);
+  });
+
   it("deletes a managed filter when its sender is no longer blocked", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("gone@x.com", { trustStatus: "blocked" }));

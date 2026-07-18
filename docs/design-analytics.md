@@ -145,7 +145,7 @@ All exported from `@inboxclinic/core` (pure unless noted).
 ```ts
 // metrics.ts — pure
 inboxHealthScore(input: InboxHealthInput): number;           // 0–100
-healthInputFromSenders(senders: Sender[]): InboxHealthInput;
+healthInputFromSenders(senders: Sender[], domains: Domain[]): InboxHealthInput; // effective status
 estimatedTimeSaved(emailsBlocked: number): number;           // seconds
 categoryBreakdown(senders: Sender[]): CategoryStat[];        // volume desc
 topDomainsByVolume(domains, limit, { status? }): DomainVolume[];
@@ -214,3 +214,4 @@ provided — existing local analytics records, if any, are simply re-accumulated
 |------|--------|--------|
 | 2026-06-28 | Initial draft: health score, time-saved, breakdowns, achievements, daily-counter persistence, and the privacy-safe shareable snapshot (M6). | Claude |
 | 2026-07-16 | Resolve the shareable-snapshot **format** (open question, cross-ref #99): the primary share form is a **PNG image** rendered on-device from the aggregate numbers, alongside the existing JSON / plain-text export. | Claude |
+| 2026-07-18 | `healthInputFromSenders` now takes `domains` and counts **effective** trust status (domain overrides + exceptions), so a domain-overridden sender is counted by its effective status, not its raw address status (#146). | Claude |
