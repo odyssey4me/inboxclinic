@@ -140,7 +140,15 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
       label: scope === "domain" ? current.domain : current.email,
       coveredSenderIds: covered,
     };
-    setPending((list) => [...list.filter((p) => p.subjectId !== entry.subjectId), entry]);
+    // Drop any staged entry this decision supersedes: the same subject (a re-decide) AND any
+    // per-sender entry whose sender this decision now covers. Otherwise a whole-domain decision
+    // taken after an individual one leaves the individual entry dangling, and both apply at
+    // Execution — the later one silently overwriting the earlier, with a stray filter (#142).
+    const coveredIds = new Set(covered);
+    setPending((list) => [
+      ...list.filter((p) => p.subjectId !== entry.subjectId && !coveredIds.has(p.subjectId)),
+      entry,
+    ]);
     advanceAfter(covered);
   }
 
