@@ -155,6 +155,73 @@ describe("simulateEnforcement", () => {
     expect(gmail.deletedFilterIds).toHaveLength(0); // no mutation
   });
 
+  it("treats a defer on an already-decided sender as a no-op, not a reversal (#148)", async () => {
+    const store = createInMemoryStore();
+    // A currently-blocked sender whose managed filter exists in Gmail.
+    await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    await store.filterSync.put({
+      key: "filterSyncState",
+      lastSyncAt: null,
+      totalFilters: 1,
+      managedFilterIds: ["f1"],
+    });
+
+    // Previewing "not sure" (defer) must leave the block intact — the real apply is a no-op,
+    // so the preview must not show the filter being removed.
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("spam@x.com"), scope: "address", decision: "defer" },
+    ]);
+
+    expect(impact.filtersToDelete).toBe(0);
+    expect(impact.filtersToCreate).toBe(0);
+  });
+
+  it("treats a defer on an already-blocked domain as a no-op (#148)", async () => {
+    const store = createInMemoryStore();
+    // A currently-blocked domain whose managed wildcard filter exists in Gmail.
+    await store.domains.put(domainBuilder("promo.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      { id: "d1", from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    await store.filterSync.put({
+      key: "filterSyncState",
+      lastSyncAt: null,
+      totalFilters: 1,
+      managedFilterIds: ["d1"],
+    });
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("promo.com"), scope: "domain", decision: "defer" },
+    ]);
+
+    expect(impact.filtersToDelete).toBe(0);
+    expect(impact.filtersToCreate).toBe(0);
+  });
+
+  it("previews a defer on a still-pending sender as no change (#148)", async () => {
+    const store = createInMemoryStore();
+    // Pending, no filter anywhere — a defer keeps it pending, so nothing is created or removed.
+    await store.senders.put(senderBuilder("maybe@x.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("maybe@x.com"), scope: "address", decision: "defer" },
+    ]);
+
+    expect(impact).toEqual({
+      filtersToCreate: 0,
+      filtersToDelete: 0,
+      messagesToArchive: 0,
+      messagesToDelete: 0,
+      messagesToRescue: 0,
+    });
+  });
+
   it("never previews deleting a foreign filter sharing the block action shape (#29)", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
