@@ -13,6 +13,7 @@
 import { compileFilters, reconcileFilters } from "./compileFilters";
 import { planActions } from "./planActions";
 import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
+import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import type { BlockAction, Decision, DecisionScope, Sender, Store, TrustStatus } from "../store";
 
@@ -98,7 +99,26 @@ export async function simulateEnforcement(
         }).status === "blocked"
       );
     });
-    const blockedDomains = domains.filter((d) => domainStatus.get(d.id) === "blocked");
+    const blockedDomains = domains
+      .filter((d) => domainStatus.get(d.id) === "blocked")
+      .map((d) => ({
+        domain: d.domain,
+        // Carve out exception addresses this (prospectively) blocked domain no longer blocks,
+        // so the previewed filter set matches what enforce would create (#145).
+        excludeAddresses: d.exceptionAddresses.filter((email) => {
+          const s = senderById.get(keyFor(email));
+          if (s === undefined) return false;
+          const addr = senderStatus.get(s.id) ?? s.trustStatus;
+          return (
+            resolveEffectiveDecision({
+              addressStatus: addr === "pending" ? null : addr,
+              addressIsException: true,
+              domainStatus: "blocked",
+              domainScope: "domain",
+            }).status !== "blocked"
+          );
+        }),
+      }));
     const compiled = compileFilters(blockedSenders, blockedDomains);
     const existing = await client.listFilters();
     const managedFilterIds = new Set((await store.filterSync.get())?.managedFilterIds ?? []);

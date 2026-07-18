@@ -87,7 +87,7 @@ interface GmailHistoryListResponse {
 
 interface GmailFilterResource {
   id: string;
-  criteria?: { from?: string };
+  criteria?: { from?: string; negatedQuery?: string };
   action?: { addLabelIds?: string[]; removeLabelIds?: string[] };
 }
 
@@ -95,11 +95,22 @@ interface GmailFilterListResponse {
   filter?: GmailFilterResource[];
 }
 
+/** Our `negatedQuery` shape `from:(a OR b)` → the `excludeFrom` addresses `a OR b`. */
+function unwrapExcludeFrom(negatedQuery: string | undefined): string | undefined {
+  if (negatedQuery === undefined) return undefined;
+  const match = /^from:\((.*)\)$/s.exec(negatedQuery);
+  return match ? match[1] : negatedQuery;
+}
+
 /** Map a Gmail filter resource into the port's `NativeFilter` shape. */
 function toNativeFilter(resource: GmailFilterResource): NativeFilter {
+  const excludeFrom = unwrapExcludeFrom(resource.criteria?.negatedQuery);
   return {
     id: resource.id,
     from: resource.criteria?.from ?? "",
+    // Read the exclusion back so reconcile is idempotent — a filter with exceptions must
+    // compare equal to its desired spec, not look "missing exclusion" every run (#145).
+    ...(excludeFrom !== undefined ? { excludeFrom } : {}),
     addLabelIds: resource.action?.addLabelIds ?? [],
     removeLabelIds: resource.action?.removeLabelIds ?? [],
   };
@@ -251,8 +262,13 @@ export class BrowserGmailClient implements GmailClient {
 
   async createFilter(spec: FilterSpec): Promise<NativeFilter> {
     await this.ensureScopes([2]);
+    const criteria: { from: string; negatedQuery?: string } = { from: spec.from };
+    // Carve out trusted exception addresses via Gmail's "doesn't have the words" (#145).
+    if (spec.excludeFrom !== undefined && spec.excludeFrom !== "") {
+      criteria.negatedQuery = `from:(${spec.excludeFrom})`;
+    }
     const body = {
-      criteria: { from: spec.from },
+      criteria,
       action: { addLabelIds: spec.addLabelIds, removeLabelIds: spec.removeLabelIds },
     };
     const created = await this.apiSend<GmailFilterResource>("POST", "/settings/filters", body);
@@ -277,8 +293,16 @@ export class BrowserGmailClient implements GmailClient {
     }
   }
 
-  async listMessageIdsForSender(from: string, max = PAGE_SIZE): Promise<string[]> {
-    return this.listMessageIds(`from:${from}`, max);
+  async listMessageIdsForSender(
+    from: string,
+    max = PAGE_SIZE,
+    excludeFrom?: string,
+  ): Promise<string[]> {
+    const query =
+      excludeFrom !== undefined && excludeFrom !== ""
+        ? `from:${from} -from:(${excludeFrom})`
+        : `from:${from}`;
+    return this.listMessageIds(query, max);
   }
 
   private async apiGet<T>(path: string): Promise<T> {

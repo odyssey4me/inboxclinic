@@ -32,10 +32,23 @@ export interface OptimiseFiltersOptions {
   consolidateThreshold?: number;
 }
 
-/** Stable key for duplicate detection: normalised criteria + label edits. */
+/** Stable key for duplicate detection: normalised criteria (incl. exclusion) + label edits. */
 function filterKey(f: NativeFilter): string {
   const norm = (xs: string[]): string => [...xs].sort().join(",");
-  return `${f.from.trim().toLowerCase()}|${norm(f.addLabelIds)}|${norm(f.removeLabelIds)}`;
+  const exclude = (f.excludeFrom ?? "").trim().toLowerCase();
+  return `${f.from.trim().toLowerCase()}|${exclude}|${norm(f.addLabelIds)}|${norm(f.removeLabelIds)}`;
+}
+
+/** The lowercased addresses a filter's `excludeFrom` (`a OR b`) carves out. */
+function excludeSet(excludeFrom: string | undefined): Set<string> {
+  if (excludeFrom === undefined || excludeFrom === "") return new Set();
+  return new Set(
+    excludeFrom
+      .toLowerCase()
+      .split(/\s+or\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
 }
 
 function domainBlockFilter(domain: string): FilterSpec {
@@ -73,21 +86,27 @@ export async function suggestFilterOptimisations(
     }
   }
 
-  // Classify single-subject filters into domain rules and address rules.
-  const domainRuleFor = new Map<string, string>(); // domain → a filter id covering it
+  // Classify single-subject filters into domain rules and address rules. A domain rule carries
+  // the addresses it excludes (#145), so a carved-out address isn't treated as "covered".
+  const domainRuleFor = new Map<string, { id: string; exclude: Set<string> }>();
   const addressRules: { id: string; email: string; domain: string }[] = [];
   for (const f of filters) {
     const subjects = parseFilterSubjects(f.from);
-    for (const s of subjects) if (s.scope === "domain") domainRuleFor.set(s.value, f.id);
+    for (const s of subjects) {
+      if (s.scope === "domain")
+        domainRuleFor.set(s.value, { id: f.id, exclude: excludeSet(f.excludeFrom) });
+    }
     if (subjects.length === 1 && subjects[0]?.scope === "address") {
       const email = subjects[0].value;
       addressRules.push({ id: f.id, email, domain: email.slice(email.indexOf("@") + 1) });
     }
   }
 
-  // Redundant: an address rule already covered by a domain rule.
+  // Redundant: an address rule already covered by a domain rule — but NOT if that domain rule
+  // excludes the address (then the address rule is doing real work).
   for (const rule of addressRules) {
-    if (domainRuleFor.has(rule.domain)) {
+    const domainRule = domainRuleFor.get(rule.domain);
+    if (domainRule !== undefined && !domainRule.exclude.has(rule.email.toLowerCase())) {
       suggestions.push({
         kind: "redundant",
         description: `${rule.email} is already covered by the *@${rule.domain} filter`,

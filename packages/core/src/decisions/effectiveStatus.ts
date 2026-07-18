@@ -42,3 +42,32 @@ export async function effectiveBlockedSenders(store: Store): Promise<Sender[]> {
   const byKey = new Map(domains.map((d) => [keyFor(d.domain), d]));
   return blocked.filter((s) => effectiveSenderStatus(s, byKey.get(keyFor(s.domain))) === "blocked");
 }
+
+/** A blocked domain plus the exception addresses to carve out of its block. */
+export interface BlockedDomainTarget {
+  domain: Domain;
+  /** Exception addresses whose effective status is NOT blocked — carved out via negatedQuery. */
+  excludeAddresses: string[];
+}
+
+/**
+ * The blocked domains, each with the exception addresses that must be excluded from its block
+ * (`*@domain`) filter and existing-mail sweep — the exceptions the domain override no longer
+ * blocks (a per-address trust). Without this, a blocked domain trashes its trusted exceptions
+ * (#145).
+ */
+export async function effectiveBlockedDomains(store: Store): Promise<BlockedDomainTarget[]> {
+  const domains = await store.domains.query({ trustStatus: "blocked" });
+  const targets: BlockedDomainTarget[] = [];
+  for (const domain of domains) {
+    const excludeAddresses: string[] = [];
+    for (const email of domain.exceptionAddresses) {
+      const sender = await store.senders.get(keyFor(email));
+      if (sender !== undefined && effectiveSenderStatus(sender, domain) !== "blocked") {
+        excludeAddresses.push(email);
+      }
+    }
+    targets.push({ domain, excludeAddresses });
+  }
+  return targets;
+}
