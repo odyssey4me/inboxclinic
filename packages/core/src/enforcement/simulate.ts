@@ -12,6 +12,7 @@
 
 import { compileFilters, reconcileFilters } from "./compileFilters";
 import { planActions } from "./planActions";
+import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
 import type { GmailClient } from "../ports/GmailClient";
 import type { BlockAction, Decision, DecisionScope, Sender, Store, TrustStatus } from "../store";
 
@@ -65,6 +66,7 @@ export async function simulateEnforcement(
   const domains = await store.domains.query({});
   const senderById = new Map(senders.map((s) => [s.id, s]));
   const domainById = new Map(domains.map((d) => [d.id, d]));
+  const domainByName = new Map(domains.map((d) => [d.domain.toLowerCase(), d]));
 
   // Prospective trust status: current state with the previewed decisions applied.
   const senderStatus = new Map(senders.map((s) => [s.id, s.trustStatus]));
@@ -79,7 +81,21 @@ export async function simulateEnforcement(
   let filtersToCreate = 0;
   let filtersToDelete = 0;
   try {
-    const blockedSenders = senders.filter((s) => senderStatus.get(s.id) === "blocked");
+    // Effective blocked set: a sender whose (prospective) domain trusts it is not blocked,
+    // so the preview matches what enforce would actually do (#144).
+    const blockedSenders = senders.filter((s) => {
+      const domain = domainByName.get(s.domain.toLowerCase());
+      const addressStatus = senderStatus.get(s.id) ?? s.trustStatus;
+      const domainStat = domain ? (domainStatus.get(domain.id) ?? domain.trustStatus) : "pending";
+      return (
+        resolveEffectiveDecision({
+          addressStatus: addressStatus === "pending" ? null : addressStatus,
+          addressIsException: domain?.exceptionAddresses.includes(s.email) ?? false,
+          domainStatus: domainStat === "pending" ? null : domainStat,
+          domainScope: domain?.decisionScope ?? null,
+        }).status === "blocked"
+      );
+    });
     const blockedDomains = domains.filter((d) => domainStatus.get(d.id) === "blocked");
     const compiled = compileFilters(blockedSenders, blockedDomains);
     const existing = await client.listFilters();

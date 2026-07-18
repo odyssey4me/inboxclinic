@@ -27,6 +27,7 @@
 import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
 import { planActions } from "./planActions";
 import { recordDailyAnalytics } from "../analytics/record";
+import { effectiveBlockedSenders } from "../decisions/effectiveStatus";
 import type { GmailClient } from "../ports/GmailClient";
 import type { BlockAction, Store } from "../store";
 
@@ -107,7 +108,9 @@ export async function reconcileNativeFilters(
   options: CompileFiltersOptions = {},
 ): Promise<FilterReconcileOutcome> {
   const failures: EnforceFailure[] = [];
-  const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
+  // The *effective* blocked set — a sender the user has trusted at the domain level is
+  // excluded (unless it's an exception), so its filter is dropped rather than kept alive (#144).
+  const blockedSenders = await effectiveBlockedSenders(store);
   const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
   const compiled = compileFilters(blockedSenders, blockedDomains, options);
 
@@ -178,7 +181,7 @@ export async function enforce(
   const now = options.now ?? Date.now();
   const failures: EnforceFailure[] = [];
 
-  const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
+  const blockedSenders = await effectiveBlockedSenders(store);
   const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
 
   // 1. Native filters — reconcile the durable block set against Gmail.

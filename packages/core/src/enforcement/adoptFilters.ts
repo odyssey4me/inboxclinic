@@ -11,6 +11,7 @@
 
 import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
+import { effectiveBlockedSenders } from "../decisions/effectiveStatus";
 import type { GmailClient } from "../ports/GmailClient";
 import type { Store } from "../store";
 
@@ -31,7 +32,7 @@ export async function suggestFilterAdoptions(
   store: Store,
   options: CompileFiltersOptions = {},
 ): Promise<FilterAdoption[]> {
-  const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
+  const blockedSenders = await effectiveBlockedSenders(store);
   const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
   const compiled = compileFilters(blockedSenders, blockedDomains, options);
 
@@ -63,7 +64,7 @@ export async function applyFilterAdoptions(
   adoptions: ReadonlyArray<FilterAdoption>,
   options: CompileFiltersOptions = {},
 ): Promise<{ adopted: number; skipped: number }> {
-  const blockedSenders = await store.senders.query({ trustStatus: "blocked" });
+  const blockedSenders = await effectiveBlockedSenders(store);
   const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
   const compiled = compileFilters(blockedSenders, blockedDomains, options);
   const desiredFroms = new Set(compiled.filters.map((filter) => filter.from.toLowerCase()));
