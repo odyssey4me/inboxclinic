@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
-  applyDecisions,
+  applyDecision,
   defaultBlockActions,
   enforce,
   keyFor,
@@ -115,22 +115,18 @@ export function SenderDetail({
     setBusy(true);
     setError(null);
     try {
-      // Apply as one batch so a domain-scope target lands before any address-scope target it
-      // covers — keeping a "block the domain, keep this sender" pair correct (#167).
-      const now = Date.now();
-      const outcomes = await applyDecisions(
-        store,
-        targets.map((t) => ({
+      // Targets here never mix scopes in one commit (a single subject, or same-scope flagged
+      // siblings), so no same-batch domain/address ordering hazard applies (#167).
+      for (const t of targets) {
+        await applyDecision(store, {
           subjectId: t.subjectId,
           scope: t.scope,
           decision,
           actions: decision === "block" ? blockActions(t, actions) : [],
-          decidedVia: "dashboard" as const,
-          now,
-        })),
-      );
-      const failure = outcomes.find((o) => o.error !== undefined);
-      if (failure?.error !== undefined) throw new Error(failure.error);
+          decidedVia: "dashboard",
+          now: Date.now(),
+        });
+      }
       await enforce(gmail, store);
       onChanged();
       onClose();

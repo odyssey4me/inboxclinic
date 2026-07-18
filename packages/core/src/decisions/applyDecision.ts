@@ -238,6 +238,14 @@ export interface AppliedDecision {
   error?: string;
 }
 
+export interface ApplyDecisionsOptions {
+  /**
+   * Called after each decision settles (in applied — i.e. domain-first — order), for progress
+   * UI. The returned array is still input-ordered; this is only a per-item notification.
+   */
+  onSettled?: (outcome: AppliedDecision) => void;
+}
+
 /**
  * Apply a batch of decisions in one pass, **domain-scope decisions first**.
  *
@@ -254,6 +262,7 @@ export interface AppliedDecision {
 export async function applyDecisions(
   store: Store,
   inputs: readonly ApplyDecisionInput[],
+  options: ApplyDecisionsOptions = {},
 ): Promise<AppliedDecision[]> {
   const outcomes: AppliedDecision[] = inputs.map((input) => ({ input }));
   // Apply in scope order (domain first) over a stable-sorted copy that shares the same outcome
@@ -265,6 +274,7 @@ export async function applyDecisions(
     } catch (error) {
       outcome.error = error instanceof Error ? error.message : String(error);
     }
+    options.onSettled?.(outcome);
   }
   return outcomes;
 }

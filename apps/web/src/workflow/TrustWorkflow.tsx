@@ -540,9 +540,12 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
     void (async () => {
       // Apply as one batch so domain-scope decisions land before address-scope ones — a
       // "block the domain, keep this sender" pair records the kept member as an exception
-      // rather than trashing it (#167). Outcomes come back in `pending` order.
+      // rather than trashing it (#167). `onSettled` streams each result as it lands so the
+      // progress bar still animates, even though the batch reorders internally.
       const now = Date.now();
-      const outcomes = await applyDecisions(
+      const labelById = new Map(pending.map((entry) => [entry.subjectId, entry.label]));
+      const collected: ExecResult[] = [];
+      await applyDecisions(
         store,
         pending.map((entry) => ({
           subjectId: entry.subjectId,
@@ -551,12 +554,15 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
           actions: entry.actions,
           now,
         })),
-      );
-      setResults(
-        pending.map((entry, i) => ({
-          label: entry.label,
-          status: outcomes[i]?.error === undefined ? "applied" : "failed",
-        })),
+        {
+          onSettled: (outcome) => {
+            collected.push({
+              label: labelById.get(outcome.input.subjectId) ?? outcome.input.subjectId,
+              status: outcome.error === undefined ? "applied" : "failed",
+            });
+            setResults([...collected]);
+          },
+        },
       );
       // Record done first, then enforce against Gmail (filters + message actions).
       try {

@@ -399,10 +399,27 @@ describe("applyDecisions — batch ordering (#167)", () => {
     ]);
   });
 
+  it("streams each settled outcome via onSettled (domain-first), then returns input order", async () => {
+    const store = await seed();
+    const streamed: string[] = [];
+    const outcomes = await applyDecisions(store, [memberTrust, domainBlock], {
+      onSettled: (o) => streamed.push(o.input.scope),
+    });
+    // onSettled fires in applied (domain-first) order...
+    expect(streamed).toEqual(["domain", "address"]);
+    // ...while the returned array stays in input order.
+    expect(outcomes.map((o) => o.input.scope)).toEqual(["address", "domain"]);
+  });
+
   it("is per-item resilient — a failing decision doesn't abort the rest", async () => {
     const store = await seed();
     const outcomes = await applyDecisions(store, [
-      { subjectId: keyFor("missing@acme.com"), scope: "address" as const, decision: "trust" as const, now: NOW },
+      {
+        subjectId: keyFor("missing@acme.com"),
+        scope: "address" as const,
+        decision: "trust" as const,
+        now: NOW,
+      },
       memberTrust,
     ]);
     expect(outcomes[0]?.error).toBeDefined(); // unknown sender
