@@ -39,12 +39,6 @@ export interface SimulatedImpact {
   messagesToRescue: number;
 }
 
-function statusFor(decision: Decision): TrustStatus {
-  if (decision === "block") return "blocked";
-  if (decision === "trust") return "trusted";
-  return "pending";
-}
-
 /**
  * Estimate how many messages a sender sends per week, from its last-30-day volume — used
  * to extrapolate the *going-forward* impact of a rule in the preview.
@@ -73,7 +67,12 @@ export async function simulateEnforcement(
   const senderStatus = new Map(senders.map((s) => [s.id, s.trustStatus]));
   const domainStatus = new Map(domains.map((d) => [d.id, d.trustStatus]));
   for (const decision of decisions) {
-    const next = statusFor(decision.decision);
+    // Defer never changes trust status: it's a no-op on an already-decided subject and only
+    // decays a still-pending prompt (applyDecision.ts). Leave the seeded current status alone
+    // rather than forcing it to "pending" — the latter overstated an already-decided subject
+    // appearing to lose its override in the preview (#148).
+    if (decision.decision === "defer") continue;
+    const next: TrustStatus = decision.decision === "block" ? "blocked" : "trusted";
     if (decision.scope === "domain") domainStatus.set(decision.subjectId, next);
     else senderStatus.set(decision.subjectId, next);
   }
