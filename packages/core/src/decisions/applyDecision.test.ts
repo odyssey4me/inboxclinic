@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
 import { createInMemoryStore } from "../testing";
-import type { Domain, Prompt, Sender, Store } from "../store";
-import { applyDecision, DEFER_DECAY } from "./applyDecision";
+import type { BlockAction, Domain, Prompt, Sender, Store } from "../store";
+import { applyDecision, applyDecisions, DEFER_DECAY } from "./applyDecision";
 import { resolveEffectiveDecision } from "./resolveEffectiveDecision";
 
 const NOW = 1_700_000_000_000;
@@ -344,5 +344,69 @@ describe("applyDecision — domain scope (overrides address)", () => {
         now: NOW,
       }),
     ).rejects.toThrow(/no domain/);
+  });
+});
+
+describe("applyDecisions — batch ordering (#167)", () => {
+  const domainBlock = {
+    subjectId: keyFor("acme.com"),
+    scope: "domain" as const,
+    decision: "block" as const,
+    actions: ["create_filter", "delete"] as BlockAction[],
+    now: NOW,
+  };
+  const memberTrust = {
+    subjectId: keyFor("a@acme.com"),
+    scope: "address" as const,
+    decision: "trust" as const,
+    now: NOW,
+  };
+
+  it.each([
+    ["domain decision first", [domainBlock, memberTrust]],
+    ["address decision first", [memberTrust, domainBlock]],
+  ])(
+    "records a kept member as a domain exception regardless of submission order (%s)",
+    async (_label, batch) => {
+      const store = await seed();
+      const outcomes = await applyDecisions(store, batch);
+      expect(outcomes.every((o) => o.error === undefined)).toBe(true);
+
+      const domain = await store.domains.get(keyFor("acme.com"));
+      const member = await store.senders.get(keyFor("a@acme.com"));
+      // The domain lands blocked at domain scope...
+      expect(domain?.trustStatus).toBe("blocked");
+      expect(domain?.decisionScope).toBe("domain");
+      // ...and the kept member is recorded as an exception, so it resolves effectively trusted
+      // (not overridden and trashed) — the intended "block the domain, keep this sender" outcome.
+      expect(domain?.exceptionAddresses).toContain("a@acme.com");
+      const effective = resolveEffectiveDecision({
+        addressStatus: member?.trustStatus === "pending" ? null : (member?.trustStatus ?? null),
+        addressIsException: domain?.exceptionAddresses.includes("a@acme.com") ?? false,
+        domainStatus: domain?.trustStatus === "pending" ? null : (domain?.trustStatus ?? null),
+        domainScope: domain?.decisionScope ?? null,
+      });
+      expect(effective.status).toBe("trusted");
+    },
+  );
+
+  it("returns outcomes in the original input order", async () => {
+    const store = await seed();
+    const outcomes = await applyDecisions(store, [memberTrust, domainBlock]);
+    expect(outcomes.map((o) => o.input.subjectId)).toEqual([
+      keyFor("a@acme.com"),
+      keyFor("acme.com"),
+    ]);
+  });
+
+  it("is per-item resilient — a failing decision doesn't abort the rest", async () => {
+    const store = await seed();
+    const outcomes = await applyDecisions(store, [
+      { subjectId: keyFor("missing@acme.com"), scope: "address" as const, decision: "trust" as const, now: NOW },
+      memberTrust,
+    ]);
+    expect(outcomes[0]?.error).toBeDefined(); // unknown sender
+    expect(outcomes[1]?.result).toBeDefined(); // the valid decision still applied
+    expect((await store.senders.get(keyFor("a@acme.com")))?.trustStatus).toBe("trusted");
   });
 });

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
-  applyDecision,
+  applyDecisions,
   defaultBlockActions,
   enforce,
   estimateWeeklyVolume,
@@ -538,22 +538,26 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
     if (started.current) return;
     started.current = true;
     void (async () => {
-      const collected: ExecResult[] = [];
-      for (const entry of pending) {
-        try {
-          await applyDecision(store, {
-            subjectId: entry.subjectId,
-            scope: entry.scope,
-            decision: entry.decision,
-            actions: entry.actions,
-            now: Date.now(),
-          });
-          collected.push({ label: entry.label, status: "applied" });
-        } catch {
-          collected.push({ label: entry.label, status: "failed" });
-        }
-        setResults([...collected]);
-      }
+      // Apply as one batch so domain-scope decisions land before address-scope ones — a
+      // "block the domain, keep this sender" pair records the kept member as an exception
+      // rather than trashing it (#167). Outcomes come back in `pending` order.
+      const now = Date.now();
+      const outcomes = await applyDecisions(
+        store,
+        pending.map((entry) => ({
+          subjectId: entry.subjectId,
+          scope: entry.scope,
+          decision: entry.decision,
+          actions: entry.actions,
+          now,
+        })),
+      );
+      setResults(
+        pending.map((entry, i) => ({
+          label: entry.label,
+          status: outcomes[i]?.error === undefined ? "applied" : "failed",
+        })),
+      );
       // Record done first, then enforce against Gmail (filters + message actions).
       try {
         setEnforcement(await enforce(gmail, store, { now: Date.now() }));
