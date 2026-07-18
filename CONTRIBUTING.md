@@ -64,9 +64,15 @@ client id is public by design (PKCE), and nothing secret is ever stored.
 ```bash
 npm test             # Vitest (unit + component)
 npm run lint         # ESLint
-npm run format       # Prettier
 npm run typecheck    # tsc --noEmit
+npm run knip         # dead code: unused files / exports / dependencies (knip)
+npm run format       # Prettier
 ```
+
+`knip` enforces CLAUDE.md's **No Dead Code** rule in the gate — it flags orphaned modules,
+unused exports, and unused dependencies. Real entry points (the Vite app, the service
+worker, and the Cloudflare Pages Functions in `apps/web/functions/`) are declared in
+`knip.json`; add new non-imported entry points there rather than suppressing findings.
 
 **End-to-end (Tier 3, Playwright):** drives the built app through its no-Google
 [demo mode](docs/design-frontend.md) — no account or network needed.

@@ -13,7 +13,7 @@ const GIS_POLL_MS = 50;
 const GIS_TIMEOUT_MS = 10_000;
 
 /** Resolve once the GIS `oauth2` namespace has loaded, or reject after a timeout. */
-export function waitForGis(): Promise<typeof google.accounts.oauth2> {
+function waitForGis(): Promise<typeof google.accounts.oauth2> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const poll = (): void => {
