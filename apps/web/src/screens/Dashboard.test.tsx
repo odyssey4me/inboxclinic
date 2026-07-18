@@ -8,29 +8,43 @@ import {
 } from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { LayoutContext } from "../layout/context";
 import { Dashboard } from "./Dashboard";
+
+/** Renders the current URL search string so tests can assert URL-controlled state (#120). */
+function LocationProbe() {
+  const { search } = useLocation();
+  return <div data-testid="location-search" data-search={search} />;
+}
+
+const currentSearch = (): string =>
+  screen.getByTestId("location-search").getAttribute("data-search") ?? "";
 
 /** Render pinned to the mobile shell (jsdom otherwise resolves layout to desktop). */
 function renderMobile(
   store: Store,
   gmail: MockGmailClient,
   overrides: Partial<ComponentProps<typeof Dashboard>> = {},
+  initialEntries: string[] = ["/"],
 ) {
   return render(
-    <LayoutContext.Provider value={{ pref: "mobile", setPref: vi.fn(), layout: "mobile" }}>
-      <Dashboard
-        store={store}
-        gmail={gmail}
-        online
-        refreshKey={0}
-        onStartWorkflow={vi.fn()}
-        onChanged={vi.fn()}
-        {...overrides}
-      />
-    </LayoutContext.Provider>,
+    <MemoryRouter initialEntries={initialEntries}>
+      <LocationProbe />
+      <LayoutContext.Provider value={{ pref: "mobile", setPref: vi.fn(), layout: "mobile" }}>
+        <Dashboard
+          store={store}
+          gmail={gmail}
+          online
+          refreshKey={0}
+          onStartWorkflow={vi.fn()}
+          onChanged={vi.fn()}
+          {...overrides}
+        />
+      </LayoutContext.Provider>
+    </MemoryRouter>,
   );
 }
 
@@ -42,17 +56,21 @@ function renderDashboard(
   store: Store,
   gmail: MockGmailClient,
   overrides: Partial<ComponentProps<typeof Dashboard>> = {},
+  initialEntries: string[] = ["/"],
 ) {
   return render(
-    <Dashboard
-      store={store}
-      gmail={gmail}
-      online
-      refreshKey={0}
-      onStartWorkflow={vi.fn()}
-      onChanged={vi.fn()}
-      {...overrides}
-    />,
+    <MemoryRouter initialEntries={initialEntries}>
+      <LocationProbe />
+      <Dashboard
+        store={store}
+        gmail={gmail}
+        online
+        refreshKey={0}
+        onStartWorkflow={vi.fn()}
+        onChanged={vi.fn()}
+        {...overrides}
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -340,5 +358,66 @@ describe("Dashboard — flagged siblings (#96)", () => {
 
     const drawer = await screen.findByRole("dialog", { name: /actions for a@shop.com/i });
     expect(await within(drawer).findByText(/1 other flagged sender/i)).toBeInTheDocument();
+  });
+});
+
+describe("Dashboard — URL-controlled tab + detail (#120)", () => {
+  it("puts the active tab in the URL, preserving ?demo=1; default pending stays clean", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("pending@x.com"));
+    await store.senders.put(senderBuilder("trusted@y.com", { trustStatus: "trusted" }));
+
+    renderDashboard(store, gmail, {}, ["/?demo=1"]);
+    await screen.findByText("pending@x.com");
+    expect(currentSearch()).toBe("?demo=1"); // default tab omitted from the URL
+
+    fireEvent.click(screen.getByRole("tab", { name: /decided \(1\)/i }));
+    await screen.findByText("trusted@y.com");
+    const params = new URLSearchParams(currentSearch());
+    expect(params.get("tab")).toBe("decided");
+    expect(params.get("demo")).toBe("1"); // ?demo=1 survives the merge
+  });
+
+  it("opens the tab named in ?tab= on load", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("pending@x.com"));
+    await store.senders.put(senderBuilder("trusted@y.com", { trustStatus: "trusted" }));
+
+    renderDashboard(store, gmail, {}, ["/?tab=decided"]);
+    expect(await screen.findByText("trusted@y.com")).toBeInTheDocument();
+    expect(screen.queryByText("pending@x.com")).not.toBeInTheDocument();
+  });
+
+  it("opens the detail panel for ?sender=<id> on load and clears the param on close", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("deep@x.com"));
+
+    renderDashboard(store, gmail, {}, [`/?sender=${keyFor("deep@x.com")}`]);
+    expect(
+      await screen.findByRole("dialog", { name: /actions for deep@x.com/i }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    await waitFor(() => expect(new URLSearchParams(currentSearch()).has("sender")).toBe(false));
+  });
+
+  it("clicking a row puts ?sender=<id> in the URL", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("row@x.com"));
+
+    renderDashboard(store, gmail);
+    fireEvent.click(await screen.findByText("row@x.com"));
+    await waitFor(() =>
+      expect(new URLSearchParams(currentSearch()).get("sender")).toBe(keyFor("row@x.com")),
+    );
+  });
+
+  it("ignores an unknown ?sender= id (panel stays closed)", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("real@x.com"));
+
+    renderDashboard(store, gmail, {}, ["/?sender=does-not-exist"]);
+    await screen.findByText("real@x.com");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

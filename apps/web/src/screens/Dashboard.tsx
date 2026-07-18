@@ -13,6 +13,7 @@ import {
   type TrustStatus,
 } from "@inboxclinic/core";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { DomainDetail } from "../components/composed/DomainDetail";
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
@@ -106,13 +107,23 @@ export function Dashboard({
   const { layout } = useLayout();
   const desktop = layout === "desktop";
 
-  const [tab, setTab] = useState<Tab>("pending");
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The active tab and any open detail are URL-controlled (`?tab=`, `?sender=`/`?domain=`), so
+  // they're bookmarkable/linkable and back/forward moves between them (design-frontend.md D8, #120).
+  // "pending" is the default and stays out of a clean URL; every setter merges so `?demo=1` survives.
+  const tabParam = searchParams.get("tab");
+  const tab: Tab = tabParam === "decided" || tabParam === "all" ? tabParam : "pending";
+  const setTab = (id: Tab): void =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id === "pending") next.delete("tab");
+      else next.set("tab", id);
+      return next;
+    });
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [groupByDomain, setGroupByDomain] = useState(false);
-  const [selected, setSelected] = useState<Sender | null>(null);
-  const [selectedDomain, setSelectedDomain] = useState<Domain | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -151,6 +162,34 @@ export function Dashboard({
   const senders = useMemo(() => data?.senders ?? [], [data]);
   const domains = useMemo(() => data?.domains ?? [], [data]);
   const openPrompts = (data?.prompts ?? []).filter((p) => p.resolvedAt === null);
+
+  // Resolve the open-detail id from the URL against loaded data — so a deep link opens the panel
+  // once data arrives, and the object auto-refreshes across reloads. An unknown id stays closed.
+  const selected = useMemo(() => {
+    const id = searchParams.get("sender");
+    return id === null ? null : (senders.find((s) => s.id === id) ?? null);
+  }, [searchParams, senders]);
+  const selectedDomain = useMemo(() => {
+    const id = searchParams.get("domain");
+    return id === null ? null : (domains.find((d) => d.id === id) ?? null);
+  }, [searchParams, domains]);
+  // Only one detail is open at a time — opening one clears the other; both preserve other params.
+  const openSender = (sender: Sender | null): void =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("domain");
+      if (sender === null) next.delete("sender");
+      else next.set("sender", sender.id);
+      return next;
+    });
+  const openDomain = (domain: Domain | null): void =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("sender");
+      if (domain === null) next.delete("domain");
+      else next.set("domain", domain.id);
+      return next;
+    });
 
   // Trust scores are pure arithmetic but we still avoid recomputing them per comparison.
   const scoreById = useMemo(
@@ -378,7 +417,7 @@ export function Dashboard({
             variant="danger"
             className="px-2 py-1 text-xs"
             disabled={disabled}
-            onClick={() => setSelected(sender)}
+            onClick={() => openSender(sender)}
           >
             Block
           </Button>
@@ -421,7 +460,7 @@ export function Dashboard({
             variant="danger"
             className="px-2 py-1 text-xs"
             disabled={disabled}
-            onClick={() => setSelectedDomain(domain)}
+            onClick={() => openDomain(domain)}
           >
             Block
           </Button>
@@ -498,9 +537,9 @@ export function Dashboard({
             <tr
               key={sender.id}
               tabIndex={0}
-              onClick={() => setSelected(sender)}
+              onClick={() => openSender(sender)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") setSelected(sender);
+                if (event.key === "Enter") openSender(sender);
               }}
               className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
             >
@@ -537,9 +576,9 @@ export function Dashboard({
           <li
             key={sender.id}
             tabIndex={0}
-            onClick={() => setSelected(sender)}
+            onClick={() => openSender(sender)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") setSelected(sender);
+              if (event.key === "Enter") openSender(sender);
             }}
             className="cursor-pointer space-y-2 rounded-md border border-line px-3 py-2 transition-colors hover:border-accent/40 hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
           >
@@ -607,9 +646,9 @@ export function Dashboard({
             <tr
               key={domain.id}
               tabIndex={0}
-              onClick={() => setSelectedDomain(domain)}
+              onClick={() => openDomain(domain)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") setSelectedDomain(domain);
+                if (event.key === "Enter") openDomain(domain);
               }}
               className="cursor-pointer border-b border-line transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
             >
@@ -644,9 +683,9 @@ export function Dashboard({
           <li
             key={domain.id}
             tabIndex={0}
-            onClick={() => setSelectedDomain(domain)}
+            onClick={() => openDomain(domain)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") setSelectedDomain(domain);
+              if (event.key === "Enter") openDomain(domain);
             }}
             className="cursor-pointer space-y-2 rounded-md border border-line px-3 py-2 transition-colors hover:border-accent/40 hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none"
           >
@@ -832,7 +871,7 @@ export function Dashboard({
         store={store}
         gmail={gmail}
         online={online}
-        onClose={() => setSelected(null)}
+        onClose={() => openSender(null)}
         onChanged={onChanged}
       />
 
@@ -842,10 +881,9 @@ export function Dashboard({
         store={store}
         gmail={gmail}
         online={online}
-        onClose={() => setSelectedDomain(null)}
+        onClose={() => openDomain(null)}
         onOpenSender={(sender) => {
-          setSelectedDomain(null);
-          setSelected(sender);
+          openSender(sender);
         }}
         onChanged={onChanged}
       />
