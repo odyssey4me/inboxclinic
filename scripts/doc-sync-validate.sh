@@ -7,6 +7,7 @@
 # 1. Design doc status changes must be reflected in docs/README.md
 # 2. New/removed docs in docs/ must be reflected in docs/README.md index
 # 3. Modified design docs and architecture.md must have changelog entries
+# 4. Design docs must not reference code symbols deleted in the same change (#110)
 #
 # This script is used by the Claude Code doc-sync hook
 # (.claude/hooks/doc-sync-hook.sh) after Markdown edits, and can also be run manually.
@@ -286,6 +287,56 @@ check_changelog_entries() {
 }
 
 # -----------------------------------------------------------------------------
+# Check 4: Doc ↔ code symbol drift (diff-aware, deletion-triggered) — #110
+# -----------------------------------------------------------------------------
+# When a change DELETES or RENAMES a code module whose PascalCase name (or path) is
+# still referenced in a design doc, flag it — so a doc can't keep naming code that was
+# removed or moved (the #106 `DomainDetail` miss). Diff-aware against origin/main, so it
+# only ever looks at symbols removed in THIS change: forward-looking/planned references
+# (to code that never existed, or was removed in an earlier change) are untouched.
+
+check_doc_symbol_drift() {
+    # Base = the mainline. On `main` itself (merge-base == HEAD) this yields no
+    # deletions and the check is a no-op. Skip gracefully if origin/main isn't present
+    # (e.g. a shallow clone with no base) rather than erroring.
+    local base
+    base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+    [[ -z "$base" ]] && return 0
+
+    # Code modules deleted since the base (committed or in the working tree), excluding tests.
+    # --no-renames so a moved/renamed file surfaces as delete+add and is caught against its
+    # OLD name/path (default rename detection would hide it as an R entry, missing the drift).
+    local deleted
+    deleted=$(git diff --no-renames --diff-filter=D --name-only "$base" -- apps packages 2>/dev/null \
+        | grep -E '\.(ts|tsx)$' | grep -vE '\.(test|spec)\.' || true)
+    [[ -z "$deleted" ]] && return 0
+
+    local design_docs
+    design_docs=$(ls "$REPO_ROOT"/docs/design-*.md 2>/dev/null | grep -v "_template.md" || true)
+    [[ -z "$design_docs" ]] && return 0
+
+    local file base_name symbol doc
+    for file in $deleted; do
+        base_name=$(basename "$file")
+        symbol="${base_name%.*}"
+        # Only PascalCase module names (components/classes) — skip index/generic files that
+        # would match unrelated prose.
+        [[ "$symbol" =~ ^[A-Z][A-Za-z0-9]+$ ]] || continue
+        # Still referenced by backticked name or by path in a current design doc?
+        # symbol is [A-Z][A-Za-z0-9]+ (no regex metachars); \Q…\E quotes the path literally.
+        # The path is anchored with a negative lookahead so a deleted `Modal` path can't match
+        # a still-existing sibling like `ModalHeader.tsx` — only an exact-boundary path (end,
+        # extension dot, whitespace, …) counts. This also covers the with-extension form.
+        local path_noext="${file%.*}"
+        for doc in $design_docs; do
+            if grep -qP "\`${symbol}\`|\Q${path_noext}\E(?![A-Za-z0-9])" "$doc" 2>/dev/null; then
+                ERRORS+=("Doc/code drift: $(basename "$doc") still references \`${symbol}\` (from deleted ${file}). Update the doc — drop the reference, or reword so it doesn't name a since-removed symbol.")
+            fi
+        done
+    done
+}
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 
@@ -295,6 +346,7 @@ cd "$REPO_ROOT"
 check_design_doc_status
 check_doc_index_sync
 check_changelog_entries
+check_doc_symbol_drift
 
 # Report results
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
