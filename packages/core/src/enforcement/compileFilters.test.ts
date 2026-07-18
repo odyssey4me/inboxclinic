@@ -96,6 +96,12 @@ describe("compileFilters", () => {
     expect(plainDomainsCovered(filters)).toEqual(["a.com", "b.com", "c.com"]);
   });
 
+  it("degrades to one domain per filter at maxDomainsPerFilter=1 (#152)", () => {
+    const domains = [{ domain: "a.com" }, { domain: "b.com" }, { domain: "c.com" }];
+    const { filters } = compileFilters([], domains, { maxDomainsPerFilter: 1 });
+    expect(filters.map((f) => f.from).sort()).toEqual(["*@a.com", "*@b.com", "*@c.com"]);
+  });
+
   it("keeps unrelated domains' filters stable when one domain is added (#152)", () => {
     const base = Array.from({ length: 40 }, (_, i) => ({
       domain: `d${String(i).padStart(2, "0")}.com`,

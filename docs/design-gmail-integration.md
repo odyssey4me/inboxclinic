@@ -118,10 +118,11 @@ them continuously (architecture.md §6):
    `from:*@domain.com`.
 3. **OR-combine ≤10 domains** per filter: `from:(*@a.com OR *@b.com …)`. Domains are
    grouped at **content-defined boundaries** (a per-domain hash marker), not by sorted
-   position, so adding/removing one domain re-chunks only locally instead of shifting every
-   downstream filter and churning the reconcile. The trade is slightly looser packing —
-   chunks average a little below 10 — which marginally lowers the effective domain headroom
-   under the soft cap.
+   position, so adding/removing one domain re-chunks only locally (re-syncing at the next
+   marker) instead of shifting every downstream filter and churning the reconcile. The trade
+   is packing density: with the marker rate set equal to the cap to keep the re-chunk region
+   small, chunks average only ~2/3 of the cap (~6–7 of 10), so the standing set carries more
+   filters than tight packing would — an accepted cost given the 450-filter soft-cap headroom.
 4. **Soft cap ~450** filters (headroom below Gmail's 500).
 5. **Best-effort + idempotent:** the local decision is the source of truth; filters are
    reconciled on a periodic client-side sync, retried on failure, and never duplicated.
@@ -455,7 +456,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: chunks average slightly below the ≤10 cap, marginally lowering domain headroom under the soft cap. | Claude |
+| 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
 | 2026-07-17 | **Decision 7 doc-sync (#96):** the learning-scan results now feed the **per-sender decision** (prior-block signal → trust score + flagged-sibling surfacing, design-trust-decisions.md Decision 8), not the removed standalone confirm-first import. Filter adoption stays the existing **Decision 10** (`suggestFilterAdoptions`, #80). | Claude |
 | 2026-07-16 | Update **Decision 10** to describe `applyFilterAdoptions`'s apply-time re-validation: it re-derives the desired filter set from current blocked senders/domains and records only adoptions that still match, returning `{ adopted, skipped }` — closes a TOCTOU gap where unblocking a sender during the confirm window could otherwise cause the next `enforce()` to delete the adopted filter (#89). | Claude |
 | 2026-07-14 | Add **Decision 10: confirm-first filter adoption** (#80) — `reconcileFilters` no longer creates a duplicate filter when an untracked existing filter already matches a desired one; it surfaces the match in a new `adoptable` list instead, and `suggestFilterAdoptions`/`applyFilterAdoptions` let the user opt in before its id is tracked as managed. Closes the duplicate-create gap left by Decision 5 point 6's #29 fix without inferring ownership automatically in either direction. | Claude |

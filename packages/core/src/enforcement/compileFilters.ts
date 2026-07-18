@@ -71,10 +71,19 @@ function hash32(s: string): number {
  * after a domain whose hash marks a boundary (≈1 in `maxPerFilter` domains), or when it reaches
  * `maxPerFilter` (the hard OR-combine cap). Because boundaries are anchored to a domain's own
  * hash — not its position in the global sorted list — adding or removing one domain only
- * re-chunks locally (until the next marker re-syncs); unrelated domains keep the same chunk, and
- * therefore the same filter signature, so reconcile stops deleting+recreating filters that
- * didn't semantically change (#152). The trade is packing density: chunks average somewhat below
- * `maxPerFilter`, so the standing set is a little larger — a cheap price for churn-free reconcile.
+ * re-chunks locally; unrelated domains keep the same chunk, and therefore the same filter
+ * signature, so reconcile stops deleting+recreating filters that didn't semantically change (#152).
+ *
+ * The locality is PROBABILISTIC, as with any content-defined chunker: a change re-syncs at the
+ * next domain whose hash is a marker, so the disturbed region spans the run up to that marker
+ * (~1 chunk in expectation, but a marker-free run re-splits by count until the next marker).
+ *
+ * Packing vs. churn is a deliberate trade: setting the marker rate equal to the cap
+ * (`% maxPerFilter`) truncates the geometric run length hard, so expected chunk size is only
+ * ~2/3 of the cap (E ≈ 6.5 domains per 10-domain filter), not near-full. A rarer marker would
+ * pack tighter but widen the re-chunk region — the wrong trade for #152, and the ~450 soft cap
+ * has ample headroom for the extra filters. Degenerate `maxPerFilter <= 1`, or a domain set that
+ * all hashes to markers, degrades to one domain per filter (worst packing, still correct).
  */
 function chunkDomainsStably(sortedDomains: readonly string[], maxPerFilter: number): string[][] {
   const chunks: string[][] = [];
