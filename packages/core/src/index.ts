@@ -122,7 +122,9 @@ export {
 // Trust-decision application + precedence (depends only on the Store port).
 export {
   applyDecision,
+  applyDecisions,
   DEFER_DECAY,
+  type AppliedDecision,
   type ApplyDecisionInput,
   type ApplyDecisionResult,
 } from "./decisions/applyDecision";

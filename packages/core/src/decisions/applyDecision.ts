@@ -227,3 +227,56 @@ export function applyDecision(
     ? applyDomainDecision(store, input)
     : applyAddressDecision(store, input);
 }
+
+/** The settled outcome of one decision in an `applyDecisions` batch. */
+export interface AppliedDecision {
+  /** The input decision, echoed so callers can align outcomes with their own labels/order. */
+  input: ApplyDecisionInput;
+  /** Present on success. */
+  result?: ApplyDecisionResult;
+  /** Present on failure — the batch continues; this decision is left unrecorded. */
+  error?: string;
+}
+
+export interface ApplyDecisionsOptions {
+  /**
+   * Called after each decision settles (in applied — i.e. domain-first — order), for progress
+   * UI. The returned array is still input-ordered; this is only a per-item notification.
+   */
+  onSettled?: (outcome: AppliedDecision) => void;
+}
+
+/**
+ * Apply a batch of decisions in one pass, **domain-scope decisions first**.
+ *
+ * `applyAddressDecision` records an address as a domain **exception** only when the sender's
+ * domain is *already* domain-scoped in the store (`decisionScope === "domain"`). So for a batch
+ * that both blocks a domain and decides one of its members ("block the domain but keep this
+ * sender"), the domain decision must land first — otherwise the address decision runs against a
+ * not-yet-scoped domain, no exception is recorded, and the later domain block silently overrides
+ * the member (its mail gets trashed). A caller applying in submission order can't guarantee that;
+ * this entrypoint does, so preview (`simulate.ts`) and apply agree regardless of submission order
+ * (#167). Sequential (each decision may read state a prior one wrote) and per-item resilient (one
+ * failure doesn't abort the rest); outcomes are returned in the original input order.
+ */
+export async function applyDecisions(
+  store: Store,
+  inputs: readonly ApplyDecisionInput[],
+  options: ApplyDecisionsOptions = {},
+): Promise<AppliedDecision[]> {
+  const outcomes: AppliedDecision[] = inputs.map((input) => ({ input }));
+  // Apply in scope order (domain first) over a stable-sorted copy that shares the same outcome
+  // objects, so mutating each outcome updates `outcomes` in place while it keeps INPUT order.
+  const ordered = [...outcomes].sort((a, b) => scopeRank(a.input.scope) - scopeRank(b.input.scope));
+  for (const outcome of ordered) {
+    try {
+      outcome.result = await applyDecision(store, outcome.input);
+    } catch (error) {
+      outcome.error = error instanceof Error ? error.message : String(error);
+    }
+    options.onSettled?.(outcome);
+  }
+  return outcomes;
+}
+
+const scopeRank = (scope: DecisionScope): number => (scope === "domain" ? 0 : 1);

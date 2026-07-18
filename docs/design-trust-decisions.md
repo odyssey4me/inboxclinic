@@ -69,7 +69,10 @@ sender (architecture.md §4).
 
 **Decision:** A **domain** decision overrides any **address** decision for senders in that
 domain. An address decision made *after* a domain decision is recorded as an explicit
-**exception** (tracked in `domains.exceptionAddresses[]`).
+**exception** (tracked in `domains.exceptionAddresses[]`). When both happen in one action
+("block the domain but keep this sender"), `applyDecisions` applies the **domain-scope
+decisions first**, so the address is always recorded as an exception regardless of submission
+order rather than being silently overridden (#167).
 
 **Rationale:** Matches the user's mental model ("block everything from this domain") while
 still allowing fine-grained exceptions. Resolution is a pure precedence rule (see
@@ -480,6 +483,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-18 | **Decision 2 batch ordering (#167):** add `applyDecisions`, a batch entrypoint that applies **domain-scope decisions before address-scope** ones, so a same-action "block the domain, keep this sender" records the kept address as an exception regardless of submission order instead of silently overriding it. The workflow-Execution and sender-detail batch sites now apply through it. | Claude |
 | 2026-07-17 | **Implement the `coveredByBlockFilter` −2 signal (#96 scoring slice).** Adds the field to `Sender` + `SenderSnapshot`; `computeTrustScore` applies a flat −2 (current-state, not recency-scaled) when an existing block filter (address or `*@domain`) covers the sender. Populated from the learn pass's filter scan, carried across rescans. Spam/trash reuse existing signals (no double-count). The in-flow surfacing UI follows. | Claude |
 | 2026-07-17 | **Rework Decision 8 (#96, #97):** prior-block signals are **woven into the per-sender decision**. Scoring is **trust-score-sort only** (no new `prioritisePrompts` term): spam reuses `spamMarkedCount`, trash reuses `deletedUnreadCount`, and a new **`coveredByBlockFilter` −2** signal covers existing filters (no double-counting). The detail panel offers **block this / all-flagged / domain** for same-domain flagged siblings (through Decision 7's preview+confirm; filter-covered = #88 rule-adoption); the standalone "Import all as Blocked" card is removed. Dismissal is two-way (#97): a remembered **"Keep"** (allow decision, same granularity as Block) vs **"Not now"** = the existing Defer. | Claude |
 | 2026-07-16 | **Implement the "frequently deleted-unread" (−1) signal (#98).** Adds `deletedUnreadCount` to the store `Sender` + `SenderSnapshot`; `computeTrustScore` fires −1 at **≥2** messages binned while unread, **stacking** with never-opened. Populated from the prior-decisions learn pass's Trash scan (no extra Gmail calls; carried across rescans); exposure is **score-only**. Moved off the ROADMAP Deferred list. | Claude |

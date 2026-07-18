@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
-  applyDecision,
+  applyDecisions,
   defaultBlockActions,
   enforce,
   estimateWeeklyVolume,
@@ -538,22 +538,32 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
     if (started.current) return;
     started.current = true;
     void (async () => {
+      // Apply as one batch so domain-scope decisions land before address-scope ones — a
+      // "block the domain, keep this sender" pair records the kept member as an exception
+      // rather than trashing it (#167). `onSettled` streams each result as it lands so the
+      // progress bar still animates, even though the batch reorders internally.
+      const now = Date.now();
+      const labelById = new Map(pending.map((entry) => [entry.subjectId, entry.label]));
       const collected: ExecResult[] = [];
-      for (const entry of pending) {
-        try {
-          await applyDecision(store, {
-            subjectId: entry.subjectId,
-            scope: entry.scope,
-            decision: entry.decision,
-            actions: entry.actions,
-            now: Date.now(),
-          });
-          collected.push({ label: entry.label, status: "applied" });
-        } catch {
-          collected.push({ label: entry.label, status: "failed" });
-        }
-        setResults([...collected]);
-      }
+      await applyDecisions(
+        store,
+        pending.map((entry) => ({
+          subjectId: entry.subjectId,
+          scope: entry.scope,
+          decision: entry.decision,
+          actions: entry.actions,
+          now,
+        })),
+        {
+          onSettled: (outcome) => {
+            collected.push({
+              label: labelById.get(outcome.input.subjectId) ?? outcome.input.subjectId,
+              status: outcome.error === undefined ? "applied" : "failed",
+            });
+            setResults([...collected]);
+          },
+        },
+      );
       // Record done first, then enforce against Gmail (filters + message actions).
       try {
         setEnforcement(await enforce(gmail, store, { now: Date.now() }));

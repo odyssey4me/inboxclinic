@@ -115,6 +115,8 @@ export function SenderDetail({
     setBusy(true);
     setError(null);
     try {
+      // Targets here never mix scopes in one commit (a single subject, or same-scope flagged
+      // siblings), so no same-batch domain/address ordering hazard applies (#167).
       for (const t of targets) {
         await applyDecision(store, {
           subjectId: t.subjectId,
