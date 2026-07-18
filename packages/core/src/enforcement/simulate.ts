@@ -85,14 +85,37 @@ export async function simulateEnforcement(
     else senderStatus.set(decision.subjectId, next);
   }
 
+  // Addresses this batch's own address-scope decisions would record as exceptions on their
+  // domain: applyDecision.ts adds a sender to `exceptionAddresses` on any non-no-op address
+  // decision under a domain-scoped domain (#161). Keyed by lowercased domain. Defer is excluded —
+  // a defer-added exception is effectively blocked, so it never changes a carve-out.
+  const batchExceptionsByDomain = new Map<string, string[]>();
+  for (const decision of decisions) {
+    if (decision.scope !== "address" || decision.decision === "defer") continue;
+    const sender = senderById.get(decision.subjectId);
+    if (sender === undefined) continue;
+    const key = sender.domain.toLowerCase();
+    batchExceptionsByDomain.set(key, [...(batchExceptionsByDomain.get(key) ?? []), sender.email]);
+  }
+
   // A (prospectively) blocked domain's trusted exception addresses — the ones whose effective
   // status is no longer blocked. Excluded from both the domain's `*@domain` filter (#145) and
   // its existing-mail sweep (#151), so the preview matches what enforce actually does.
   // Only ever called on a domain that is (prospectively) blocked; a blocked domain is always
   // domain-scoped (applyDecision.ts writes `decisionScope: "domain"` with the block), so the
-  // `domainStatus/domainScope` here are that known state rather than re-derived per call.
-  const prospectiveDomainExclusions = (domain: Domain): string[] =>
-    domain.exceptionAddresses.filter((email) => {
+  // `domainStatus/domainScope` here are that known state rather than re-derived per call. The
+  // exception set is the PROSPECTIVE one — stored exceptions plus any this batch would add (#161).
+  const prospectiveDomainExclusions = (domain: Domain): string[] => {
+    const seen = new Set<string>();
+    const exceptions: string[] = [];
+    const batch = batchExceptionsByDomain.get(domain.domain.toLowerCase()) ?? [];
+    for (const email of [...domain.exceptionAddresses, ...batch]) {
+      const key = keyFor(email);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      exceptions.push(email);
+    }
+    return exceptions.filter((email) => {
       const s = senderById.get(keyFor(email));
       if (s === undefined) return false;
       const addr = senderStatus.get(s.id) ?? s.trustStatus;
@@ -105,6 +128,7 @@ export async function simulateEnforcement(
         }).status !== "blocked"
       );
     });
+  };
 
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;

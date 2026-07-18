@@ -100,6 +100,58 @@ describe("simulateEnforcement", () => {
     expect(impact.filtersToDelete).toBe(0);
   });
 
+  it("reflects a batch address-trust as a new exception carve-out on a blocked domain (#161)", async () => {
+    const store = createInMemoryStore();
+    // shop.com is already blocked at domain scope, with NO stored exceptions yet.
+    await store.domains.put(
+      domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+    // The managed filter is the plain domain block, no carve-out.
+    gmail.seedFilters([
+      { id: "f1", from: "*@shop.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    await store.filterSync.put({
+      key: "filterSyncState",
+      lastSyncAt: null,
+      totalFilters: 1,
+      managedFilterIds: ["f1"],
+    });
+
+    // Previewing "trust promo@shop.com" would (in the real apply) record it as a domain
+    // exception, so the desired filter gains a negatedQuery carve-out and the plain one is
+    // replaced — the preview must reflect that, not read the stored (empty) exception set.
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("promo@shop.com"), scope: "address", decision: "trust" },
+    ]);
+
+    expect(impact.filtersToDelete).toBe(1); // the plain *@shop.com filter
+    expect(impact.filtersToCreate).toBe(1); // replaced by *@shop.com carrying the carve-out
+  });
+
+  it("excludes a batch-trusted member from a same-batch domain block's message estimate (#161)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("shop.com")); // pending; blocked in the batch below
+    await store.senders.put(senderBuilder("keep@shop.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient([msgFrom("promo@shop.com"), msgFrom("keep@shop.com")]);
+
+    // "Block the domain but keep this sender" in one batch: the member becomes a domain
+    // exception, so its existing mail is not swept. (The preview models this intended end
+    // state; the real apply reaches it when the domain decision establishes domain scope.)
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("shop.com"),
+        scope: "domain",
+        decision: "block",
+        actions: ["create_filter", "delete"],
+      },
+      { subjectId: keyFor("keep@shop.com"), scope: "address", decision: "trust" },
+    ]);
+
+    expect(impact.messagesToDelete).toBe(1); // only promo@shop.com; keep@shop.com is carved out
+  });
+
   it("classifies archive vs delete from the staged actions", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("a@x.com"));
