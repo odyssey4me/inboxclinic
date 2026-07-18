@@ -129,6 +129,17 @@ them continuously (architecture.md §6):
    desired filter's criteria and action (#29). Symmetrically, `reconcileFilters` also
    never *creates* a duplicate for a desired filter that an untracked filter already
    covers — it surfaces that match instead, for confirm-first adoption (Decision 10, #80).
+7. **Compiles the *effective* block set, with address-exception carve-outs.** The compiler
+   resolves each sender's effective status via `resolveEffectiveDecision` (a domain decision
+   overrides an address one unless the address is an exception, design-trust-decisions.md
+   Decision 2) rather than reading raw `trustStatus`. A sender trusted at the domain level
+   therefore gets **no** filter (#144). And when a domain is blocked but an address in it is
+   trusted (an exception), the `*@domain` filter carries a Gmail **`criteria.negatedQuery`**
+   exclusion (`from:(alice@d.com OR …)`), and the existing-mail sweep excludes the same
+   addresses — so the exception's mail is never trashed (#145). This keeps the block a
+   **single filter** (no de-aggregation, preserving the ~450 soft-cap headroom); a domain
+   carrying exceptions gets its own filter rather than OR-combining (one exclusion per
+   filter). The exclusion is part of the reconcile signature, so enforcement stays idempotent.
 
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
@@ -434,6 +445,8 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 ---
 
 **Changelog:**
+
+| 2026-07-18 | **Decision 5 point 7 (#144, #145):** enforcement compiles from the *effective* block set — `resolveEffectiveDecision` (Decision 2) resolves domain overrides + exceptions, not raw `trustStatus`. A domain-trusted sender gets no filter (#144); a blocked domain with a trusted address exception carries a `criteria.negatedQuery` carve-out (and the existing-mail sweep excludes it), kept as one filter with the exclusion in the reconcile signature (#145). | Claude |
 
 | Date | Change | Author |
 |------|--------|--------|

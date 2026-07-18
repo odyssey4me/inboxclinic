@@ -109,6 +109,43 @@ describe("enforce", () => {
     expect(result.filtersCreated).toBe(0);
   });
 
+  it("carves a trusted exception out of a blocked domain's filter and sweep, idempotently (#145)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["vip@shop.com"],
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    // The exception address is trusted at address scope (overrides the domain block).
+    await store.senders.put(
+      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+    );
+    const gmail = new MockGmailClient([msgFrom("junk@shop.com"), msgFrom("vip@shop.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // The domain filter carries the exclusion...
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      {
+        from: "*@shop.com",
+        excludeFrom: "vip@shop.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+    // ...and the existing-mail sweep trashes junk@shop.com but NOT the exception vip@shop.com.
+    expect(result.messagesTrashed).toBe(1);
+    expect(gmail.batchModifyCalls.flatMap((c) => c.ids)).toHaveLength(1);
+
+    // Idempotent: the excludeFrom round-trips, so a second run creates/deletes no filters.
+    const again = await enforce(gmail, store, { now: NOW });
+    expect(again.filtersCreated).toBe(0);
+    expect(again.filtersDeleted).toBe(0);
+  });
+
   it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
     const store = createInMemoryStore();
     await store.senders.put(

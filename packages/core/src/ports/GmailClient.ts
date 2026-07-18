@@ -83,9 +83,15 @@ export interface MessageMeta {
  * the Gmail filter `criteria.from` value — a single address (`a@x.com`), a domain
  * wildcard (`*@x.com`), or an OR-combination (`*@a.com OR *@b.com`). The label edit is
  * the filter `action` (e.g. add `TRASH`, remove `INBOX`).
+ *
+ * `excludeFrom`, when set, is the address(es) to carve OUT of `from` — mapped to Gmail's
+ * `criteria.negatedQuery` (`from:(a@x.com OR b@x.com)`). It lets a domain block skip its
+ * trusted exception addresses (design-trust-decisions.md Decision 2, #145) in a single
+ * filter, without de-aggregating the domain.
  */
 export interface FilterSpec {
   from: string;
+  excludeFrom?: string;
   addLabelIds: string[];
   removeLabelIds: string[];
 }
@@ -186,6 +192,10 @@ export interface GmailClient {
   deleteFilter(id: string): Promise<void>;
   /** Apply a label edit to a batch of message ids (`users.messages.batchModify`). */
   batchModifyMessages(ids: string[], edit: MessageLabelEdit): Promise<void>;
-  /** List message ids whose `From` matches the given address or `*@domain` clause. */
-  listMessageIdsForSender(from: string, max?: number): Promise<string[]>;
+  /**
+   * List message ids whose `From` matches the given address or `*@domain` clause, optionally
+   * EXCLUDING any that also match `excludeFrom` (OR-combined addresses) — so a domain sweep
+   * skips its trusted exception addresses (#145).
+   */
+  listMessageIdsForSender(from: string, max?: number, excludeFrom?: string): Promise<string[]>;
 }

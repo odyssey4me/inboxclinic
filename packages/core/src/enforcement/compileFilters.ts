@@ -17,7 +17,7 @@
  *    and surface a flag; domain aggregation is preferred so the cap covers more senders.
  */
 
-import type { Domain, Sender } from "../store/types";
+import type { Sender } from "../store/types";
 import type { FilterSpec, NativeFilter } from "../ports/GmailClient";
 
 /** A blocked filter sends matching mail to Trash and skips the inbox. */
@@ -46,9 +46,16 @@ export interface CompiledFilters {
   skippedAtCap: number;
 }
 
-function blockFilter(from: string): FilterSpec {
+/** A blocked domain plus the exception addresses to carve out of its `*@domain` block. */
+export interface BlockedDomainInput {
+  domain: string;
+  excludeAddresses?: string[];
+}
+
+function blockFilter(from: string, excludeFrom?: string): FilterSpec {
   return {
     from,
+    ...(excludeFrom !== undefined && excludeFrom !== "" ? { excludeFrom } : {}),
     addLabelIds: [...BLOCK_FILTER_ADD_LABEL_IDS],
     removeLabelIds: [...BLOCK_FILTER_REMOVE_LABEL_IDS],
   };
@@ -64,7 +71,7 @@ function blockFilter(from: string): FilterSpec {
  */
 export function compileFilters(
   blockedSenders: ReadonlyArray<Pick<Sender, "email" | "domain">>,
-  blockedDomains: ReadonlyArray<Pick<Domain, "domain">>,
+  blockedDomains: ReadonlyArray<BlockedDomainInput>,
   options: CompileFiltersOptions = {},
 ): CompiledFilters {
   const threshold = options.domainBlockThreshold ?? DEFAULT_DOMAIN_BLOCK_THRESHOLD;
@@ -80,9 +87,21 @@ export function compileFilters(
     sendersByDomain.set(domain, set);
   }
 
+  // Explicit domain blocks carrying trusted-exception carve-outs (only explicit blocks have
+  // exceptions; a domain aggregated from 3+ blocked senders has no domain decision). Each maps
+  // to one `negatedQuery` exclusion — sorted for a stable filter signature.
+  const excludeByDomain = new Map<string, string>();
+  for (const bd of blockedDomains) {
+    const addresses = (bd.excludeAddresses ?? [])
+      .map((a) => a.toLowerCase())
+      .filter((a) => a.length > 0)
+      .sort();
+    if (addresses.length > 0) excludeByDomain.set(bd.domain.toLowerCase(), addresses.join(" OR "));
+  }
+
   // Domains that warrant a domain-level filter: explicitly blocked, or 3+ blocked.
   const aggregatedDomains = new Set<string>();
-  for (const domain of blockedDomains) aggregatedDomains.add(domain.domain.toLowerCase());
+  for (const bd of blockedDomains) aggregatedDomains.add(bd.domain.toLowerCase());
   for (const [domain, emails] of sendersByDomain) {
     if (emails.size >= threshold) aggregatedDomains.add(domain);
   }
@@ -95,12 +114,16 @@ export function compileFilters(
   }
   senderFilters.sort((a, b) => a.from.localeCompare(b.from));
 
-  // Domain-level filters: OR-combine up to `maxPerFilter` domains per filter.
-  const domains = [...aggregatedDomains].sort();
+  // Domain-level filters: plain domains OR-combine up to `maxPerFilter`; a domain with a
+  // trusted-exception carve-out gets its OWN filter (an OR-group can't share one exclusion).
+  const plainDomains = [...aggregatedDomains].filter((d) => !excludeByDomain.has(d)).sort();
   const domainFilters: FilterSpec[] = [];
-  for (let i = 0; i < domains.length; i += maxPerFilter) {
-    const group = domains.slice(i, i + maxPerFilter);
+  for (let i = 0; i < plainDomains.length; i += maxPerFilter) {
+    const group = plainDomains.slice(i, i + maxPerFilter);
     domainFilters.push(blockFilter(group.map((d) => `*@${d}`).join(" OR ")));
+  }
+  for (const domain of [...excludeByDomain.keys()].sort()) {
+    domainFilters.push(blockFilter(`*@${domain}`, excludeByDomain.get(domain)));
   }
 
   // Prefer domain aggregation (more coverage per filter) when the cap bites.
@@ -131,6 +154,7 @@ export interface FilterReconcilePlan {
 function signature(filter: FilterSpec): string {
   return [
     filter.from.toLowerCase(),
+    (filter.excludeFrom ?? "").toLowerCase(),
     [...filter.addLabelIds].sort().join(","),
     [...filter.removeLabelIds].sort().join(","),
   ].join("|");

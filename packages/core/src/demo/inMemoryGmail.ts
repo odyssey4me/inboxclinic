@@ -175,12 +175,13 @@ export class InMemoryGmailClient implements GmailClient {
     return Promise.resolve();
   }
 
-  listMessageIdsForSender(from: string, max = 500): Promise<string[]> {
+  listMessageIdsForSender(from: string, max = 500, excludeFrom?: string): Promise<string[]> {
     this.senderQueries.push(from);
     const matcher = senderMatcher(from);
+    const excluded = excludeMatcher(excludeFrom);
     return Promise.resolve(
       this.messages
-        .filter((m) => matcher(m.headers.from ?? ""))
+        .filter((m) => matcher(m.headers.from ?? "") && !excluded(m.headers.from ?? ""))
         .slice(0, max)
         .map((m) => m.id),
     );
@@ -195,4 +196,20 @@ function senderMatcher(from: string): (header: string) => boolean {
     return (header) => header.toLowerCase().includes(`@${domain}`);
   }
   return (header) => header.toLowerCase().includes(needle);
+}
+
+/** Predicate: does a `From` header match any address in an OR-combined `excludeFrom` list? */
+function excludeMatcher(excludeFrom: string | undefined): (header: string) => boolean {
+  if (excludeFrom === undefined || excludeFrom === "") return () => false;
+  // Split on the literal " or " we join exclusions with (a regex `\s+or\s+` is a ReDoS shape
+  // on filter data read back from Gmail).
+  const needles = excludeFrom
+    .toLowerCase()
+    .split(" or ")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return (header) => {
+    const lower = header.toLowerCase();
+    return needles.some((needle) => lower.includes(needle));
+  };
 }

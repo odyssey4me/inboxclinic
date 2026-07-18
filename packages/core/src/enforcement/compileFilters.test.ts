@@ -39,6 +39,34 @@ describe("compileFilters", () => {
     ]);
   });
 
+  it("carves exception addresses out of a domain filter via excludeFrom, sorted (#145)", () => {
+    const { filters } = compileFilters(
+      [],
+      [{ domain: "shop.com", excludeAddresses: ["vip@shop.com", "boss@shop.com"] }],
+    );
+    expect(filters).toEqual<FilterSpec[]>([
+      {
+        from: "*@shop.com",
+        excludeFrom: "boss@shop.com OR vip@shop.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+  });
+
+  it("gives an exception-carrying domain its own filter, OR-combining the rest (#145)", () => {
+    const { filters } = compileFilters(
+      [],
+      [
+        { domain: "a.com" },
+        { domain: "b.com" },
+        { domain: "c.com", excludeAddresses: ["vip@c.com"] },
+      ],
+    );
+    expect(filters.map((f) => f.from)).toEqual(["*@a.com OR *@b.com", "*@c.com"]);
+    expect(filters.find((f) => f.from === "*@c.com")?.excludeFrom).toBe("vip@c.com");
+  });
+
   it("OR-combines up to 10 domains per filter and splits the overflow", () => {
     const domains = Array.from({ length: 12 }, (_, i) => ({ domain: `d${i}.com` }));
     const { filters } = compileFilters([], domains);

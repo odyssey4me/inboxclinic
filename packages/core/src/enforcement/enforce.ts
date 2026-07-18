@@ -27,7 +27,7 @@
 import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
 import { planActions } from "./planActions";
 import { recordDailyAnalytics } from "../analytics/record";
-import { effectiveBlockedSenders } from "../decisions/effectiveStatus";
+import { effectiveBlockedDomains, effectiveBlockedSenders } from "../decisions/effectiveStatus";
 import type { GmailClient } from "../ports/GmailClient";
 import type { BlockAction, Store } from "../store";
 
@@ -111,8 +111,12 @@ export async function reconcileNativeFilters(
   // The *effective* blocked set — a sender the user has trusted at the domain level is
   // excluded (unless it's an exception), so its filter is dropped rather than kept alive (#144).
   const blockedSenders = await effectiveBlockedSenders(store);
-  const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
-  const compiled = compileFilters(blockedSenders, blockedDomains, options);
+  const blockedDomains = await effectiveBlockedDomains(store);
+  const compiled = compileFilters(
+    blockedSenders,
+    blockedDomains.map((d) => ({ domain: d.domain.domain, excludeAddresses: d.excludeAddresses })),
+    options,
+  );
 
   let filtersCreated = 0;
   let filtersDeleted = 0;
@@ -164,6 +168,8 @@ export async function reconcileNativeFilters(
 
 interface MessageSubject {
   from: string;
+  /** Addresses to exclude from the `from` sweep (a domain's trusted exceptions, #145). */
+  excludeFrom?: string;
   pendingActions: BlockAction[];
   hasListUnsubscribe: boolean;
   clear: () => Promise<void>;
@@ -182,7 +188,7 @@ export async function enforce(
   const failures: EnforceFailure[] = [];
 
   const blockedSenders = await effectiveBlockedSenders(store);
-  const blockedDomains = await store.domains.query({ trustStatus: "blocked" });
+  const blockedDomains = await effectiveBlockedDomains(store);
 
   // 1. Native filters — reconcile the durable block set against Gmail.
   const filters = await reconcileNativeFilters(client, store, options.compile);
@@ -200,10 +206,15 @@ export async function enforce(
       clear: () => store.senders.put({ ...sender, pendingActions: [] }),
     });
   }
-  for (const domain of blockedDomains) {
+  for (const target of blockedDomains) {
+    const domain = target.domain;
     if (domain.pendingActions.length === 0) continue;
     subjects.push({
       from: `*@${domain.domain}`,
+      // Skip the domain's trusted exception addresses in the existing-mail sweep (#145).
+      ...(target.excludeAddresses.length > 0
+        ? { excludeFrom: target.excludeAddresses.join(" OR ") }
+        : {}),
       pendingActions: domain.pendingActions,
       hasListUnsubscribe: false,
       clear: () => store.domains.put({ ...domain, pendingActions: [] }),
@@ -224,7 +235,11 @@ export async function enforce(
       });
       let drained = true;
       if (plan.messageMutation !== null) {
-        const ids = await client.listMessageIdsForSender(subject.from, messageIdCeiling);
+        const ids = await client.listMessageIdsForSender(
+          subject.from,
+          messageIdCeiling,
+          subject.excludeFrom,
+        );
         if (ids.length > 0) await client.batchModifyMessages(ids, plan.messageMutation);
         if (plan.messageMutation.addLabelIds?.includes("TRASH") === true) {
           messagesTrashed += ids.length;
