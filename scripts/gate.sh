@@ -72,7 +72,7 @@ NODE_SETUP="export N_PREFIX=/usr/local; npm install -g n >/dev/null 2>&1; n ${NO
 
 # Steps mirror the three gate jobs. `npm ci` matches CI; the official image already carries
 # the browsers, so no `playwright install` step is needed.
-CHECKS='./scripts/check-no-secrets.sh && ./scripts/check-no-dup-majors.sh && npm run lint && npm run typecheck && npm run test:coverage && npm run build && ./scripts/doc-sync-validate.sh'
+CHECKS='./scripts/check-no-secrets.sh && ./scripts/check-no-dup-majors.sh && ./scripts/check-playwright-image-pin.sh && npm run lint && npm run typecheck && npm run test:coverage && npm run build && ./scripts/doc-sync-validate.sh'
 E2E='npm run e2e'
 case "$MODE" in
   full) STEPS="${NODE_SETUP} && npm ci && ${CHECKS} && ${E2E}" ;;
@@ -94,6 +94,8 @@ VOLS+=(-v "inboxclinic-gate-n-cache:/usr/local/n") # cache the `n`-installed Nod
 
 # Rootless podman maps container-root → the host user, so files written into the
 # bind-mounted repo stay host-owned; `:Z` relabels the mount for SELinux (Fedora).
+# (Unlike GitHub Actions `container:` jobs, `run` keeps the image's own HOME=/root — root
+# owned — so Firefox's root-launch check is happy without CI's `HOME=/root` env override.)
 REPO_MOUNT="$PWD:/work"
 [[ "$ENGINE" == "podman" ]] && REPO_MOUNT="$PWD:/work:Z"
 
