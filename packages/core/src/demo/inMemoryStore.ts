@@ -8,6 +8,7 @@
  * re-exports it). `packages/store` provides the real Dexie adapter.
  */
 
+import { parseStoreDump } from "../store";
 import type {
   AnalyticsStore,
   ProfileStore,
@@ -184,25 +185,18 @@ export class InMemoryStore implements Store {
 
   /** Replace every store from a dump produced by {@link exportAll} (or the Dexie adapter). */
   async importAll(blob: Uint8Array): Promise<void> {
-    const dump = JSON.parse(new TextDecoder().decode(blob)) as {
-      profile?: Profile[];
-      senders?: Sender[];
-      domains?: Domain[];
-      prompts?: Prompt[];
-      analyticsDaily?: DailyAnalytics[];
-      analyticsMonthly?: MonthlyAnalytics[];
-      filterSyncState?: FilterSyncState[];
-      settings?: Setting[];
-    };
+    // Validate the whole dump BEFORE wiping — a malformed blob throws InvalidBackupError and
+    // leaves the store untouched, rather than wiping first and then failing mid-write (#166).
+    const dump = parseStoreDump(blob);
     await this.wipeAll();
-    if (dump.profile?.[0] !== undefined) await this.profile.put(dump.profile[0]);
-    await this.senders.bulkPut(dump.senders ?? []);
-    await this.domains.bulkPut(dump.domains ?? []);
-    await this.prompts.bulkPut(dump.prompts ?? []);
-    for (const day of dump.analyticsDaily ?? []) await this.analytics.putDay(day);
-    for (const month of dump.analyticsMonthly ?? []) await this.analytics.putMonth(month);
-    if (dump.filterSyncState?.[0] !== undefined) await this.filterSync.put(dump.filterSyncState[0]);
-    await this.settings.bulkPut(dump.settings ?? []);
+    if (dump.profile[0] !== undefined) await this.profile.put(dump.profile[0]);
+    await this.senders.bulkPut(dump.senders);
+    await this.domains.bulkPut(dump.domains);
+    await this.prompts.bulkPut(dump.prompts);
+    for (const day of dump.analyticsDaily) await this.analytics.putDay(day);
+    for (const month of dump.analyticsMonthly) await this.analytics.putMonth(month);
+    if (dump.filterSyncState[0] !== undefined) await this.filterSync.put(dump.filterSyncState[0]);
+    await this.settings.bulkPut(dump.settings);
   }
 
   wipeAll(): Promise<void> {

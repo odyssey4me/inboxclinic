@@ -9,6 +9,7 @@
  */
 
 import Dexie, { type IndexableType, type Table } from "dexie";
+import { parseStoreDump } from "@inboxclinic/core";
 import type {
   AnalyticsStore,
   DailyAnalytics,
@@ -186,7 +187,9 @@ export class DexieStore implements Store {
   }
 
   async importAll(blob: Uint8Array): Promise<void> {
-    const dump = JSON.parse(new TextDecoder().decode(blob)) as Record<string, unknown[]>;
+    // Validate + parse before the transaction — a malformed blob throws InvalidBackupError
+    // without opening a write transaction, so the store is never wiped on bad input (#166).
+    const dump = parseStoreDump(blob) as unknown as Record<string, unknown[]>;
     await this.db.transaction("rw", this.db.tables, async () => {
       for (const table of this.db.tables) {
         await table.clear();

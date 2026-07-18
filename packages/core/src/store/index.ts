@@ -10,6 +10,13 @@ export type {
   Store,
 } from "./Store";
 
+export {
+  InvalidBackupError,
+  parseStoreDump,
+  STORE_DUMP_TABLES,
+  type StoreDump,
+} from "./parseStoreDump";
+
 export type {
   AuthSignals,
   BlockAction,

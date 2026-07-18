@@ -116,10 +116,23 @@ function toNativeFilter(resource: GmailFilterResource): NativeFilter {
   };
 }
 
-function parseHeaders(headers: GmailHeader[]): MessageHeaders {
+/**
+ * Map a raw Gmail header array to the metadata-only `MessageHeaders` we keep. The array comes
+ * from unchecked `JSON.parse` of the API response, so tolerate malformed entries (missing /
+ * non-string `name`/`value`) rather than throwing — and, by construction, only ever copy the
+ * allowlisted header names in `HEADER_KEYS`, never a message body (privacy). Exported for fuzzing.
+ */
+export function parseHeaders(headers: readonly GmailHeader[]): MessageHeaders {
   const result: MessageHeaders = {};
-  for (const { name, value } of headers) {
-    const key = HEADER_KEYS[name.toLowerCase()];
+  if (!Array.isArray(headers)) return result;
+  for (const entry of headers) {
+    if (entry === null || typeof entry !== "object") continue;
+    const { name, value } = entry as { name?: unknown; value?: unknown };
+    if (typeof name !== "string" || typeof value !== "string") continue;
+    // `Object.hasOwn` so a header literally named `__proto__`/`constructor`/`toString` resolves
+    // to `undefined` (its own key) rather than an inherited prototype member.
+    const lower = name.toLowerCase();
+    const key = Object.hasOwn(HEADER_KEYS, lower) ? HEADER_KEYS[lower] : undefined;
     if (key !== undefined) result[key] = value;
   }
   return result;
