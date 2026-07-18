@@ -73,6 +73,9 @@ full layering is described in [docs/README.md](docs/README.md).
 2. **One problem per commit** - Each commit should solve a single, focused problem
 3. **Meaningful commit messages** - Describe what and why, not just how
 4. **Verify before committing** - Run checks/tests before committing changes
+5. **Keep PRs focused** - When something surfaces mid-PR that would broaden its scope, raise a
+   follow-up issue and link it rather than expanding the PR — see
+   [CONTRIBUTING.md § Pull request process](CONTRIBUTING.md#pull-request-process)
 
 ### No Backward Compatibility Required
 

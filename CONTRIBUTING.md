@@ -120,6 +120,15 @@ PRs must pass: Prettier (format), ESLint (lint), `tsc` (types), and Vitest (test
 ≥80% core coverage). In the description, include a summary, any linked issue
 (`Fixes #123`), how you tested it, and any breaking changes (allowed in Alpha).
 
+**Keep a PR to one coherent change.** When something surfaces mid-PR that would
+broaden its scope — a related improvement, a reviewer nit that isn't a blocker, a
+deferrable sub-feature, a doc/demo gap — raise a follow-up issue and link it rather
+than expanding the PR. This keeps PRs reviewable, keeps `main` history clean (one
+problem per change, per [Git workflow](#git-workflow)), and makes the backlog explicit
+instead of hidden in oversized diffs. Judgement call: fix it in-PR when it's part of
+the same coherent change or a genuine blocker; split it out into a follow-up issue when
+it's separable.
+
 **Landing a PR — keep `main` linear and one-problem-per-commit.** Merge commits are
 disabled; land via **squash** or **rebase**, chosen to keep every commit on `main` a single
 coherent problem (see [Git workflow](#git-workflow) above):
