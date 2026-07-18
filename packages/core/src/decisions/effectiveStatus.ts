@@ -43,6 +43,20 @@ export async function effectiveBlockedSenders(store: Store): Promise<Sender[]> {
   return blocked.filter((s) => effectiveSenderStatus(s, byKey.get(keyFor(s.domain))) === "blocked");
 }
 
+/**
+ * The senders whose EFFECTIVE status is trusted — raw-trusted senders not overridden by a
+ * domain block, plus senders trusted via a domain-scope trust (raw status still blocked/pending).
+ * This is the set trust-rescue must pull back out of SPAM/TRASH, replacing a raw
+ * `store.senders.query({ trustStatus: "trusted" })` that would miss a domain-trusted sender (#146).
+ */
+export async function effectiveTrustedSenders(store: Store): Promise<Sender[]> {
+  const all = await store.senders.query({});
+  if (all.length === 0) return all;
+  const domains = await store.domains.query({});
+  const byKey = new Map(domains.map((d) => [keyFor(d.domain), d]));
+  return all.filter((s) => effectiveSenderStatus(s, byKey.get(keyFor(s.domain))) === "trusted");
+}
+
 /** A blocked domain plus the exception addresses to carve out of its block. */
 export interface BlockedDomainTarget {
   domain: Domain;

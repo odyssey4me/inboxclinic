@@ -102,7 +102,7 @@ function sumDays(days: DailyAnalytics[]): WindowTotals {
 export function buildAnalyticsSummary(input: BuildAnalyticsSummaryInput): AnalyticsSummary {
   const { now, windowDays, days, senders, domains } = input;
 
-  const healthInput = healthInputFromSenders(senders);
+  const healthInput = healthInputFromSenders(senders, domains);
   const health = inboxHealthScore(healthInput);
   const window = sumDays(days);
   const timeSaved = estimatedTimeSaved(window.emailsBlocked);

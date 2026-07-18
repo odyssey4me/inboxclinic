@@ -27,7 +27,11 @@
 import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
 import { planActions } from "./planActions";
 import { recordDailyAnalytics } from "../analytics/record";
-import { effectiveBlockedDomains, effectiveBlockedSenders } from "../decisions/effectiveStatus";
+import {
+  effectiveBlockedDomains,
+  effectiveBlockedSenders,
+  effectiveTrustedSenders,
+} from "../decisions/effectiveStatus";
 import type { GmailClient } from "../ports/GmailClient";
 import type { BlockAction, Store } from "../store";
 
@@ -264,11 +268,11 @@ export async function enforce(
     }
   }
 
-  // 3. Trust rescue — pull spam-marked trusted senders back out of SPAM/TRASH.
-  // NOTE: reads raw trustStatus, not effective — a sender trusted only via a domain override
-  // (raw status still "blocked") is not rescued here yet. Tracked as a follow-up in #146.
+  // 3. Trust rescue — pull spam-marked trusted senders back out of SPAM/TRASH. Resolves
+  // EFFECTIVE status, so a sender trusted via a domain override (raw status still "blocked"
+  // or "pending") is rescued too, matching the block set above (#146).
   let messagesRescued = 0;
-  const trustedSenders = await store.senders.query({ trustStatus: "trusted" });
+  const trustedSenders = await effectiveTrustedSenders(store);
   for (const sender of trustedSenders) {
     if (sender.spamMarkedCount <= 0) continue;
     try {

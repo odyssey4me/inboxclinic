@@ -37,12 +37,14 @@ describe("buildAnalyticsSummary", () => {
   it("folds counters and current state into health, totals, time-saved and trend", () => {
     const summary = buildAnalyticsSummary({ now: NOW, windowDays: 30, days, senders, domains });
 
+    // Counts are EFFECTIVE (#146): c@y.com is raw-pending but sits under blocked domain
+    // y.com, so the domain block catches it → it counts as blocked, not pending.
     expect(summary.totals).toEqual({
       senders: 3,
       domains: 2,
       trusted: 1,
-      blocked: 1,
-      pending: 1,
+      blocked: 2,
+      pending: 0,
     });
     expect(summary.window.emailsBlocked).toBe(120);
     expect(summary.estimatedTimeSaved).toBe(120 * 5);
@@ -115,7 +117,9 @@ describe("analyticsSummary (over the Store port)", () => {
     const day31st = Date.UTC(2026, 6, 31, 12, 0, 0); // 2026-07-31
     await store.analytics.putDay(day("2026-07-01", { emailsBlocked: 5 }));
     for (let d = 2; d <= 31; d += 1) {
-      await store.analytics.putDay(day(`2026-07-${String(d).padStart(2, "0")}`, { emailsBlocked: 1 }));
+      await store.analytics.putDay(
+        day(`2026-07-${String(d).padStart(2, "0")}`, { emailsBlocked: 1 }),
+      );
     }
 
     await analyticsSummary(store, { now: day31st, windowDays: 30 });

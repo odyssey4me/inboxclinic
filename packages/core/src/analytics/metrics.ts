@@ -6,6 +6,8 @@
  * are the coverage-gated logic the Analytics view renders; the UI re-derives nothing.
  */
 
+import { effectiveSenderStatus } from "../decisions/effectiveStatus";
+import { keyFor } from "../keys";
 import type { Domain, Sender, SenderCategory, TrustStatus } from "../store/types";
 
 // --- Inbox health score (0–100) ------------------------------------------------
@@ -63,16 +65,22 @@ export function inboxHealthScore(input: InboxHealthInput): number {
   return Math.round(clamp(raw, 0, 1) * 100);
 }
 
-/** Build the health input from a sender set (mean read rate over those that have one). */
-export function healthInputFromSenders(senders: Sender[]): InboxHealthInput {
+/**
+ * Build the health input from a sender set (mean read rate over those that have one).
+ * Counts resolve EFFECTIVE status against `domains`, so a sender overridden by its domain's
+ * decision is counted by its effective trust — not its raw address status (#146).
+ */
+export function healthInputFromSenders(senders: Sender[], domains: Domain[]): InboxHealthInput {
+  const byKey = new Map(domains.map((d) => [keyFor(d.domain), d]));
   let trusted = 0;
   let blocked = 0;
   let pending = 0;
   let readSum = 0;
   let readCount = 0;
   for (const sender of senders) {
-    if (sender.trustStatus === "trusted") trusted += 1;
-    else if (sender.trustStatus === "blocked") blocked += 1;
+    const status = effectiveSenderStatus(sender, byKey.get(keyFor(sender.domain)));
+    if (status === "trusted") trusted += 1;
+    else if (status === "blocked") blocked += 1;
     else pending += 1;
     if (sender.readRate !== null) {
       readSum += sender.readRate;

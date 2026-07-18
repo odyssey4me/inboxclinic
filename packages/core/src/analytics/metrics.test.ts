@@ -48,17 +48,52 @@ describe("inboxHealthScore", () => {
 
 describe("healthInputFromSenders", () => {
   it("counts statuses and averages read rates only over senders that have one", () => {
-    const input = healthInputFromSenders([
-      senderBuilder("a@x.com", { trustStatus: "trusted", readRate: 1 }),
-      senderBuilder("b@x.com", { trustStatus: "blocked", readRate: 0 }),
-      senderBuilder("c@x.com", { trustStatus: "pending", readRate: null }),
-    ]);
+    const input = healthInputFromSenders(
+      [
+        senderBuilder("a@x.com", { trustStatus: "trusted", readRate: 1 }),
+        senderBuilder("b@x.com", { trustStatus: "blocked", readRate: 0 }),
+        senderBuilder("c@x.com", { trustStatus: "pending", readRate: null }),
+      ],
+      [],
+    );
     expect(input).toEqual({ trusted: 1, blocked: 1, pending: 1, avgReadRate: 0.5 });
   });
 
   it("reports a null average when no sender has a read rate", () => {
-    const input = healthInputFromSenders([senderBuilder("a@x.com", { readRate: null })]);
+    const input = healthInputFromSenders([senderBuilder("a@x.com", { readRate: null })], []);
     expect(input.avgReadRate).toBeNull();
+  });
+
+  it("counts effective status: a domain-scope trust rescues its raw-blocked members (#146)", () => {
+    // Address says blocked, but the domain is trusted at domain scope → effectively trusted.
+    const senders = [
+      senderBuilder("a@x.com", { trustStatus: "blocked" }),
+      senderBuilder("b@x.com", { trustStatus: "pending" }),
+    ];
+    const domains = [domainBuilder("x.com", { trustStatus: "trusted", decisionScope: "domain" })];
+    expect(healthInputFromSenders(senders, domains)).toEqual({
+      trusted: 2,
+      blocked: 0,
+      pending: 0,
+      avgReadRate: null,
+    });
+  });
+
+  it("counts effective status: an exception keeps its own status under a domain trust (#146)", () => {
+    // The domain is trusted, but a@x.com is a recorded exception blocked at the address → stays blocked.
+    const senders = [senderBuilder("a@x.com", { trustStatus: "blocked" })];
+    const domains = [
+      domainBuilder("x.com", {
+        trustStatus: "trusted",
+        decisionScope: "domain",
+        exceptionAddresses: ["a@x.com"],
+      }),
+    ];
+    expect(healthInputFromSenders(senders, domains)).toMatchObject({
+      trusted: 0,
+      blocked: 1,
+      pending: 0,
+    });
   });
 });
 
