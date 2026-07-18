@@ -42,10 +42,11 @@ function filterKey(f: NativeFilter): string {
 /** The lowercased addresses a filter's `excludeFrom` (`a OR b`) carves out. */
 function excludeSet(excludeFrom: string | undefined): Set<string> {
   if (excludeFrom === undefined || excludeFrom === "") return new Set();
+  // Literal " or " split (avoids a ReDoS-shaped `\s+or\s+` regex on Gmail-returned data).
   return new Set(
     excludeFrom
       .toLowerCase()
-      .split(/\s+or\s+/)
+      .split(" or ")
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
   );

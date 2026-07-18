@@ -201,9 +201,11 @@ function senderMatcher(from: string): (header: string) => boolean {
 /** Predicate: does a `From` header match any address in an OR-combined `excludeFrom` list? */
 function excludeMatcher(excludeFrom: string | undefined): (header: string) => boolean {
   if (excludeFrom === undefined || excludeFrom === "") return () => false;
+  // Split on the literal " or " we join exclusions with (a regex `\s+or\s+` is a ReDoS shape
+  // on filter data read back from Gmail).
   const needles = excludeFrom
     .toLowerCase()
-    .split(/\s+or\s+/)
+    .split(" or ")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   return (header) => {

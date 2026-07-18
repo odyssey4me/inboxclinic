@@ -55,6 +55,42 @@ describe("simulateEnforcement", () => {
     expect(after.filtersToCreate).toBe(0);
   });
 
+  it("keeps a domain filter's exception carve-out in the preview, so it doesn't churn (#145)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["vip@shop.com"],
+      }),
+    );
+    await store.senders.put(
+      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+    );
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      {
+        id: "f1",
+        from: "*@shop.com",
+        excludeFrom: "vip@shop.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+    await store.filterSync.put({
+      key: "filterSyncState",
+      lastSyncAt: null,
+      totalFilters: 1,
+      managedFilterIds: ["f1"],
+    });
+
+    const impact = await simulateEnforcement(gmail, store, []);
+
+    // The previewed desired filter carries the same exclusion as the existing one → no churn.
+    expect(impact.filtersToCreate).toBe(0);
+    expect(impact.filtersToDelete).toBe(0);
+  });
+
   it("classifies archive vs delete from the staged actions", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("a@x.com"));

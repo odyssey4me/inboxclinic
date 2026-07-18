@@ -40,6 +40,34 @@ describe("suggestFilterAdoptions", () => {
     expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
   });
 
+  it("threads a domain's exception exclusion into adoption matching (#145)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["vip@shop.com"],
+      }),
+    );
+    await store.senders.put(
+      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+    );
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      {
+        id: "hand",
+        from: "*@shop.com",
+        excludeFrom: "vip@shop.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+
+    // The desired domain filter carries excludeFrom → it matches the hand-made carved filter.
+    const suggestions = await suggestFilterAdoptions(gmail, store);
+    expect(suggestions.map((s) => s.filterId)).toEqual(["hand"]);
+  });
+
   it("does not suggest a filter that is already tracked as managed", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));

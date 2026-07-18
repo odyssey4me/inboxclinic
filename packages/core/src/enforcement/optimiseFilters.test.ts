@@ -11,7 +11,41 @@ const block = (id: string, from: string) => ({
   removeLabelIds: ["INBOX"],
 });
 
+const carved = (id: string, from: string, excludeFrom: string) => ({
+  id,
+  from,
+  excludeFrom,
+  addLabelIds: ["TRASH"],
+  removeLabelIds: ["INBOX"],
+});
+
 describe("suggestFilterOptimisations", () => {
+  it("does not treat differently-excluded domain filters as duplicates (#145)", async () => {
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      block("plain", "*@shop.com"),
+      carved("carve", "*@shop.com", "vip@shop.com"),
+    ]);
+
+    const out = await suggestFilterOptimisations(gmail);
+
+    expect(out.filter((o) => o.kind === "duplicate")).toEqual([]);
+  });
+
+  it("does not flag an excluded address as redundant under its domain filter (#145)", async () => {
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      carved("dom", "*@shop.com", "vip@shop.com"),
+      block("vip", "vip@shop.com"), // the carved-out address — still doing real work
+      block("junk", "junk@shop.com"), // genuinely covered by the domain rule
+    ]);
+
+    const out = await suggestFilterOptimisations(gmail);
+
+    const redundant = out.filter((o) => o.kind === "redundant").flatMap((o) => o.removeFilterIds);
+    expect(redundant).toEqual(["junk"]);
+  });
+
   it("suggests consolidating several same-domain address filters into a domain rule", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
