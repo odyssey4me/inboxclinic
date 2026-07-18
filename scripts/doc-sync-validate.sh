@@ -347,14 +347,29 @@ check_doc_symbol_drift() {
 # Diff-aware against origin/main, and every removed name is passed through an existence guard:
 # it is only flagged if it is no longer exported ANYWHERE in current (non-test) source, so a
 # move/rename/barrel-refactor that keeps the symbol alive never false-positives (#158).
+#
+# Deliberately conservative (favours no-false-positives over completeness). Known recall gaps,
+# acceptable because they only MISS drift, never invent it: a multiline `export { … }` block
+# *removed* across several diff lines isn't captured (single-line and declaration removals are);
+# multiple declarators in one `export const a, b` capture only the first; the ≥3-char shape guard
+# plus backtick anchoring trims but can't fully rule out a doc using a short symbol name generically.
 
-# Is NAME still exported somewhere in the current working tree (non-test source)?
+# Is NAME still a PUBLIC exported name somewhere in the current working tree (non-test source)?
+# Two matchers, both alias-aware so a symbol that is only the *source* side of a rename
+# (`export { NAME as other }`) is NOT treated as still-exported (that public name is `other`):
+#   - declaration form (single line): export [default|async|abstract]… [const enum|function|…] NAME
+#   - braced re-export (may be MULTILINE): NAME as a bare export or the target of `as`. `-z` makes
+#     grep treat each file as one record so `[^}]*` crosses the newlines Prettier inserts.
 symbol_still_exported() {
     local name="$1"
-    grep -rE --include='*.ts' --include='*.tsx' \
-        -e "export[[:space:]]+(async[[:space:]]+)?(function|const|let|class|type|interface|enum)[[:space:]]+${name}\b" \
-        -e "export[[:space:]]+(type[[:space:]]+)?\{[^}]*\b${name}\b" \
-        apps packages 2>/dev/null | grep -vE '\.(test|spec)\.' | grep -q .
+    {
+        grep -rlP --include='*.ts' --include='*.tsx' \
+            "export\s+(?:default\s+|async\s+|abstract\s+)*(?:const\s+enum|function|const|let|class|type|interface|enum)\s+${name}\b" \
+            apps packages 2>/dev/null
+        grep -rlzP --include='*.ts' --include='*.tsx' \
+            "export\s+(?:type\s+)?\{[^}]*(?:\bas\s+${name}\b|\b${name}\b\s*[,}])" \
+            apps packages 2>/dev/null
+    } | grep -vE '\.(test|spec)\.' | grep -q .
 }
 
 check_doc_exported_symbol_drift() {
@@ -374,7 +389,7 @@ check_doc_exported_symbol_drift() {
     # identifier per clause). Removed lines start with a single '-' (not the '---' file header).
     local removed_decls removed_braced removed_names
     removed_decls=$(printf '%s\n' "$diff" \
-        | grep -oP '^-[[:space:]]*export[[:space:]]+(?:async[[:space:]]+)?(?:function|const|let|class|type|interface|enum)[[:space:]]+\K[A-Za-z_][A-Za-z0-9_]*' || true)
+        | grep -oP '^-[[:space:]]*export[[:space:]]+(?:default[[:space:]]+|async[[:space:]]+|abstract[[:space:]]+)*(?:const[[:space:]]+enum|function|const|let|class|type|interface|enum)[[:space:]]+\K[A-Za-z_][A-Za-z0-9_]*' || true)
     removed_braced=$(printf '%s\n' "$diff" \
         | grep -oP '^-[[:space:]]*export[[:space:]]+(?:type[[:space:]]+)?\{\K[^}]*' \
         | tr ',' '\n' | awk 'NF{print $NF}' | grep -oP '^[A-Za-z_][A-Za-z0-9_]*$' || true)
