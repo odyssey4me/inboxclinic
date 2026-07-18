@@ -43,3 +43,33 @@ test("decisions surface: no standalone prior-decisions import card (folded into 
   await expect(page.getByRole("button", { name: /import all as blocked/i })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: /^Decisions$/ })).toBeVisible();
 });
+
+test("decisions surface: consolidate same-domain flagged siblings from the detail panel (#96, #128)", async ({
+  page,
+}) => {
+  await gotoDemo(page);
+
+  // deals@bargainhub.example has two same-domain siblings that are still pending but already
+  // binned unread (a prior-block signal, learned on mount) — opening it offers to decide all
+  // three together.
+  await page.getByRole("searchbox", { name: /search senders/i }).fill("bargainhub");
+  await page.getByText("deals@bargainhub.example").first().click();
+
+  const drawer = page.getByRole("dialog", { name: /actions for deals@bargainhub\.example/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText(/2 other flagged senders on bargainhub\.example/i)).toBeVisible();
+
+  // "Keep all" trusts the opened sender and both siblings in one step.
+  await drawer.getByRole("button", { name: /keep all/i }).click();
+  await expect(drawer).toBeHidden();
+
+  await page.getByRole("tab", { name: /^all/i }).click();
+  for (const email of [
+    "deals@bargainhub.example",
+    "offers@bargainhub.example",
+    "news@bargainhub.example",
+  ]) {
+    const item = page.locator("tr, li").filter({ hasText: email });
+    await expect(item).toContainText("trusted");
+  }
+});
