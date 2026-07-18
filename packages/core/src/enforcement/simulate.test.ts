@@ -203,6 +203,25 @@ describe("simulateEnforcement", () => {
     expect(impact.filtersToCreate).toBe(0);
   });
 
+  it("previews a defer on a still-pending sender as no change (#148)", async () => {
+    const store = createInMemoryStore();
+    // Pending, no filter anywhere — a defer keeps it pending, so nothing is created or removed.
+    await store.senders.put(senderBuilder("maybe@x.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("maybe@x.com"), scope: "address", decision: "defer" },
+    ]);
+
+    expect(impact).toEqual({
+      filtersToCreate: 0,
+      filtersToDelete: 0,
+      messagesToArchive: 0,
+      messagesToDelete: 0,
+      messagesToRescue: 0,
+    });
+  });
+
   it("never previews deleting a foreign filter sharing the block action shape (#29)", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
