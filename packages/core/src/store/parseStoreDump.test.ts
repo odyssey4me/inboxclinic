@@ -46,6 +46,8 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
     ["a table with a primitive row", '{"senders":[1,2,3]}'],
     ["a table with an array row", '{"senders":[[]]}'],
     ["a table with a null row", '{"senders":[null]}'],
+    ["a row missing its primary key", '{"senders":[{"email":"x@y.com"}]}'],
+    ["a row with an empty-string key", '{"senders":[{"id":""}]}'],
   ])("rejects %s with InvalidBackupError", (_label, text) => {
     expect(() => parseStoreDump(encode(text))).toThrow(InvalidBackupError);
   });
@@ -69,7 +71,15 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
   });
 
   it("leaves the store UNCHANGED on a malformed restore blob (no partial write / wipe)", async () => {
-    const malformed = ["not json at all", "{", "[]", '{"senders":"oops"}', '{"senders":[42]}'];
+    const malformed = [
+      "not json at all",
+      "{",
+      "[]",
+      '{"senders":"oops"}',
+      '{"senders":[42]}',
+      // Shape-valid but a keyless row — rejected at the gate, NOT wiped-then-corrupted.
+      '{"senders":[{"email":"noid@x.com"}]}',
+    ];
     for (const text of malformed) {
       const store = createInMemoryStore();
       await store.senders.bulkPut([senderBuilder("keep@x.com")]);

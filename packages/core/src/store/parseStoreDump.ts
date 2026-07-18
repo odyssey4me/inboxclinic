@@ -58,6 +58,21 @@ export const STORE_DUMP_TABLES = [
   "settings",
 ] as const;
 
+// Each table's primary-key field (the Dexie schema's inline key). A row missing it is unstorable
+// — Dexie's `bulkPut` would reject it (rolling back its transaction), and the in-memory store
+// would silently write it under an `undefined` key. Validating the key here rejects such a row at
+// the gate for BOTH backends uniformly, before any wipe — closing that data-loss asymmetry (#166).
+const KEY_FIELD: Record<(typeof STORE_DUMP_TABLES)[number], string> = {
+  profile: "googleEmail",
+  senders: "id",
+  domains: "id",
+  prompts: "id",
+  analyticsDaily: "date",
+  analyticsMonthly: "month",
+  filterSyncState: "key",
+  settings: "key",
+};
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -97,6 +112,12 @@ export function parseStoreDump(blob: Uint8Array): StoreDump {
     }
     if (!rows.every(isPlainObject)) {
       throw new InvalidBackupError(`backup table "${table}" contains a non-object row`);
+    }
+    const keyField = KEY_FIELD[table];
+    if (!rows.every((row) => typeof row[keyField] === "string" && row[keyField] !== "")) {
+      throw new InvalidBackupError(
+        `backup table "${table}" has a row missing its "${keyField}" key`,
+      );
     }
     dump[table] = rows;
   }
