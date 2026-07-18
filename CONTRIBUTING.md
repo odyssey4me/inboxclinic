@@ -118,6 +118,12 @@ interfaces — **do not edit it without maintainer approval**. **Design docs** o
 technology and implementation; propose design-doc changes (a major change) before
 implementing. See the boundary rules in [docs/README.md](docs/README.md).
 
+`scripts/doc-sync-validate.sh` (the Claude Code doc-sync hook + the CI `docs` job) keeps docs
+and code in sync: design-doc **status/index/changelog** must match `docs/README.md`, and a
+design doc **must not keep naming a code symbol that this change deletes** (diff-aware, so
+genuinely-planned/future components aren't flagged) — the drift that let a stale `` `DomainDetail` ``
+reference survive in #106.
+
 ## Git workflow
 
 - Branch off `main`; **one focused problem per commit**; describe *what* and *why*.
