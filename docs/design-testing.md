@@ -231,12 +231,41 @@ getting real-browser coverage.
   transport-level mock.
 - Component-tier only (no Playwright): rejected — never exercises real layout/SW/browsers.
 
+### Decision 8: Property-Based Tests for Pure-Core Invariants
+
+**Context:** Example tests spot-check specific inputs, but `packages/core` is pure logic
+with **invariants** (precedence laws, idempotence, coverage, chunk stability) that a
+handful of hand-picked cases can't exercise across the edge space — exactly where bugs
+recur (chunk-boundary churn, effective-status precedence, exception carve-outs).
+
+**Decision:** Use **fast-check** (a dev dependency, run under Vitest) to assert **laws**
+over randomized inputs, alongside the example tests — not replacing them. Property files
+are co-located as `*.property.test.ts`. Reach for a property test when a Tier-1 function
+has an invariant that should hold for **all** inputs — *"is total / never throws"*,
+*"reconcile after apply is a no-op"*, *"every domain covered exactly once"*, *"a domain
+decision overrides a non-exception address"*. Keep example tests for specific,
+human-meaningful scenarios and regressions.
+
+- **Reproducibility:** pin a **seed** on non-trivial generators (fast-check prints the
+  failing seed + shrunk counterexample on failure), so CI is deterministic.
+- **Probabilistic invariants** (e.g. content-defined chunk locality, #152) assert a
+  **generous bound/fraction** that decisively separates correct from broken behaviour,
+  not a brittle exact constant.
+- **Fuzzing** untrusted-input **boundaries** (Gmail/response parsing, restore-import,
+  snapshot payloads) — graceful-failure + privacy invariants on hostile input — shares
+  the fast-check driver and is tracked separately in the roadmap/issues (#166).
+
+**Rationale:** Property tests turn the "invariant" comments scattered through the compiler
+and decision logic into executed guarantees, at near-zero example-writing cost, while
+staying inside the one-toolchain (Decision 1) offline-and-deterministic model.
+
 ## Interfaces
 
 ### Test File Layout
 
-Tests are **co-located** with source as `*.test.ts(x)`. Shared fixtures/builders live
-under a `testing/` folder per package and are importable across tiers.
+Tests are **co-located** with source as `*.test.ts(x)` (property-based ones as
+`*.property.test.ts`). Shared fixtures/builders live under a `testing/` folder per package
+and are importable across tiers.
 
 ```
 packages/core/
@@ -399,3 +428,4 @@ it("applies a block decision and records a compiled filter", async () => {
 |------|--------|--------|
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |
+| 2026-07-18 | Add **Decision 8: property-based tests** (fast-check under Vitest, `*.property.test.ts`) for pure-core invariants — when to reach for them vs example tests, seed/reproducibility, generous bounds for probabilistic invariants; fuzzing of untrusted-input boundaries noted as related (#166). Landed compiler (cap/coverage/idempotence/stability), effective-status precedence, and `keyFor` collision properties (#165). | Claude |
