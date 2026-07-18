@@ -240,11 +240,15 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
               onNotNow={() => decideFlaggedGroup("defer")}
             />
           )}
-          <BatchOffer
-            domain={current.domain}
-            batchSize={domainSize.get(current.domain) ?? 1}
-            onReviewAsGroup={() => setScope("domain")}
-          />
+          {/* Skip the generic whole-domain offer when the flagged group already spans the
+              whole domain — the two cards would say the same thing. */}
+          {(domainSize.get(current.domain) ?? 1) !== flagged.length + 1 && (
+            <BatchOffer
+              domain={current.domain}
+              batchSize={domainSize.get(current.domain) ?? 1}
+              onReviewAsGroup={() => setScope("domain")}
+            />
+          )}
           <TrustActions
             sender={current}
             scope={scope}
