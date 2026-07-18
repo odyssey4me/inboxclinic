@@ -38,6 +38,23 @@ describe("simulateEnforcement", () => {
     expect(gmail.senderQueries).toContain("deals@retailco.com");
   });
 
+  it("a prospective whole-domain trust drops a blocked member from the preview (#144)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    await store.domains.put(domainBuilder("shop.com")); // domain undecided (pending)
+    const gmail = new MockGmailClient();
+
+    // As-is, the standing block would compile a filter...
+    const before = await simulateEnforcement(gmail, store, []);
+    // ...but previewing a whole-domain trust makes the member effectively trusted → no filter.
+    const after = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("shop.com"), scope: "domain", decision: "trust" },
+    ]);
+
+    expect(before.filtersToCreate).toBe(1);
+    expect(after.filtersToCreate).toBe(0);
+  });
+
   it("classifies archive vs delete from the staged actions", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("a@x.com"));

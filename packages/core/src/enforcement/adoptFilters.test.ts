@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { applyFilterAdoptions, suggestFilterAdoptions } from "./adoptFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
-import { createInMemoryStore, MockGmailClient, senderBuilder } from "../testing";
+import { createInMemoryStore, domainBuilder, MockGmailClient, senderBuilder } from "../testing";
 
 const block = (id: string, from: string) => ({
   id,
@@ -25,6 +25,19 @@ describe("suggestFilterAdoptions", () => {
     expect(suggestions[0]?.filterId).toBe("hand-made");
     expect(suggestions[0]?.from).toBe("spam@a.com");
     expect(suggestions[0]?.description).toContain("spam@a.com");
+  });
+
+  it("does not suggest adopting a filter for a sender the domain now trusts (#144)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    await store.domains.put(
+      domainBuilder("shop.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([block("hand-made", "promo@shop.com")]);
+
+    // The sender is effectively trusted, so its filter isn't desired → nothing to adopt.
+    expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
   });
 
   it("does not suggest a filter that is already tracked as managed", async () => {

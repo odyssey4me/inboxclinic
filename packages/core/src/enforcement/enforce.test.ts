@@ -50,6 +50,65 @@ describe("enforce", () => {
     });
   });
 
+  it("drops a per-sender block filter once the domain trusts that sender (#144)", async () => {
+    const store = createInMemoryStore();
+    // A sender blocked earlier, whose domain the user has since trusted at domain scope.
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    await store.domains.put(
+      domainBuilder("shop.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    const gmail = new MockGmailClient();
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // Effective status is trusted (domain overrides address), so no block filter is compiled.
+    expect(gmail.createdFilters).toEqual([]);
+    expect(result.filtersCreated).toBe(0);
+  });
+
+  it("keeps the block filter for an address that is an exception to the domain trust (#144)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "trusted",
+        decisionScope: "domain",
+        exceptionAddresses: ["promo@shop.com"],
+      }),
+    );
+    const gmail = new MockGmailClient();
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // The exception carves the address out of the domain trust, so its block still stands.
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      { from: "promo@shop.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    expect(result.filtersCreated).toBe(1);
+  });
+
+  it("skips staged message actions for a sender the domain now trusts (#144)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("promo@shop.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    await store.domains.put(
+      domainBuilder("shop.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    const gmail = new MockGmailClient([msgFrom("promo@shop.com"), msgFrom("promo@shop.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // Effectively trusted → no filter, and its staged trash action is not applied to its mail.
+    expect(gmail.createdFilters).toEqual([]);
+    expect(gmail.batchModifyCalls).toHaveLength(0);
+    expect(result.messagesTrashed).toBe(0);
+    expect(result.filtersCreated).toBe(0);
+  });
+
   it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
     const store = createInMemoryStore();
     await store.senders.put(
