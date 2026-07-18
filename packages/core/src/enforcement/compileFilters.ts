@@ -12,7 +12,8 @@
  * Mapping (design §"Decision 5"):
  * 1. Sender block → `from:<address>` → Trash / skip-inbox.
  * 2. When **3+ senders of one domain** are blocked, prefer a single `from:*@domain`.
- * 3. **OR-combine ≤10 domains** per filter (`*@a.com OR *@b.com …`).
+ * 3. **OR-combine ≤10 domains** per filter (`*@a.com OR *@b.com …`), chunked at
+ *    content-defined boundaries so one domain's add/remove doesn't reshuffle the rest (#152).
  * 4. **Soft cap ~450** filters (headroom below Gmail's 500) — stop creating beyond it
  *    and surface a flag; domain aggregation is preferred so the cap covers more senders.
  */
@@ -50,6 +51,53 @@ export interface CompiledFilters {
 export interface BlockedDomainInput {
   domain: string;
   excludeAddresses?: string[];
+}
+
+/**
+ * Deterministic 32-bit FNV-1a hash of a string. Pure and stable across runs (no RNG) — used
+ * only to place a content-defined chunk boundary, never for anything security-sensitive.
+ */
+function hash32(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Group sorted domains into OR-combine chunks with CONTENT-DEFINED boundaries: a chunk closes
+ * after a domain whose hash marks a boundary (≈1 in `maxPerFilter` domains), or when it reaches
+ * `maxPerFilter` (the hard OR-combine cap). Because boundaries are anchored to a domain's own
+ * hash — not its position in the global sorted list — adding or removing one domain only
+ * re-chunks locally; unrelated domains keep the same chunk, and therefore the same filter
+ * signature, so reconcile stops deleting+recreating filters that didn't semantically change (#152).
+ *
+ * The locality is PROBABILISTIC, as with any content-defined chunker: a change re-syncs at the
+ * next domain whose hash is a marker, so the disturbed region spans the run up to that marker
+ * (~1 chunk in expectation, but a marker-free run re-splits by count until the next marker).
+ *
+ * Packing vs. churn is a deliberate trade: setting the marker rate equal to the cap
+ * (`% maxPerFilter`) truncates the geometric run length hard, so expected chunk size is only
+ * ~2/3 of the cap (E ≈ 6.5 domains per 10-domain filter), not near-full. A rarer marker would
+ * pack tighter but widen the re-chunk region — the wrong trade for #152, and the ~450 soft cap
+ * has ample headroom for the extra filters. Degenerate `maxPerFilter <= 1`, or a domain set that
+ * all hashes to markers, degrades to one domain per filter (worst packing, still correct).
+ */
+function chunkDomainsStably(sortedDomains: readonly string[], maxPerFilter: number): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  for (const domain of sortedDomains) {
+    current.push(domain);
+    const atMarker = hash32(domain) % maxPerFilter === 0;
+    if (current.length >= maxPerFilter || atMarker) {
+      chunks.push(current);
+      current = [];
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 function blockFilter(from: string, excludeFrom?: string): FilterSpec {
@@ -118,8 +166,7 @@ export function compileFilters(
   // trusted-exception carve-out gets its OWN filter (an OR-group can't share one exclusion).
   const plainDomains = [...aggregatedDomains].filter((d) => !excludeByDomain.has(d)).sort();
   const domainFilters: FilterSpec[] = [];
-  for (let i = 0; i < plainDomains.length; i += maxPerFilter) {
-    const group = plainDomains.slice(i, i + maxPerFilter);
+  for (const group of chunkDomainsStably(plainDomains, maxPerFilter)) {
     domainFilters.push(blockFilter(group.map((d) => `*@${d}`).join(" OR ")));
   }
   for (const domain of [...excludeByDomain.keys()].sort()) {

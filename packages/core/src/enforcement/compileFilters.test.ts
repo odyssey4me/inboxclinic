@@ -9,6 +9,15 @@ const sender = (email: string): { email: string; domain: string } => ({
   domain: email.split("@")[1] ?? "example.com",
 });
 
+/** The domains covered by plain `*@domain` OR-combine filters (exception + sender filters aside), sorted. */
+const plainDomainsCovered = (filters: FilterSpec[]): string[] =>
+  filters
+    .filter((f) => f.excludeFrom === undefined)
+    .flatMap((f) => f.from.split(" OR "))
+    .filter((token) => token.startsWith("*@"))
+    .map((token) => token.slice(2))
+    .sort();
+
 describe("compileFilters", () => {
   it("maps a single blocked sender to a from:<address> Trash/skip-inbox filter", () => {
     const { filters } = compileFilters([sender("spam@a.com")], []);
@@ -54,7 +63,7 @@ describe("compileFilters", () => {
     ]);
   });
 
-  it("gives an exception-carrying domain its own filter, OR-combining the rest (#145)", () => {
+  it("gives an exception-carrying domain its own filter, and covers the plain domains (#145)", () => {
     const { filters } = compileFilters(
       [],
       [
@@ -63,25 +72,49 @@ describe("compileFilters", () => {
         { domain: "c.com", excludeAddresses: ["vip@c.com"] },
       ],
     );
-    expect(filters.map((f) => f.from)).toEqual(["*@a.com OR *@b.com", "*@c.com"]);
+    // The exception-carrying domain always gets its OWN filter (an OR-group can't share one exclusion).
     expect(filters.find((f) => f.from === "*@c.com")?.excludeFrom).toBe("vip@c.com");
+    // The plain domains are each covered exactly once, never folded into the exception filter.
+    expect(plainDomainsCovered(filters)).toEqual(["a.com", "b.com"]);
   });
 
-  it("OR-combines up to 10 domains per filter and splits the overflow", () => {
+  it("OR-combines plain domains into chunks no larger than the cap, covering each once", () => {
     const domains = Array.from({ length: 12 }, (_, i) => ({ domain: `d${i}.com` }));
     const { filters } = compileFilters([], domains);
-    expect(filters).toHaveLength(2);
-    expect(filters[0]?.from.split(" OR ")).toHaveLength(10);
-    expect(filters[1]?.from.split(" OR ")).toHaveLength(2);
-    expect(filters[0]?.from).toContain("*@d0.com");
+    // Every chunk honours the ≤10 OR-combine cap...
+    for (const f of filters) expect(f.from.split(" OR ").length).toBeLessThanOrEqual(10);
+    // ...12 > cap, so it can't be a single filter...
+    expect(filters.length).toBeGreaterThanOrEqual(2);
+    // ...and every domain is covered exactly once.
+    expect(plainDomainsCovered(filters)).toEqual(domains.map((d) => d.domain).sort());
   });
 
-  it("respects maxDomainsPerFilter override", () => {
+  it("respects the maxDomainsPerFilter cap", () => {
     const domains = [{ domain: "a.com" }, { domain: "b.com" }, { domain: "c.com" }];
     const { filters } = compileFilters([], domains, { maxDomainsPerFilter: 2 });
-    expect(filters).toHaveLength(2);
-    expect(filters[0]?.from).toBe("*@a.com OR *@b.com");
-    expect(filters[1]?.from).toBe("*@c.com");
+    for (const f of filters) expect(f.from.split(" OR ").length).toBeLessThanOrEqual(2);
+    expect(plainDomainsCovered(filters)).toEqual(["a.com", "b.com", "c.com"]);
+  });
+
+  it("degrades to one domain per filter at maxDomainsPerFilter=1 (#152)", () => {
+    const domains = [{ domain: "a.com" }, { domain: "b.com" }, { domain: "c.com" }];
+    const { filters } = compileFilters([], domains, { maxDomainsPerFilter: 1 });
+    expect(filters.map((f) => f.from).sort()).toEqual(["*@a.com", "*@b.com", "*@c.com"]);
+  });
+
+  it("keeps unrelated domains' filters stable when one domain is added (#152)", () => {
+    const base = Array.from({ length: 40 }, (_, i) => ({
+      domain: `d${String(i).padStart(2, "0")}.com`,
+    }));
+    const before = compileFilters([], base).filters.map((f) => f.from);
+    // Insert one new domain that sorts to the very front.
+    const after = compileFilters([], [{ domain: "aaa-new.com" }, ...base]).filters.map(
+      (f) => f.from,
+    );
+    // Positional slicing would shift every downstream chunk boundary; content-defined chunking
+    // must leave all but the locally-affected filter(s) byte-for-byte identical.
+    const unchanged = before.filter((f) => after.includes(f));
+    expect(unchanged.length).toBeGreaterThanOrEqual(before.length - 2);
   });
 
   it("stops creating filters at the soft cap and surfaces skippedAtCap + capReached", () => {
