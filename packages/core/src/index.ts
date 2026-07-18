@@ -76,6 +76,7 @@ export type {
   Store,
   TrustStatus,
 } from "./store";
+export { InvalidBackupError, parseStoreDump, STORE_DUMP_TABLES, type StoreDump } from "./store";
 
 // Sender / domain extraction and categorisation (pure).
 export {

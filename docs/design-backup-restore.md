@@ -102,6 +102,12 @@ action. **Restore replaces all local data** via `Store.importAll()` after an exp
 user confirmation (a destructive-action warning). There is **no merge and no continuous
 sync**. Periodic auto-backup is deferred to a later milestone.
 
+Because restore is destructive, `importAll` **validates the blob before touching the store**:
+both Store implementations run the shared, pure `parseStoreDump` gate first, so a truncated /
+corrupt / wrong-shape file throws a typed `InvalidBackupError` and **leaves the existing data
+intact** rather than wiping first and failing mid-write. Validation is shape/safety only (each
+table is an array of objects), fuzzed at the boundary (design-testing.md, #166).
+
 **Rationale:** Manual, replace-local is simple, predictable, and sufficient for "move to
 a new device" / "recover after eviction". Merge/sync would reintroduce conflict handling
 that the local-first model deliberately avoids.
@@ -242,4 +248,5 @@ New feature; no prior behaviour to migrate. Introduces the new `drive.file` scop
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-18 | Decision 4: document that `importAll` **validates the blob before touching the store** via the shared pure `parseStoreDump` gate — a malformed/corrupt file throws a typed `InvalidBackupError` and leaves data intact (no partial wipe/write), fuzzed at the boundary (#166). | Claude |
 | 2026-07-05 | Initial draft: `BackupClient` port, `drive.file` opt-in backup/restore to a single user-visible Drive file, replace-local restore. Home for the backup concern (moved out of the Gmail doc). | Claude |

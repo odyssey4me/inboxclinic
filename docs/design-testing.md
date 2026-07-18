@@ -251,13 +251,29 @@ human-meaningful scenarios and regressions.
 - **Probabilistic invariants** (e.g. content-defined chunk locality, #152) assert a
   **generous bound/fraction** that decisively separates correct from broken behaviour,
   not a brittle exact constant.
-- **Fuzzing** untrusted-input **boundaries** (Gmail/response parsing, restore-import,
-  snapshot payloads) — graceful-failure + privacy invariants on hostile input — shares
-  the fast-check driver and is tracked separately in the roadmap/issues (#166).
-
 **Rationale:** Property tests turn the "invariant" comments scattered through the compiler
 and decision logic into executed guarantees, at near-zero example-writing cost, while
 staying inside the one-toolchain (Decision 1) offline-and-deterministic model.
+
+#### Fuzzing untrusted-input boundaries (#166)
+
+The same fast-check driver fuzzes the seams where the app ingests data it doesn't control —
+asserting **"no uncaught throw + valid output shape + privacy invariant intact"** rather than
+an exact value, over `fc.uint8Array`/`fc.json`/`fc.anything` plus a hand-picked hostile corpus.
+Fuzz files are co-located as `*.fuzz.test.ts` (or a `fuzzing` describe block). Boundaries covered:
+
+- **Gmail-response parsing** — `parseHeaders` (`BrowserGmailClient`) and `parseFromHeader` /
+  `parseAuthResults` / `extractSenders` (`packages/core`): garbage headers never throw and only
+  ever emit **allowlisted, string-valued metadata** — never a message body (privacy).
+- **Restore/import** — `parseStoreDump` is the single pure gate both `Store.importAll`
+  implementations run **before** any wipe/write, so a malformed blob throws a typed
+  `InvalidBackupError` and **leaves the store unchanged** (no partial write), never a raw
+  `SyntaxError`/`TypeError`.
+
+To add a case: extend the relevant `*.fuzz.test.ts` — a new arbitrary, or a hostile literal in
+the corpus. A crash found by fuzzing is fixed (or filed) and its reproducing input added to the
+corpus. Validation is **shape/safety**, not schema enforcement (a restore is the user's own
+data; deep per-field checks are the migration layer's job).
 
 ## Interfaces
 
@@ -429,3 +445,4 @@ it("applies a block decision and records a compiled filter", async () => {
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |
 | 2026-07-18 | Add **Decision 8: property-based tests** (fast-check under Vitest, `*.property.test.ts`) for pure-core invariants — when to reach for them vs example tests, seed/reproducibility, generous bounds for probabilistic invariants; fuzzing of untrusted-input boundaries noted as related (#166). Landed compiler (cap/coverage/idempotence/stability), effective-status precedence, and `keyFor` collision properties (#165). | Claude |
+| 2026-07-18 | Add the **Fuzzing** subsection to Decision 8 (#166): `*.fuzz.test.ts` for the Gmail-response parsers (`parseHeaders`, `parseFromHeader`/`parseAuthResults`/`extractSenders` — no throw, allowlisted metadata-only) and the restore/import boundary (`parseStoreDump` — typed `InvalidBackupError`, no partial write). Documents the hostile-corpus approach and shape-vs-schema scope. | Claude |
