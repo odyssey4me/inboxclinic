@@ -21,7 +21,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
 import { useLayout } from "../layout/context";
-import { hasPriorBlockSignal } from "../lib/priorBlockSignal";
+import { flaggedSiblingsOf } from "../lib/priorBlockSignal";
 import { relativeTime } from "../lib/relativeTime";
 import { statusTone } from "../lib/statusTone";
 
@@ -824,12 +824,9 @@ export function Dashboard({
         flaggedSiblings={
           selected === null
             ? []
-            : senders.filter(
-                (s) =>
-                  s.id !== selected.id &&
-                  s.domain === selected.domain &&
-                  effectiveStatus(s) === "pending" &&
-                  hasPriorBlockSignal(s),
+            : flaggedSiblingsOf(
+                selected,
+                senders.filter((s) => effectiveStatus(s) === "pending"),
               )
         }
         store={store}

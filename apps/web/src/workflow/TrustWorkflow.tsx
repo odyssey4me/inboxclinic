@@ -25,6 +25,7 @@ import { TrustActions } from "../components/composed/TrustActions";
 import { Button } from "../components/ui/Button";
 import { ProgressBar } from "../components/ui/ProgressBar";
 import { useStoreSnapshot } from "../hooks/useStoreSnapshot";
+import { flaggedSiblingsOf } from "../lib/priorBlockSignal";
 import type { PendingDecision } from "./pendingDecisions";
 
 type Phase = "triage" | "review" | "execution";
@@ -93,6 +94,16 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
 
   const current = cursor < queue.length ? queue[cursor] : undefined;
 
+  // Same-domain, still-unhandled senders that carry a prior-block signal — offered for
+  // one-step consolidation alongside the current sender (design Decision 8, #96/#129).
+  const flagged =
+    current === undefined
+      ? []
+      : flaggedSiblingsOf(
+          current,
+          queue.filter((s) => !handled.has(s.id) && s.id !== current.id),
+        );
+
   function nextUnhandled(from: number, skipIds: Set<string>): number {
     for (let i = from; i < queue!.length; i += 1) {
       const sender = queue![i];
@@ -131,6 +142,28 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
     };
     setPending((list) => [...list.filter((p) => p.subjectId !== entry.subjectId), entry]);
     advanceAfter(covered);
+  }
+
+  /**
+   * Stage the same decision for the current sender AND its flagged siblings — each as its own
+   * address-scoped entry — then advance past the whole group. The guided-workflow counterpart
+   * of SenderDetail's consolidation offer (#96), expressed through the workflow's staging model
+   * (nothing is applied until Execution).
+   */
+  function decideFlaggedGroup(decision: Decision): void {
+    if (current === undefined) return;
+    const targets = [current, ...flagged];
+    const entries: PendingDecision[] = targets.map((s) => ({
+      subjectId: s.id,
+      scope: "address",
+      decision,
+      actions: decision === "block" ? defaultBlockActions(s) : [],
+      label: s.email,
+      coveredSenderIds: [s.id],
+    }));
+    const ids = new Set(entries.map((e) => e.subjectId));
+    setPending((list) => [...list.filter((p) => !ids.has(p.subjectId)), ...entries]);
+    advanceAfter(targets.map((s) => s.id));
   }
 
   function skip(): void {
@@ -197,11 +230,25 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
       {phase === "triage" && current !== undefined && (
         <section className="space-y-4" aria-label="Triage">
           <PromptCard sender={current} />
-          <BatchOffer
-            domain={current.domain}
-            batchSize={domainSize.get(current.domain) ?? 1}
-            onReviewAsGroup={() => setScope("domain")}
-          />
+          {flagged.length > 0 && (
+            <FlaggedSiblingsOffer
+              domain={current.domain}
+              siblingCount={flagged.length}
+              total={flagged.length + 1}
+              onBlockAll={() => decideFlaggedGroup("block")}
+              onKeepAll={() => decideFlaggedGroup("trust")}
+              onNotNow={() => decideFlaggedGroup("defer")}
+            />
+          )}
+          {/* Skip the generic whole-domain offer when the flagged group already spans the
+              whole domain — the two cards would say the same thing. */}
+          {(domainSize.get(current.domain) ?? 1) !== flagged.length + 1 && (
+            <BatchOffer
+              domain={current.domain}
+              batchSize={domainSize.get(current.domain) ?? 1}
+              onReviewAsGroup={() => setScope("domain")}
+            />
+          )}
           <TrustActions
             sender={current}
             scope={scope}
@@ -262,6 +309,53 @@ export function TrustWorkflow({ store, gmail, onDone }: TrustWorkflowProps) {
           onDone={onDone}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Compact consolidation offer for the current sender's flagged same-domain siblings — the
+ * guided-workflow counterpart of SenderDetail's offer (design Decision 8, #96/#129). Actions
+ * stage the whole group (current + siblings) via the workflow's normal staging.
+ */
+function FlaggedSiblingsOffer({
+  domain,
+  siblingCount,
+  total,
+  onBlockAll,
+  onKeepAll,
+  onNotNow,
+}: {
+  domain: string;
+  siblingCount: number;
+  total: number;
+  onBlockAll: () => void;
+  onKeepAll: () => void;
+  onNotNow: () => void;
+}) {
+  return (
+    <div
+      className="space-y-2 rounded-md bg-accent-soft px-3 py-3 text-sm"
+      aria-label="Flagged siblings"
+    >
+      <p className="text-accent-ink">
+        <span className="font-medium">
+          {siblingCount} other flagged sender{siblingCount === 1 ? "" : "s"}
+        </span>{" "}
+        on <span className="font-medium">{domain}</span> — already spam/binned or filtered. Decide
+        them together?
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="danger" className="px-2 py-1 text-xs" onClick={onBlockAll}>
+          Block all {total}
+        </Button>
+        <Button variant="trust" className="px-2 py-1 text-xs" onClick={onKeepAll}>
+          Keep all — they're fine
+        </Button>
+        <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onNotNow}>
+          Not now
+        </Button>
+      </div>
     </div>
   );
 }
