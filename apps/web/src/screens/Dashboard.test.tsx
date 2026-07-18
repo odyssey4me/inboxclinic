@@ -412,6 +412,25 @@ describe("Dashboard — URL-controlled tab + detail (#120)", () => {
     );
   });
 
+  it("opens only the sender detail when both ?sender= and ?domain= are present", async () => {
+    const { store, gmail } = setup();
+    await store.senders.put(senderBuilder("s@shop.com"));
+    await store.domains.put(domainBuilder("shop.com"));
+
+    renderDashboard(store, gmail, {}, [
+      `/?sender=${keyFor("s@shop.com")}&domain=${keyFor("shop.com")}`,
+    ]);
+
+    expect(
+      await screen.findByRole("dialog", { name: /actions for s@shop\.com/i }),
+    ).toBeInTheDocument();
+    // Exactly one drawer — the domain detail ("actions for shop.com") must not also open.
+    expect(
+      screen.queryByRole("dialog", { name: /^actions for shop\.com/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
+
   it("ignores an unknown ?sender= id (panel stays closed)", async () => {
     const { store, gmail } = setup();
     await store.senders.put(senderBuilder("real@x.com"));

@@ -170,26 +170,37 @@ export function Dashboard({
     return id === null ? null : (senders.find((s) => s.id === id) ?? null);
   }, [searchParams, senders]);
   const selectedDomain = useMemo(() => {
+    // Enforce "one detail open at a time" on READ too — `sender` wins if a hand-crafted link
+    // carries both, so the two drawers can never render at once.
+    if (searchParams.get("sender") !== null) return null;
     const id = searchParams.get("domain");
     return id === null ? null : (domains.find((d) => d.id === id) ?? null);
   }, [searchParams, domains]);
-  // Only one detail is open at a time — opening one clears the other; both preserve other params.
+  // Opening one detail clears the other; both preserve other params (e.g. demo/tab). A detail is
+  // transient UI, so open/close `replace` the history entry (like App's nav) rather than flooding
+  // history with drawer toggles — the tab, above, still pushes so back/forward moves between tabs.
   const openSender = (sender: Sender | null): void =>
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("domain");
-      if (sender === null) next.delete("sender");
-      else next.set("sender", sender.id);
-      return next;
-    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("domain");
+        if (sender === null) next.delete("sender");
+        else next.set("sender", sender.id);
+        return next;
+      },
+      { replace: true },
+    );
   const openDomain = (domain: Domain | null): void =>
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("sender");
-      if (domain === null) next.delete("domain");
-      else next.set("domain", domain.id);
-      return next;
-    });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("sender");
+        if (domain === null) next.delete("domain");
+        else next.set("domain", domain.id);
+        return next;
+      },
+      { replace: true },
+    );
 
   // Trust scores are pure arithmetic but we still avoid recomputing them per comparison.
   const scoreById = useMemo(
