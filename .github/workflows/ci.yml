@@ -112,7 +112,11 @@ jobs:
       # doc-sync's drift check (#110) diffs deletions against origin/main; checkout doesn't
       # fetch other branches, so make the base ref available (no-op on main).
       - name: Fetch main (drift diff base)
-        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main || true
+        # Non-fatal: on failure the drift check no-ops (no base), but warn loudly so a fetch
+        # outage doesn't silently disable the check for a run with no trace in the passing job.
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main \
+            || echo "::warning::could not fetch origin/main — doc↔code drift check will be skipped this run"
 
       - name: Validate documentation sync
         run: ./scripts/doc-sync-validate.sh

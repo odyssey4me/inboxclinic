@@ -289,10 +289,10 @@ check_changelog_entries() {
 # -----------------------------------------------------------------------------
 # Check 4: Doc ↔ code symbol drift (diff-aware, deletion-triggered) — #110
 # -----------------------------------------------------------------------------
-# When a change DELETES a code module whose PascalCase name (or path) is still
-# referenced in a design doc, flag it — so a doc can't keep naming code that was
-# removed (the #106 `DomainDetail` miss). Diff-aware against origin/main, so it only
-# ever looks at symbols removed in THIS change: forward-looking/planned references
+# When a change DELETES or RENAMES a code module whose PascalCase name (or path) is
+# still referenced in a design doc, flag it — so a doc can't keep naming code that was
+# removed or moved (the #106 `DomainDetail` miss). Diff-aware against origin/main, so it
+# only ever looks at symbols removed in THIS change: forward-looking/planned references
 # (to code that never existed, or was removed in an earlier change) are untouched.
 
 check_doc_symbol_drift() {
@@ -304,8 +304,10 @@ check_doc_symbol_drift() {
     [[ -z "$base" ]] && return 0
 
     # Code modules deleted since the base (committed or in the working tree), excluding tests.
+    # --no-renames so a moved/renamed file surfaces as delete+add and is caught against its
+    # OLD name/path (default rename detection would hide it as an R entry, missing the drift).
     local deleted
-    deleted=$(git diff --diff-filter=D --name-only "$base" -- apps packages 2>/dev/null \
+    deleted=$(git diff --no-renames --diff-filter=D --name-only "$base" -- apps packages 2>/dev/null \
         | grep -E '\.(ts|tsx)$' | grep -vE '\.(test|spec)\.' || true)
     [[ -z "$deleted" ]] && return 0
 
@@ -321,8 +323,13 @@ check_doc_symbol_drift() {
         # would match unrelated prose.
         [[ "$symbol" =~ ^[A-Z][A-Za-z0-9]+$ ]] || continue
         # Still referenced by backticked name or by path in a current design doc?
+        # symbol is [A-Z][A-Za-z0-9]+ (no regex metachars); \Q…\E quotes the path literally.
+        # The path is anchored with a negative lookahead so a deleted `Modal` path can't match
+        # a still-existing sibling like `ModalHeader.tsx` — only an exact-boundary path (end,
+        # extension dot, whitespace, …) counts. This also covers the with-extension form.
+        local path_noext="${file%.*}"
         for doc in $design_docs; do
-            if grep -qF -e "\`${symbol}\`" -e "$file" -e "${file%.*}" "$doc" 2>/dev/null; then
+            if grep -qP "\`${symbol}\`|\Q${path_noext}\E(?![A-Za-z0-9])" "$doc" 2>/dev/null; then
                 ERRORS+=("Doc/code drift: $(basename "$doc") still references \`${symbol}\` (from deleted ${file}). Update the doc — drop the reference, or reword so it doesn't name a since-removed symbol.")
             fi
         done
