@@ -88,6 +88,9 @@ export async function simulateEnforcement(
   // A (prospectively) blocked domain's trusted exception addresses — the ones whose effective
   // status is no longer blocked. Excluded from both the domain's `*@domain` filter (#145) and
   // its existing-mail sweep (#151), so the preview matches what enforce actually does.
+  // Only ever called on a domain that is (prospectively) blocked; a blocked domain is always
+  // domain-scoped (applyDecision.ts writes `decisionScope: "domain"` with the block), so the
+  // `domainStatus/domainScope` here are that known state rather than re-derived per call.
   const prospectiveDomainExclusions = (domain: Domain): string[] =>
     domain.exceptionAddresses.filter((email) => {
       const s = senderById.get(keyFor(email));
