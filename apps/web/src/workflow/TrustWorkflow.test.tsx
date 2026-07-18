@@ -95,4 +95,66 @@ describe("TrustWorkflow", () => {
     const prompts = await store.prompts.query({});
     expect(prompts.every((p) => p.resolvedAt !== null)).toBe(true);
   });
+
+  /**
+   * Give the scanned senders a prior-block signal so the current sender has flagged siblings
+   * (learnPriorDecisions doesn't run in this harness), then render the workflow.
+   */
+  async function seededFlagged(froms: string[]): Promise<Seeded> {
+    const seeded = await seededStore(froms);
+    for (const s of await seeded.store.senders.query({})) {
+      await seeded.store.senders.put({ ...s, spamMarkedCount: 1 });
+    }
+    return seeded;
+  }
+
+  it("offers the flagged-siblings consolidation in Triage and keeps them all in one step (#129)", async () => {
+    const { store, gmail } = await seededFlagged([
+      "deals@shop.example",
+      "news@shop.example",
+      "promo@shop.example",
+    ]);
+    render(<TrustWorkflow store={store} gmail={gmail} onDone={vi.fn()} />);
+
+    // The compact offer surfaces the two other flagged senders on the domain.
+    await screen.findByText(/2 other flagged senders/i);
+    await clickButton(/keep all/i);
+
+    await clickButton(/apply changes/i);
+    await clickButton(/^done$/i);
+
+    // Current + both siblings are staged and applied as trust; no filters for a keep.
+    expect((await store.senders.query({ trustStatus: "trusted" })).length).toBe(3);
+    const prompts = await store.prompts.query({});
+    expect(prompts.every((p) => p.resolvedAt !== null)).toBe(true);
+    expect(gmail.createdFilters).toEqual([]);
+  });
+
+  it("blocks a flagged sibling group from the workflow offer (one filter each)", async () => {
+    const { store, gmail } = await seededFlagged(["deals@shop.example", "news@shop.example"]);
+    render(<TrustWorkflow store={store} gmail={gmail} onDone={vi.fn()} />);
+
+    await clickButton(/block all 2/i);
+    await clickButton(/apply changes/i);
+    await screen.findByText(/gmail enforcement/i);
+    await clickButton(/^done$/i);
+
+    expect((await store.senders.query({ trustStatus: "blocked" })).length).toBe(2);
+    expect(gmail.createdFilters.length).toBe(2);
+  });
+
+  it("defers a flagged sibling group with 'Not now' without resolving prompts", async () => {
+    const { store, gmail } = await seededFlagged(["deals@shop.example", "news@shop.example"]);
+    render(<TrustWorkflow store={store} gmail={gmail} onDone={vi.fn()} />);
+
+    await clickButton(/not now/i);
+    await clickButton(/apply changes/i);
+    await clickButton(/^done$/i);
+
+    const senders = await store.senders.query({});
+    expect(senders.every((s) => s.trustStatus === "pending")).toBe(true);
+    const prompts = await store.prompts.query({});
+    expect(prompts.every((p) => p.deferredAt !== null && p.resolvedAt === null)).toBe(true);
+    expect(gmail.createdFilters).toEqual([]);
+  });
 });
