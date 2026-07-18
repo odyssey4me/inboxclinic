@@ -61,6 +61,10 @@ jobs:
           # so the auto-fix commit is validated by the gate.
           github_token: ${{ secrets.CLAUDE_PAT }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Allow the claude[bot] actor: the action refuses bot-initiated runs by default
+          # (anti-loop guard), but reviewing claude[bot] PRs is this workflow's whole point.
+          # Scoped to `claude` (not `*`); the job `if:` already restricts to claude[bot].
+          allowed_bots: "claude"
           # Let Claude read CI results on the PR (cite, don't re-run).
           additional_permissions: |
             actions: read
