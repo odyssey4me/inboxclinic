@@ -2,8 +2,17 @@
 import { describe, expect, it } from "vitest";
 
 import { keyFor } from "../keys";
-import { createInMemoryStore, domainBuilder, senderBuilder, MockGmailClient } from "../testing";
+import {
+  createInMemoryStore,
+  domainBuilder,
+  messageMetaBuilder,
+  senderBuilder,
+  MockGmailClient,
+} from "../testing";
 import { estimateWeeklyVolume, simulateEnforcement } from "./simulate";
+import type { MessageMeta } from "../ports/GmailClient";
+
+const msgFrom = (from: string): MessageMeta => messageMetaBuilder({ headers: { from } });
 
 describe("estimateWeeklyVolume", () => {
   it("extrapolates weekly volume from the last-30-day count", () => {
@@ -252,6 +261,40 @@ describe("simulateEnforcement", () => {
     ]);
 
     expect(impact.messagesToRescue).toBe(4);
+  });
+
+  it("excludes a domain's trusted exception from the block's message estimate (#151)", async () => {
+    const store = createInMemoryStore();
+    // A blocked domain with one trusted exception address carved out.
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["vip@shop.com"],
+      }),
+    );
+    await store.senders.put(
+      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+    );
+    // Two messages from an ordinary domain member + one from the trusted exception.
+    const gmail = new MockGmailClient([
+      msgFrom("promo@shop.com"),
+      msgFrom("promo@shop.com"),
+      msgFrom("vip@shop.com"),
+    ]);
+
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("shop.com"),
+        scope: "domain",
+        decision: "block",
+        actions: ["create_filter", "delete"],
+      },
+    ]);
+
+    // The exception's message is not counted — only the two non-exception messages, matching
+    // what enforce's exception-excluding sweep would actually trash.
+    expect(impact.messagesToDelete).toBe(2);
   });
 
   it("previews a whole-domain block", async () => {
