@@ -73,3 +73,60 @@ test("decisions surface: consolidate same-domain flagged siblings from the detai
     await expect(item).toContainText("trusted");
   }
 });
+
+test("decisions surface: block all flagged siblings together, previewed and confirmed (#128, #140)", async ({
+  page,
+}) => {
+  await gotoDemo(page);
+
+  await page.getByRole("searchbox", { name: /search senders/i }).fill("bargainhub");
+  await page.getByText("deals@bargainhub.example").first().click();
+
+  const drawer = page.getByRole("dialog", { name: /actions for deals@bargainhub\.example/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText(/2 other flagged senders on bargainhub\.example/i)).toBeVisible();
+
+  // "Block all 3" previews the impact of blocking the opened sender + both siblings, then a
+  // single confirm applies to all three.
+  await drawer.getByRole("button", { name: /block all 3/i }).click();
+  await drawer.getByRole("button", { name: /confirm block all/i }).click();
+  await expect(drawer).toBeHidden();
+
+  await page.getByRole("tab", { name: /^all/i }).click();
+  for (const email of [
+    "deals@bargainhub.example",
+    "offers@bargainhub.example",
+    "news@bargainhub.example",
+  ]) {
+    const item = page.locator("tr, li").filter({ hasText: email });
+    await expect(item).toContainText("blocked");
+  }
+});
+
+test("decisions surface: 'Not now' dismisses the flagged-siblings offer, leaving them pending (#128, #140)", async ({
+  page,
+}) => {
+  await gotoDemo(page);
+
+  await page.getByRole("searchbox", { name: /search senders/i }).fill("bargainhub");
+  await page.getByText("deals@bargainhub.example").first().click();
+
+  const drawer = page.getByRole("dialog", { name: /actions for deals@bargainhub\.example/i });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText(/2 other flagged senders on bargainhub\.example/i)).toBeVisible();
+
+  // "Not now" closes the offer without applying a trust/block decision — the flagged set stays
+  // pending (it defers them; no effective-status change).
+  await drawer.getByRole("button", { name: /not now/i }).click();
+  await expect(drawer).toBeHidden();
+
+  await page.getByRole("tab", { name: /^all/i }).click();
+  for (const email of [
+    "deals@bargainhub.example",
+    "offers@bargainhub.example",
+    "news@bargainhub.example",
+  ]) {
+    const item = page.locator("tr, li").filter({ hasText: email });
+    await expect(item).toContainText("pending");
+  }
+});
