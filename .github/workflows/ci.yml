@@ -41,6 +41,9 @@ jobs:
       - name: No duplicate major versions
         run: ./scripts/check-no-dup-majors.sh
 
+      - name: Playwright image pin matches @playwright/test
+        run: ./scripts/check-playwright-image-pin.sh
+
       - name: Lint
         run: npm run lint
 
@@ -56,6 +59,12 @@ jobs:
   e2e:
     name: Playwright E2E (demo mode)
     runs-on: ubuntu-24.04
+    # Run inside the official Playwright image pinned to our @playwright/test version, so the
+    # browsers (incl. WebKit's apt-only deps) match exactly and are the SAME image that
+    # scripts/gate.sh uses locally (#107) — "green locally" == "green here". Renovate keeps
+    # this tag in lockstep with the @playwright/test npm package. `setup-node` still installs
+    # the repo-pinned Node (.nvmrc) over the image's newer bundled one (engine-strict).
+    container: mcr.microsoft.com/playwright:v1.61.1-noble
 
     steps:
       - name: Checkout
@@ -70,15 +79,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Installs the browser binaries + their system dependencies (needs the runner's
-      # sudo). chromium also backs the mobile-viewport project.
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
-
       # `npm run e2e` builds the app and serves the production bundle via vite preview
       # (playwright.config.ts webServer), then runs every project. CI is set by Actions,
       # so the config enables retries + the HTML report automatically.
       - name: Run E2E (demo mode)
+        # Firefox refuses to launch when $HOME isn't owned by the current user; point it at a
+        # writable, root-owned dir in the container (GitHub sets HOME to a mounted path).
+        env:
+          HOME: /root
         run: npm run e2e
 
       - name: Upload Playwright report

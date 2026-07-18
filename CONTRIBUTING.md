@@ -77,6 +77,23 @@ npm run e2e              # build + preview + run chromium/firefox/webkit/mobile
 npm run e2e:ui          # interactive runner while writing specs
 ```
 
+**Reproduce the whole CI gate locally — `./scripts/gate.sh`.** WebKit can't launch on a bare
+Linux host (missing apt-only deps like `libwoff1`), so `npm run e2e` skips it locally and a
+WebKit- or mobile-only failure can slip through to the gate. `gate.sh` runs the entire gate —
+lint, typecheck, `test:coverage`, build, the **full Playwright matrix incl. WebKit**, and
+doc-sync — inside the **same pinned Playwright image CI uses** (so "green locally" means "green
+on the gate"). It uses **Podman** (rootless) by default, Docker as a fallback:
+
+```bash
+./scripts/gate.sh              # full gate (what CI runs)
+./scripts/gate.sh --e2e-only   # just build + the Playwright matrix
+./scripts/gate.sh --no-e2e     # everything except e2e (fast inner loop)
+CONTAINER_ENGINE=docker ./scripts/gate.sh   # override the engine
+```
+
+The image is pinned to our `@playwright/test` version (Renovate keeps them in lockstep); the
+HTML report lands in `playwright-report/`.
+
 Test structure, tiers, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
 Coverage gate: **≥80%** on `packages/core` and `packages/store` logic.
 

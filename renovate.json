@@ -90,6 +90,11 @@
       "automerge": true
     },
     {
+      "description": "Playwright — the npm test runner and the CI/e2e container image (mcr.microsoft.com/playwright in ci.yml, which scripts/gate.sh mirrors from the npm version) track each other, so group them into ONE PR to keep them in lockstep (#107). Automerge follows the general rules: minor/patch auto, majors manual.",
+      "matchPackageNames": ["@playwright/test", "playwright", "mcr.microsoft.com/playwright"],
+      "groupName": "playwright"
+    },
+    {
       "description": "Hold TypeScript on 6.x — TS 7 is the native-compiler rewrite (breaking major) and its toolchain lags it; revisit as a deliberate migration (was #19). Minors/patches still flow.",
       "matchManagers": ["npm"],
       "matchPackageNames": ["typescript"],

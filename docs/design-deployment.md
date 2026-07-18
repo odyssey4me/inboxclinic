@@ -110,7 +110,11 @@ failing E2E run can never publish — it deploys `apps/web/dist` to **Cloudflare
 `wrangler pages deploy` with a minimal Cloudflare API token. `build` and `e2e` are also the
 **required status checks** on `main`. GitHub-hosted runners are **pinned** to a specific
 Ubuntu LTS (`ubuntu-24.04`), never `ubuntu-latest`, so a new image can't silently change CI;
-Renovate keeps them current (see *Dependency updates*).
+Renovate keeps them current (see *Dependency updates*). The **e2e** job runs inside the
+official **Playwright container** pinned to our `@playwright/test` version (browsers baked in —
+no `playwright install`); `scripts/gate.sh` uses the same image so the full matrix incl. WebKit
+reproduces locally (#107, [CONTRIBUTING.md](../CONTRIBUTING.md)), and Renovate keeps the image
+and the npm package in lockstep.
 
 ### Dependency updates (Renovate)
 
@@ -182,6 +186,7 @@ enabled, no merge commits); confirm Renovate merges via rebase after install.
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-18 | **Run the e2e job in the pinned Playwright container (#107).** The `e2e` job now runs inside `mcr.microsoft.com/playwright:v<@playwright/test>-noble` (browsers baked in; dropped `playwright install --with-deps`), the same image `scripts/gate.sh` uses locally so the full matrix incl. WebKit reproduces on a Fedora host. Renovate groups the image with the `@playwright/test` npm package to keep them in lockstep. | Claude |
 | 2026-07-17 | **Pin CI runners to `ubuntu-24.04` (#79).** Every `runs-on` is pinned (no `ubuntu-latest`) so a new Ubuntu LTS can't silently change CI; Renovate's `github-runners` datasource opens the bump PR, auto-merging on green (the gating CI runs on the new image on the PR — same "green = proof" logic as Actions). | Claude |
 | 2026-07-17 | **Migrate dependency automation from Dependabot to Renovate (#78).** `renovate.json` replicates the ecosystems, grouping (`vite`/`typescript-toolchain`/`types`/minor-and-patch), and the "can it reach users?" auto-merge policy **natively** (no separate auto-merge workflow); the TS-7 major hold (#19) carries over. Removes `.github/dependabot.yml` + `.github/workflows/dependabot-automerge.yml`. `vite` is now manual for all update types. Maintainer one-time: install the Renovate App + disable Dependabot. | Claude |
 | 2026-06-28 | Initial draft — hosting, no-secrets, access/testing-mode, Tally waitlist, Sponsors, licence, moved out of the re-levelled architecture.md. | Claude |
