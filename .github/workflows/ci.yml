@@ -61,7 +61,12 @@ jobs:
     # scripts/gate.sh uses locally (#107) — "green locally" == "green here". Renovate keeps
     # this tag in lockstep with the @playwright/test npm package. `setup-node` still installs
     # the repo-pinned Node (.nvmrc) over the image's newer bundled one (engine-strict).
-    container: mcr.microsoft.com/playwright:v1.61.1-noble
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      # Firefox's sandbox creates a user namespace; GitHub's container runtime blocks the
+      # clone() by default (EPERM) — chromium/webkit are unaffected. Allow it (#107). Rootless
+      # podman already permits it, so scripts/gate.sh needs no equivalent.
+      options: --security-opt seccomp=unconfined
 
     steps:
       - name: Checkout
@@ -80,6 +85,10 @@ jobs:
       # (playwright.config.ts webServer), then runs every project. CI is set by Actions,
       # so the config enables retries + the HTML report automatically.
       - name: Run E2E (demo mode)
+        # Firefox refuses to launch when $HOME isn't owned by the current user; point it at a
+        # writable, root-owned dir in the container (GitHub sets HOME to a mounted path).
+        env:
+          HOME: /root
         run: npm run e2e
 
       - name: Upload Playwright report
