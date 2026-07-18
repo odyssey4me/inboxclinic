@@ -250,6 +250,8 @@ export async function enforce(
   }
 
   // 3. Trust rescue — pull spam-marked trusted senders back out of SPAM/TRASH.
+  // NOTE: reads raw trustStatus, not effective — a sender trusted only via a domain override
+  // (raw status still "blocked") is not rescued here yet. Tracked as a follow-up in #146.
   let messagesRescued = 0;
   const trustedSenders = await store.senders.query({ trustStatus: "trusted" });
   for (const sender of trustedSenders) {

@@ -92,7 +92,9 @@ export async function simulateEnforcement(
           addressStatus: addressStatus === "pending" ? null : addressStatus,
           addressIsException: domain?.exceptionAddresses.includes(s.email) ?? false,
           domainStatus: domainStat === "pending" ? null : domainStat,
-          domainScope: domain?.decisionScope ?? null,
+          // A domain only gets a status via a domain-scope decision (stored or previewed),
+          // so a non-pending prospective status is a domain-scope override.
+          domainScope: domainStat === "pending" ? null : "domain",
         }).status === "blocked"
       );
     });

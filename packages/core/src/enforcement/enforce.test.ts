@@ -87,6 +87,28 @@ describe("enforce", () => {
     expect(result.filtersCreated).toBe(1);
   });
 
+  it("skips staged message actions for a sender the domain now trusts (#144)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(
+      senderBuilder("promo@shop.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    await store.domains.put(
+      domainBuilder("shop.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    const gmail = new MockGmailClient([msgFrom("promo@shop.com"), msgFrom("promo@shop.com")]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // Effectively trusted → no filter, and its staged trash action is not applied to its mail.
+    expect(gmail.createdFilters).toEqual([]);
+    expect(gmail.batchModifyCalls).toHaveLength(0);
+    expect(result.messagesTrashed).toBe(0);
+    expect(result.filtersCreated).toBe(0);
+  });
+
   it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
     const store = createInMemoryStore();
     await store.senders.put(
