@@ -157,4 +157,25 @@ describe("TrustWorkflow", () => {
     expect(prompts.every((p) => p.deferredAt !== null && p.resolvedAt === null)).toBe(true);
     expect(gmail.createdFilters).toEqual([]);
   });
+
+  it("a whole-domain decision supersedes an earlier per-sender decision — no dangling filter (#142)", async () => {
+    const { store, gmail } = await seededStore(["deals@shop.example", "news@shop.example"]);
+    render(<TrustWorkflow store={store} gmail={gmail} onDone={vi.fn()} />);
+
+    // First sender: block it individually (staged, not yet enforced).
+    await clickButton(/^block$/i);
+    // Second sender (same domain): decide the whole domain, then trust.
+    await clickButton(/decide for the whole domain/i);
+    await clickButton(/^trust$/i);
+
+    await clickButton(/apply changes/i);
+    await clickButton(/^done$/i);
+
+    // The domain-trust supersedes the earlier per-sender block: the individual block entry is
+    // dropped, so no block filter is created and nothing is left persisted as blocked.
+    expect(gmail.createdFilters).toEqual([]);
+    expect((await store.senders.query({ trustStatus: "blocked" })).length).toBe(0);
+    const domain = await store.domains.get(keyFor("shop.example"));
+    expect(domain?.trustStatus).toBe("trusted");
+  });
 });
