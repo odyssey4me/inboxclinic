@@ -198,10 +198,11 @@ design-gmail-integration.md Decision 7.
 all-or-nothing bulk import: the user sees *why* a sender is flagged and can act on related
 senders together. The keep/defer split removes today's dismiss ambiguity.
 
-### Decision 9: Parent-domain (registrable-domain) rules — **PROPOSED (#136), not yet approved**
+### Decision 9: Parent-domain (registrable-domain) rules — **design ratified 2026-07-19 (#136); enforcement gated on the #181 spike**
 
-> This section is a **proposal for maintainer review**; nothing here is built. Items marked
-> **[CONFIRM]** are decisions the maintainer should ratify or redline before implementation.
+> The model below is **ratified** (maintainer, 2026-07-19); nothing is built yet. The one open
+> item is the **Gmail enforcement filter form**, which the ratified plan resolves via a real-Gmail
+> **spike (#181)** before the build — see point 5.
 
 **Context:** One organisation often sends from many subdomains of a single registrable domain —
 `news.example.com`, `mail.example.com`, `t.example.com`, `email.mkt.example.com`. Today each is a
@@ -215,40 +216,41 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
 
 1. **Registrable domain via the Public Suffix List — not string splitting.** eTLD+1 is *not*
    "the last two labels": `foo.co.uk`, `x.github.io`, `y.pages.dev` would group catastrophically
-   wrong (every unrelated `*.github.io` tenant lumped together). Compute it with a maintained PSL
-   library, bundled and run **client-side/offline** to preserve the no-backend invariant. **[CONFIRM]**
-   library: recommend **`tldts`** (small, actively maintained, offline, tree-shakeable) over `psl`.
+   wrong (every unrelated `*.github.io` tenant lumped together). Compute it with **`tldts`**
+   (ratified: small, actively maintained, offline, tree-shakeable) — bundled and run
+   **client-side/offline** to preserve the no-backend invariant. `tldts` also returns the public
+   suffix, so the same dependency serves the future TLD scope (#180).
 
-2. **Precedence — most-specific-wins**, extending Decision 2's rule. From most to least specific:
-   **address exception → exact-domain (subdomain) decision → parent-domain rule.** A parent-domain
-   rule is the broad default; a decision on an exact subdomain, or an address exception, overrides
-   it for that narrower subject. `resolveEffectiveDecision` gains a `parentDomainStatus` input and
-   resolves in that order; effective-status helpers, `generatePrompts`, and the Dashboard fold it in
-   the same way they already fold domain overrides. **[CONFIRM]** precedence order.
+2. **Precedence — most-specific-wins** (ratified), extending Decision 2's rule. From most to least
+   specific: **address exception → exact-domain (subdomain) decision → parent-domain rule.** A
+   parent-domain rule is the broad default; a decision on an exact subdomain, or an address
+   exception, overrides it for that narrower subject. `resolveEffectiveDecision` gains a
+   `parentDomainStatus` input and resolves in that order; effective-status helpers, `generatePrompts`,
+   and the Dashboard fold it in the same way they already fold domain overrides.
    **Design the scope enum + precedence as a general "specificity ladder"** so a broader
    **TLD / public-suffix** scope (#180 — "block a whole `.ru`") can slot in below parent-domain as
    the least-specific default without reworking the model, even if only `parentDomain` ships first.
 
-3. **Storage — reuse the `Domain` record**, keyed by the eTLD+1, with `decisionScope: "parentDomain"`.
-   Its `exceptionAddresses[]` carries per-address exceptions; a new `exceptionDomains[]` carries
-   **excepted subdomains** (e.g. trust `*.example.com` but block `spam.example.com`). No new store
-   table. **[CONFIRM]** reuse-Domain vs a dedicated `parentDomainRules` entity.
+3. **Storage — reuse the `Domain` record** (ratified), keyed by the eTLD+1, with
+   `decisionScope: "parentDomain"`. Its `exceptionAddresses[]` carries per-address exceptions; a new
+   `exceptionDomains[]` carries **excepted subdomains** (e.g. trust `*.example.com` but block
+   `spam.example.com`). No new store table — reuses the existing domain/exception/filter machinery.
 
 4. **Exceptions** mirror today's model: a more specific decision on a subdomain/address is recorded
    as an exception to the parent rule (carved out of enforcement, per Decision 2 and #145/#161),
    applied domain-first in a batch (`applyDecisions`, #167) so a "block the parent, keep this
    subdomain" pair records the exception regardless of order.
 
-5. **Enforcement is the open risk — needs a real-Gmail spike (gates the build).** Native Gmail
-   filters must express "this domain + all subdomains". Gmail's `from:` matching of a bare domain
-   (`from:example.com`) *appears* to include subdomains, but also risks over-matching (display
-   names / lookalike domains), and the app currently anchors with `from:*@domain`. Before building,
-   **verify against a real account** (a spike, like #150 did for `negatedQuery`): does a single
-   criterion reliably match `*@*.example.com` without false positives? The compiled-filter form and
-   its fallback live in **design-gmail-integration.md** (Decision 5) — see the proposal note there.
-   **[CONFIRM]** the enforcement approach after the spike: (a) native bare-domain filter if it
-   verifies, else (b) enumerate observed subdomains + re-scan to catch new ones (weaker "future"
-   coverage, no Gmail-behaviour risk), or (c) hybrid (native when verified, enumerate as fallback).
+5. **Enforcement — spike-first (ratified); the filter form is resolved by the #181 spike, which
+   gates the build.** Native Gmail filters must express "this domain + all subdomains". Gmail's
+   `from:` matching of a bare domain (`from:example.com`) *appears* to include subdomains, but also
+   risks over-matching (display names / lookalike domains), and the app currently anchors with
+   `from:*@domain`. Rather than design around that unverified assumption, **#181 verifies it against
+   a real account** (like #150 did for `negatedQuery`): does a single criterion reliably match
+   `*@*.example.com` without false positives? Its outcome picks the filter form — (a) native
+   bare-domain filter if it verifies, else (b) enumerate observed subdomains + re-scan to catch new
+   ones (weaker "future" coverage, no Gmail-behaviour risk), or (c) hybrid. The compiled-filter form
+   and fallback live in **design-gmail-integration.md** (Decision 5).
 
 6. **UX** — offer it *in context*, like the flagged-siblings offer: while deciding on a subdomain
    (e.g. `news.example.com`) whose eTLD+1 has other seen subdomains, surface *"Apply to all
@@ -267,10 +269,12 @@ a parallel model. The PSL keeps grouping correct; offline keeps the no-backend i
 - *A parent rule that ignores exact-subdomain decisions* — rejected: violates most-specific-wins and
   the user's ability to make a fine-grained exception.
 
-**Open questions (for the proposal review):** the three **[CONFIRM]** points above (PSL library,
-precedence order, storage shape) and the enforcement approach pending the Gmail spike. Build is
-**gated on the spike** — if native subdomain matching can't be made reliable, the feature ships as
+**Status:** the model (scope, precedence, PSL library, storage, exceptions, UX) is **ratified**
+(2026-07-19). The remaining open item is the **enforcement filter form**, resolved by the **#181
+spike** before build — if native subdomain matching can't be made reliable, the feature ships as
 (b) enumerate-and-rescan with an explicit "covers subdomains seen so far" caveat, or is deferred.
+Once #181 lands, split into implementation issues (model + PSL grouping + UX are spike-independent;
+the filter compiler waits on #181).
 
 ## Interfaces
 
@@ -557,7 +561,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-19 | **Decision 9 (PROPOSED, #136):** parent-domain (registrable-domain / eTLD+1) rules covering a whole subdomain tree — new `parentDomain` scope, most-specific-wins precedence (address exception → exact subdomain → parent rule), PSL-based grouping (offline `tldts`), reuse the `Domain` record + `exceptionDomains[]`. Scope enum/precedence designed as a general specificity ladder so a broader TLD/public-suffix scope (#180) can slot in later. Enforcement gated on a real-Gmail subdomain-matching spike (see design-gmail-integration.md). Not approved — for maintainer review. | Claude |
+| 2026-07-19 | **Decision 9 (#136, model ratified):** parent-domain (registrable-domain / eTLD+1) rules covering a whole subdomain tree — new `parentDomain` scope, most-specific-wins precedence (address exception → exact subdomain → parent rule), PSL-based grouping (offline **`tldts`**), reuse the `Domain` record + `exceptionDomains[]`. Scope enum/precedence designed as a general specificity ladder so a broader TLD/public-suffix scope (#180) can slot in later. Model ratified 2026-07-19; **enforcement filter form resolved by the #181 real-Gmail spike** before build (see design-gmail-integration.md). | Claude |
 | 2026-07-18 | **Decision 2 batch ordering (#167):** add `applyDecisions`, a batch entrypoint that applies **domain-scope decisions before address-scope** ones, so a same-action "block the domain, keep this sender" records the kept address as an exception regardless of submission order instead of silently overriding it. The workflow-Execution and sender-detail batch sites now apply through it. | Claude |
 | 2026-07-17 | **Implement the `coveredByBlockFilter` −2 signal (#96 scoring slice).** Adds the field to `Sender` + `SenderSnapshot`; `computeTrustScore` applies a flat −2 (current-state, not recency-scaled) when an existing block filter (address or `*@domain`) covers the sender. Populated from the learn pass's filter scan, carried across rescans. Spam/trash reuse existing signals (no double-count). The in-flow surfacing UI follows. | Claude |
 | 2026-07-17 | **Rework Decision 8 (#96, #97):** prior-block signals are **woven into the per-sender decision**. Scoring is **trust-score-sort only** (no new `prioritisePrompts` term): spam reuses `spamMarkedCount`, trash reuses `deletedUnreadCount`, and a new **`coveredByBlockFilter` −2** signal covers existing filters (no double-counting). The detail panel offers **block this / all-flagged / domain** for same-domain flagged siblings (through Decision 7's preview+confirm; filter-covered = #88 rule-adoption); the standalone "Import all as Blocked" card is removed. Dismissal is two-way (#97): a remembered **"Keep"** (allow decision, same granularity as Block) vs **"Not now"** = the existing Defer. | Claude |

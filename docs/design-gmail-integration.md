@@ -150,19 +150,19 @@ them continuously (architecture.md §6):
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
 
-> **PROPOSED (#136) — parent-domain filter form, pending a real-Gmail spike.** A parent-domain
-> rule (design-trust-decisions.md Decision 9) must enforce "this registrable domain **and all its
-> subdomains**" as a native filter. The open question is whether one Gmail `from:` criterion can do
-> that reliably. Candidate: a **bare-domain** criterion `from:example.com` (Gmail *appears* to match
-> subdomains for a bare domain, unlike the anchored `from:*@sub.example.com` the compiler uses
-> today) — but it risks **over-matching** display names or lookalike domains (`notexample.com`,
-> `example.com.evil.tld`). **This needs verification against a real account (a spike, as #150 does
-> for `negatedQuery`)** before build: confirm `from:example.com` matches `*@*.example.com` and does
-> **not** false-positive. Fallbacks if it can't be made reliable: **(b)** enumerate the observed
-> subdomains into an OR-combined `*@sub` filter and re-scan to catch new ones (loses the "future
-> subdomains" guarantee — document the caveat), or **(c)** hybrid (native when the spike verifies,
-> enumerate otherwise). Exceptions (excepted subdomains/addresses) carry through the existing
-> `criteria.negatedQuery` carve-out (point 7). The filter form is **[CONFIRM]** pending the spike.
+> **Parent-domain filter form (#136, design ratified 2026-07-19) — resolved by the #181 spike.**
+> A parent-domain rule (design-trust-decisions.md Decision 9) must enforce "this registrable domain
+> **and all its subdomains**" as a native filter. The open question is whether one Gmail `from:`
+> criterion can do that reliably. Candidate: a **bare-domain** criterion `from:example.com` (Gmail
+> *appears* to match subdomains for a bare domain, unlike the anchored `from:*@sub.example.com` the
+> compiler uses today) — but it risks **over-matching** display names or lookalike domains
+> (`notexample.com`, `example.com.evil.tld`). The ratified approach is **spike-first: #181** verifies
+> against a real account (as #150 does for `negatedQuery`) that `from:example.com` matches
+> `*@*.example.com` and does **not** false-positive, and its outcome picks the form. Fallbacks if it
+> can't be made reliable: **(b)** enumerate the observed subdomains into an OR-combined `*@sub`
+> filter and re-scan to catch new ones (loses the "future subdomains" guarantee — document the
+> caveat), or **(c)** hybrid (native when verified, enumerate otherwise). Exceptions (excepted
+> subdomains/addresses) carry through the existing `criteria.negatedQuery` carve-out (point 7).
 
 ### Decision 6: `GmailClient` as a port in `packages/core`
 
@@ -468,7 +468,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-19 | **Decision 5 proposal note (PROPOSED, #136):** parent-domain filter form for "domain + all subdomains" — candidate bare-domain `from:example.com` criterion, gated on a real-Gmail subdomain-matching spike (over-matching risk), with enumerate-subdomains / hybrid fallbacks. Pairs with design-trust-decisions.md Decision 9. Not approved — for maintainer review. | Claude |
+| 2026-07-19 | **Decision 5 note (#136, ratified spike-first):** parent-domain filter form for "domain + all subdomains" — candidate bare-domain `from:example.com` criterion, its form **resolved by the #181 real-Gmail spike** (over-matching risk), with enumerate-subdomains / hybrid fallbacks. Pairs with design-trust-decisions.md Decision 9. | Claude |
 | 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
 | 2026-07-18 | **Decision 5 point 7 (#144, #145):** enforcement compiles from the *effective* block set — `resolveEffectiveDecision` (Decision 2) resolves domain overrides + exceptions, not raw `trustStatus`. A domain-trusted sender gets no filter (#144); a blocked domain with a trusted address exception carries a `criteria.negatedQuery` carve-out (and the existing-mail sweep excludes it), kept as one filter with the exclusion in the reconcile signature (#145). | Claude |
 | 2026-07-17 | **Decision 7 doc-sync (#96):** the learning-scan results now feed the **per-sender decision** (prior-block signal → trust score + flagged-sibling surfacing, design-trust-decisions.md Decision 8), not the removed standalone confirm-first import. Filter adoption stays the existing **Decision 10** (`suggestFilterAdoptions`, #80). | Claude |
