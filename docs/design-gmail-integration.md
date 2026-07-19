@@ -175,6 +175,18 @@ provide durable, server-side enforcement with no backend of ours.
 > `negatedQuery` (query-simplify / split, cf. gmailctl); and the match surface may exceed trailing-
 > label siblings if Gmail's `from:` term-matching prefix-stems (`applebees.com`?) — spot-check
 > before finalising. See #182.
+>
+> **Exception-overflow handling (~1500-char criteria limit) — proposed (#182).** A parent block's
+> exclusions all live in one `negatedQuery`, which shares the filter's ~1500-char criteria budget.
+> Keep it bounded, deterministically (part of the reconcile signature, so it stays idempotent):
+> 1. **Collapse to the broadest exclusion** — when a whole subdomain/sibling is excepted, exclude it
+>    as `*@sub.example.com` (one short token) rather than enumerating its addresses.
+> 2. **If the derived `negatedQuery` still exceeds the budget, degrade *that rule* to the enumerate
+>    form:** emit one `*@<subdomain>` block filter per still-blocked observed subdomain instead of the
+>    single broad `from:<eTLD+1>` + `negatedQuery` (an excepted subdomain then simply gets no filter).
+>    Precise, but it **loses the future-new-subdomain guarantee for that rule** — surface the caveat
+>    ("covers subdomains seen so far") on it. This only triggers when one parent rule accumulates
+>    enough exceptions to overflow (rare); the common case stays the single broad filter.
 
 **Prior art — filter compilation & reconcile.** The compile → diff → apply model here isn't novel;
 these were studied (none is a drop-in for a *client-only, browser* app, hence our own `compileFilters`
@@ -497,6 +509,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-19 | **Decision 5 note (#182):** specify parent-block **exception-overflow handling** for Gmail's ~1500-char criteria limit — collapse to the broadest exclusion (`*@sub`), and if the `negatedQuery` still overflows, degrade *that rule* to enumerated `*@subdomain` filters (precise; loses the future-subdomain guarantee, surfaced as a caveat). Rare; common case stays the single broad filter. | Claude |
 | 2026-07-19 | **Prior-art note (Decision 5):** record the filter compile/diff/apply prior art studied — `gmailctl` (Go; closest model + ~1500-char query simplifier), `gmail-britta` (Ruby DSL; negation patterns), official `googleapis` filter types, and Sieve (RFC 5228). None is a drop-in for a client-only browser app, hence our own compiler. | Claude |
 | 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future); excepted subdomains carve out via `negatedQuery: from:<subdomain>`. Trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling domains like `apple.com.au`) kept broad-by-design with **warnings + exceptions**, mindful of Gmail's ~1500-char/filter limit (#182). Pairs with design-trust-decisions.md Decision 9. | Claude |
 | 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
