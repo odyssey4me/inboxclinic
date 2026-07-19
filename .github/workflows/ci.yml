@@ -74,6 +74,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      # This job dropped `setup-node` (the image bundles our Node, #154), and with it setup-node's
+      # npm cache — so restore `~/.npm` explicitly, keyed on the lockfile, to keep `npm ci` warm
+      # across runs (#174). The build/deploy jobs still get this via setup-node's built-in cache.
+      - name: Cache npm downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: npm-e2e-
+
       - name: Install dependencies
         run: npm ci
 
