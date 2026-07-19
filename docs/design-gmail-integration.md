@@ -172,9 +172,11 @@ provide durable, server-side enforcement with no backend of ours.
 > rewrites the filter only when the derived exclusion set actually changes, not on every reconcile
 > tick. **Constraints for #182:**
 > Gmail caps a filter at **~1500 chars**, so a long exception list can't all live in one
-> `negatedQuery` (query-simplify / split, cf. gmailctl); and the match surface may exceed trailing-
-> label siblings if Gmail's `from:` term-matching prefix-stems (`applebees.com`?) — spot-check
-> before finalising. See #182.
+> `negatedQuery` (query-simplify / split, cf. gmailctl); the **match surface is bounded** (spike
+> confirmed 2026-07-19): `from:<domain>` reaches **only** true subdomains (`id.apple.com`) and
+> same-root trailing-label siblings (`apple.com.au`) — it does **not** prefix-stem to lookalikes
+> that merely start with the same characters (`applebees.com` is *not* matched). So the block's
+> reach is a finite, enumerable set the warning can list exactly. See #182.
 >
 > **Exception-overflow handling (~1500-char criteria limit) — proposed (#182).** A parent block's
 > exclusions all live in one `negatedQuery`, which shares the filter's ~1500-char criteria budget.
