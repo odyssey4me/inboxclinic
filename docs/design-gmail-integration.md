@@ -166,7 +166,11 @@ provide durable, server-side enforcement with no backend of ours.
 > real registrable domain via `tldts`) plus **first-class exceptions**. The parent block's
 > `negatedQuery` is **live-derived on every reconcile** from the effective status of every matched
 > sender (like address exceptions #144/#145) — *not* a frozen decision-time list — so a later
-> independent decision on a matched sibling is enforced automatically. **Constraints for #182:**
+> independent decision on a matched sibling is enforced automatically. Derivation is cheap (it reads
+> the locally-observed sender set already in hand, no extra Gmail query) and, like the address
+> exclusion in point 7, the `negatedQuery` is **part of the reconcile signature** — so "live-derived"
+> rewrites the filter only when the derived exclusion set actually changes, not on every reconcile
+> tick. **Constraints for #182:**
 > Gmail caps a filter at **~1500 chars**, so a long exception list can't all live in one
 > `negatedQuery` (query-simplify / split, cf. gmailctl); and the match surface may exceed trailing-
 > label siblings if Gmail's `from:` term-matching prefix-stems (`applebees.com`?) — spot-check
