@@ -162,10 +162,15 @@ provide durable, server-side enforcement with no backend of ours.
 > Australia), `apple.com.br`, etc. **Trust side** is solved by the `tldts` covered-set guard (never
 > *treat* a sibling as the parent). **Block side (#182)** keeps the broad filter — the breadth can be
 > *intended* ("block this org everywhere") — but makes it safe: a **clear decision-time warning** of
-> what will be caught (observed senders grouped by real registrable domain) plus **first-class
-> exceptions** (`exceptionDomains[]` → `negatedQuery`, precise per #181 Q3). **Constraint:** Gmail
-> caps a filter at **~1500 chars**, so a long exception list can't all live in one `negatedQuery` —
-> #182 must handle overflow (query-simplify / split, cf. gmailctl). See #182.
+> what will be caught (the observed senders the `from:<eTLD+1>` query actually matches, grouped by
+> real registrable domain via `tldts`) plus **first-class exceptions**. The parent block's
+> `negatedQuery` is **live-derived on every reconcile** from the effective status of every matched
+> sender (like address exceptions #144/#145) — *not* a frozen decision-time list — so a later
+> independent decision on a matched sibling is enforced automatically. **Constraints for #182:**
+> Gmail caps a filter at **~1500 chars**, so a long exception list can't all live in one
+> `negatedQuery` (query-simplify / split, cf. gmailctl); and the match surface may exceed trailing-
+> label siblings if Gmail's `from:` term-matching prefix-stems (`applebees.com`?) — spot-check
+> before finalising. See #182.
 
 **Prior art — filter compilation & reconcile.** The compile → diff → apply model here isn't novel;
 these were studied (none is a drop-in for a *client-only, browser* app, hence our own `compileFilters`
