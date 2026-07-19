@@ -225,6 +225,9 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
    it for that narrower subject. `resolveEffectiveDecision` gains a `parentDomainStatus` input and
    resolves in that order; effective-status helpers, `generatePrompts`, and the Dashboard fold it in
    the same way they already fold domain overrides. **[CONFIRM]** precedence order.
+   **Design the scope enum + precedence as a general "specificity ladder"** so a broader
+   **TLD / public-suffix** scope (#180 — "block a whole `.ru`") can slot in below parent-domain as
+   the least-specific default without reworking the model, even if only `parentDomain` ships first.
 
 3. **Storage — reuse the `Domain` record**, keyed by the eTLD+1, with `decisionScope: "parentDomain"`.
    Its `exceptionAddresses[]` carries per-address exceptions; a new `exceptionDomains[]` carries
@@ -554,7 +557,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-19 | **Decision 9 (PROPOSED, #136):** parent-domain (registrable-domain / eTLD+1) rules covering a whole subdomain tree — new `parentDomain` scope, most-specific-wins precedence (address exception → exact subdomain → parent rule), PSL-based grouping (offline `tldts`), reuse the `Domain` record + `exceptionDomains[]`. Enforcement gated on a real-Gmail subdomain-matching spike (see design-gmail-integration.md). Not approved — for maintainer review. | Claude |
+| 2026-07-19 | **Decision 9 (PROPOSED, #136):** parent-domain (registrable-domain / eTLD+1) rules covering a whole subdomain tree — new `parentDomain` scope, most-specific-wins precedence (address exception → exact subdomain → parent rule), PSL-based grouping (offline `tldts`), reuse the `Domain` record + `exceptionDomains[]`. Scope enum/precedence designed as a general specificity ladder so a broader TLD/public-suffix scope (#180) can slot in later. Enforcement gated on a real-Gmail subdomain-matching spike (see design-gmail-integration.md). Not approved — for maintainer review. | Claude |
 | 2026-07-18 | **Decision 2 batch ordering (#167):** add `applyDecisions`, a batch entrypoint that applies **domain-scope decisions before address-scope** ones, so a same-action "block the domain, keep this sender" records the kept address as an exception regardless of submission order instead of silently overriding it. The workflow-Execution and sender-detail batch sites now apply through it. | Claude |
 | 2026-07-17 | **Implement the `coveredByBlockFilter` −2 signal (#96 scoring slice).** Adds the field to `Sender` + `SenderSnapshot`; `computeTrustScore` applies a flat −2 (current-state, not recency-scaled) when an existing block filter (address or `*@domain`) covers the sender. Populated from the learn pass's filter scan, carried across rescans. Spam/trash reuse existing signals (no double-count). The in-flow surfacing UI follows. | Claude |
 | 2026-07-17 | **Rework Decision 8 (#96, #97):** prior-block signals are **woven into the per-sender decision**. Scoring is **trust-score-sort only** (no new `prioritisePrompts` term): spam reuses `spamMarkedCount`, trash reuses `deletedUnreadCount`, and a new **`coveredByBlockFilter` −2** signal covers existing filters (no double-counting). The detail panel offers **block this / all-flagged / domain** for same-domain flagged siblings (through Decision 7's preview+confirm; filter-covered = #88 rule-adoption); the standalone "Import all as Blocked" card is removed. Dismissal is two-way (#97): a remembered **"Keep"** (allow decision, same granularity as Block) vs **"Not now"** = the existing Defer. | Claude |
