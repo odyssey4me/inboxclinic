@@ -270,20 +270,23 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
      so a lookalike is never *treated* as the eTLD+1 even though the coarse filter matched it. A
      **trust** parent rule also compiles to **no filter at all** (trust = absence of a block) — it
      only exempts its subtree from blocks via effective status.
-   - **Block side — broad by design, made safe by warnings + exceptions (#182).** The coarse filter
-     also catches domains beyond the eTLD+1's own subtree — at least *trailing-label siblings*
-     (`apple.com.au`, `apple.com.br`), and possibly *first-label prefix* collisions if Gmail's `from:`
-     term-matching stems (`applebees.com`?) — **#182 must spot-check the real match surface** (the
-     #181 spike only confirmed subdomain coverage + no *observed* over-match, not the prefix case).
-     Rather than force a narrow filter, keep the broad one (it future-proofs) and make its reach
-     **transparent and reversible**, robustly *regardless of the exact match surface*: (1) a **clear
-     decision-time warning** enumerating **the observed senders the `from:<eTLD+1>` query actually
-     matches**, grouped by real registrable domain (`tldts`) — not a guessed sibling set; (2)
-     **first-class exceptions**, and per point 4 the `negatedQuery` is **live-derived on every
-     reconcile** from the effective status of every matched sender, so any matched domain whose
-     effective status isn't blocked is excluded automatically. Genuinely-new/unobserved matches are
-     still caught until the next scan, so the warning frames it as "…and other domains matching
-     `apple.com`". See #182 and **design-gmail-integration.md** (Decision 5).
+   - **Block side — broad by design, made safe by warnings + exceptions (#182).** Beyond the eTLD+1's
+     own subtree the coarse filter also catches **same-root trailing-label siblings** (`apple.com.au`).
+     A spot-check (#182, real account 2026-07-19 — not documented Gmail behaviour) found the match is
+     **whole-token, left-anchored**: `from:<domain>` reaches true subdomains + any domain whose leading
+     dot-bounded labels are the eTLD+1 (`apple.com.au`), but **not** partial-label prefix lookalikes
+     (`applebees.com` is not matched). So the surface isn't enumerable in advance, but the *warning*
+     lists the **finite observed** matched senders, and the `tldts` guard + live `negatedQuery` are the
+     safety net regardless (confidence here isn't load-bearing). The
+     breadth can be *intended* ("block this org everywhere"), so rather than force a narrow filter,
+     keep the broad one (it future-proofs) and make its reach **transparent and reversible**: (1) a
+     **clear decision-time warning** listing what the block will catch — the observed senders the
+     `from:<eTLD+1>` query matches, grouped by real registrable domain (`tldts`); (2) **first-class
+     exceptions**, and per point 4 the `negatedQuery` is **live-derived on every reconcile** from the
+     effective status of every matched sender, so any matched domain whose effective status isn't
+     blocked is excluded automatically. New/unobserved siblings are still caught until the next scan,
+     so the warning frames it as "…and any `apple.com.*` domain". See #182 and
+     **design-gmail-integration.md** (Decision 5).
 
 6. **UX** — offer it *in context*, like the flagged-siblings offer: while deciding on a subdomain
    (e.g. `news.example.com`) whose eTLD+1 has other seen subdomains, surface *"Apply to all
@@ -610,6 +613,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-19 | **Decision 9 point 5 (#182 spike):** a real-account spot-check (not documented Gmail behaviour) found `from:` matches **whole-token, left-anchored** — reaches true subdomains + any domain whose leading dot-bounded labels are the eTLD+1 (`apple.com.au`), but **not** partial-label prefix lookalikes (`applebees.com`). The surface isn't enumerable in advance; the warning lists the **finite observed** matched senders (`tldts`-grouped), and the `tldts` guard + live `negatedQuery` are the safety net regardless. | Claude |
 | 2026-07-19 | **Decision 9 refinements (#136, from the PR #179 review):** `negatedQuery` exceptions are **live-derived on every reconcile** from effective status (not a frozen decision-time list) — closes a real leak where a later independent trust decision on a matched sibling would stay un-enforced; `exceptionDomains[]` is a denormalized index. Updated the Interfaces contract (`DecisionScope` gains `parentDomain`; `resolveEffectiveDecision` gains `parentDomainStatus` + `parentDomain` source). Added the block-side match-surface spot-check (prefix-stemming, #182) and a PSL-staleness maintenance note. | Claude |
 | 2026-07-19 | **Decision 9 (#136, ratified):** parent-domain (registrable-domain / eTLD+1) rules covering a whole subdomain tree — new `parentDomain` scope, most-specific-wins precedence (address exception → exact subdomain → parent rule), PSL-based grouping (offline **`tldts`**), reuse the `Domain` record + `exceptionDomains[]`. Scope enum/precedence designed as a general specificity ladder so a broader TLD/public-suffix scope (#180) can slot in later. **Enforcement (#181 spike verified):** a native bare-domain `from:<eTLD+1>` filter covers all subdomains (current + future); trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling registrable domains like `apple.com.au`) is kept broad-by-design with **warnings + exceptions** (#182, which gates the filter compiler). | Claude |
 | 2026-07-18 | **Decision 2 batch ordering (#167):** add `applyDecisions`, a batch entrypoint that applies **domain-scope decisions before address-scope** ones, so a same-action "block the domain, keep this sender" records the kept address as an exception regardless of submission order instead of silently overriding it. The workflow-Execution and sender-detail batch sites now apply through it. | Claude |
