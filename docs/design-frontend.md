@@ -317,9 +317,12 @@ architecture.md §1 *Use the ecosystem*): clean, bookmarkable URLs (`/`, `/triag
 shell highlights the active route. `App` derives the view from the path, preserves `?demo=1`
 across navigation, and falls back to the home surface for an unknown path. The **Trust-decision
 workflow** is launched from the home surface and renders inside the shell as a focused sub-flow
-(`/triage`, with its own progress header + exit), so the anchor is never lost mid-flow. *(Linking
-the active decisions **tab** and an open **detail** into the URL is a follow-up on this
-foundation.)*
+(`/triage`, with its own progress header + exit), so the anchor is never lost mid-flow. The home
+surface's active **tab** (`?tab=decided|all`) and an open **detail** (`?sender=<id>` / `?domain=<id>`)
+are also URL-controlled (#120). Tab changes **push**, so they're bookmarkable and back/forward moves
+between tabs; an open detail is linkable but transient, so it **replaces** the history entry rather
+than flooding it with drawer toggles (only one detail opens at a time — `sender` wins if both are
+set). Every setter merges params, so `?demo=1` survives.
 
 **Two distinct layouts, user-switchable.** The shell renders one of two structurally
 different layouts, chosen by `useLayout` (`layout/context.ts` + `LayoutProvider`):
@@ -488,8 +491,9 @@ None — the previously-open items are now resolved:
   Periodic Background Sync there); native background sync arrives with the deferred Capacitor
   wrap (Decision 4, §9).
 - **Routing:** **history routing** via `react-router-dom` (clean, bookmarkable URLs; Cloudflare
-  Pages SPA fallback) — **implemented (#102)**. Linking the active decisions tab / an open detail
-  into the URL is a follow-up on this foundation (**#120**).
+  Pages SPA fallback) — **implemented (#102)**. The home surface's active decisions tab
+  (`?tab=`) and an open detail (`?sender=`/`?domain=`) are **URL-controlled (#120)** via
+  `useSearchParams`, merging params so `?demo=1` is preserved.
 - **Shareable analytics snapshot format:** an Analytics concern — resolved as a **PNG image**
   in [design-analytics.md](design-analytics.md).
 
@@ -521,3 +525,4 @@ None — the previously-open items are now resolved:
 | 2026-07-16 | **#102 — history routing:** move navigation from in-memory view state to **`react-router-dom`** (routes `/`, `/triage`, `/analytics`, `/settings`; back/forward; unknown-path fallback to home; `?demo=1` preserved), served by the existing Cloudflare Pages SPA fallback (`_redirects`). Library chosen per architecture.md §1 *Use the ecosystem*. Linking the decisions tab / open detail into the URL is deferred to a follow-up. | Claude |
 | 2026-07-17 | **Prior-block signals woven into the decision (#96, #97 — implemented):** `SenderDetail` renders an **inline flagged-siblings offer** (Block all / Keep all / Not now) when the open sender has same-domain spam/binned/filtered siblings; the workflow keeps its existing domain `BatchOffer`. The **learn pass runs on the home surface's mount** to populate the prior-block scoring signals (so flagged senders sort up), and the standalone **"Import all as Blocked" card is removed** (`PriorDecisionsImport` deleted). Semantics in design-trust-decisions.md Decision 8. | Claude |
 | 2026-07-17 | **Prior-block signals woven into the decision (#96, #97 — design lock):** `SenderDetail` renders flagged same-domain siblings via the existing **`batch-offer`** (extended to *block this / all-flagged / domain* + mirrored *Keep* / *Not now*) with the reason in **`signal-list`**; the workflow reuses the compact form. Prior-block signals raise the **trust score** (score-sort) so flagged senders surface in normal triage; the standalone **"Import all as Blocked" card is removed**. Semantics in design-trust-decisions.md Decision 8. | Claude |
+| 2026-07-18 | **#120 — deep-link the decisions surface:** the home surface's active tab (`?tab=decided\|all`) and an open detail (`?sender=<id>` / `?domain=<id>`) are now **URL-controlled** via `useSearchParams`. Tab changes **push** (bookmarkable; back/forward between tabs); an open detail is linkable but transient, so it **replaces** the history entry (only one opens at a time — `sender` wins if both are set). A deep link opens that tab/detail on load; closing clears the param; every setter merges so `?demo=1` survives. Closes the tab/detail follow-up left by #102. | Claude |
