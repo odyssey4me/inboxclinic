@@ -64,20 +64,15 @@ jobs:
     runs-on: ubuntu-24.04
     # Run inside the official Playwright image pinned to our @playwright/test version, so the
     # browsers (incl. WebKit's apt-only deps) match exactly and are the SAME image that
-    # scripts/gate.sh uses locally (#107) — "green locally" == "green here". Renovate keeps
-    # this tag in lockstep with the @playwright/test npm package. `setup-node` still installs
-    # the repo-pinned Node (.nvmrc) over the image's newer bundled one (engine-strict).
+    # scripts/gate.sh uses locally (#107) — "green locally" == "green here". Renovate keeps this
+    # tag in lockstep with the @playwright/test npm package. The repo pins the SAME Node major
+    # the image bundles (.nvmrc + engines, #154), so its baked-in Node runs npm ci directly —
+    # no setup-node needed here.
     container: mcr.microsoft.com/playwright:v1.61.1-noble
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
 
       - name: Install dependencies
         run: npm ci

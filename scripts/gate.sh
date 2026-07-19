@@ -65,19 +65,17 @@ if [[ -z "$PW_VERSION" ]]; then
 fi
 IMAGE="mcr.microsoft.com/playwright:v${PW_VERSION}-noble"
 
-# The Playwright image bundles a newer Node than this repo pins (`.nvmrc` + engine-strict),
-# so install the pinned Node over it via `n` before `npm ci` — same Node as CI's setup-node.
-NODE_V="$(cat .nvmrc)"
-NODE_SETUP="export N_PREFIX=/usr/local; npm install -g n >/dev/null 2>&1; n ${NODE_V} >/dev/null 2>&1; export PATH=/usr/local/bin:\$PATH; hash -r; node --version"
+# The repo pins Node 24 (`.nvmrc` + `engines`), which is exactly the major the Playwright image
+# bundles, so its baked-in Node runs `npm ci` directly — no `n`/`setup-node` install needed (#154).
 
 # Steps mirror the three gate jobs. `npm ci` matches CI; the official image already carries
 # the browsers, so no `playwright install` step is needed.
 CHECKS='./scripts/check-no-secrets.sh && ./scripts/check-no-dup-majors.sh && ./scripts/check-playwright-image-pin.sh && npm run lint && npm run typecheck && npm run knip && npm run test:coverage && npm run build && ./scripts/doc-sync-validate.sh'
 E2E='npm run e2e'
 case "$MODE" in
-  full) STEPS="${NODE_SETUP} && npm ci && ${CHECKS} && ${E2E}" ;;
-  checks) STEPS="${NODE_SETUP} && npm ci && ${CHECKS}" ;;
-  e2e) STEPS="${NODE_SETUP} && npm ci && ${E2E}" ;;
+  full) STEPS="npm ci && ${CHECKS} && ${E2E}" ;;
+  checks) STEPS="npm ci && ${CHECKS}" ;;
+  e2e) STEPS="npm ci && ${E2E}" ;;
 esac
 
 # Named volumes keep the container's (Ubuntu) node_modules + npm cache off the host
@@ -90,7 +88,6 @@ for pkg in apps/*/ packages/*/; do
   VOLS+=(-v "${slug}:/work/${pkg}node_modules")
 done
 VOLS+=(-v "inboxclinic-gate-npm-cache:/root/.npm")
-VOLS+=(-v "inboxclinic-gate-n-cache:/usr/local/n") # cache the `n`-installed Node across runs
 
 # Rootless podman maps container-root → the host user, so files written into the
 # bind-mounted repo stay host-owned; `:Z` relabels the mount for SELinux (Fedora).
