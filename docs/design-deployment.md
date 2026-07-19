@@ -116,6 +116,14 @@ no `playwright install`); `scripts/gate.sh` uses the same image so the full matr
 reproduces locally (#107, [CONTRIBUTING.md](../CONTRIBUTING.md)), and Renovate keeps the image
 and the npm package in lockstep.
 
+**Node version** is pinned to the major the Playwright image bundles (`.nvmrc` + `engines`,
+currently 24), so the e2e container's baked-in Node runs `npm ci` directly while the bare-runner
+`build`/`deploy` jobs install the exact `.nvmrc` version via `setup-node` (#154). The
+**`engine-strict`** invariant (`.npmrc`) is the safety net: any Node outside the `engines` range —
+whether the image's bundled one or an `.nvmrc` bump — fails `npm ci` loudly. Only *intra-major*
+drift between `.nvmrc` and the image (e.g. 24.17 vs 24.18) is tolerated, and it's harmless (same
+major, all tests pass on any 24.x); so we accept it rather than add an image-pulling guard (#175).
+
 ### Dependency updates (Renovate)
 
 **Renovate** opens update PRs; **CI is the gate** (branch protection requires the
@@ -186,6 +194,7 @@ enabled, no merge commits); confirm Renovate merges via rebase after install.
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-19 | **Document the Node-version pinning strategy (#154, #175).** Node is pinned to the major the Playwright image bundles (`.nvmrc` + `engines`, currently 24): the e2e container uses its baked-in Node, bare-runner jobs install `.nvmrc` via `setup-node`, and `engine-strict` fails `npm ci` on any out-of-range Node. Intra-major `.nvmrc`↔image drift is tolerated (harmless) rather than guarded — resolves #175. | Claude |
 | 2026-07-18 | **Run the e2e job in the pinned Playwright container (#107).** The `e2e` job now runs inside `mcr.microsoft.com/playwright:v<@playwright/test>-noble` (browsers baked in; dropped `playwright install --with-deps`), the same image `scripts/gate.sh` uses locally so the full matrix incl. WebKit reproduces on a Fedora host. Renovate groups the image with the `@playwright/test` npm package to keep them in lockstep. | Claude |
 | 2026-07-17 | **Pin CI runners to `ubuntu-24.04` (#79).** Every `runs-on` is pinned (no `ubuntu-latest`) so a new Ubuntu LTS can't silently change CI; Renovate's `github-runners` datasource opens the bump PR, auto-merging on green (the gating CI runs on the new image on the PR — same "green = proof" logic as Actions). | Claude |
 | 2026-07-17 | **Migrate dependency automation from Dependabot to Renovate (#78).** `renovate.json` replicates the ecosystems, grouping (`vite`/`typescript-toolchain`/`types`/minor-and-patch), and the "can it reach users?" auto-merge policy **natively** (no separate auto-merge workflow); the TS-7 major hold (#19) carries over. Removes `.github/dependabot.yml` + `.github/workflows/dependabot-automerge.yml`. `vite` is now manual for all update types. Maintainer one-time: install the Renovate App + disable Dependabot. | Claude |
