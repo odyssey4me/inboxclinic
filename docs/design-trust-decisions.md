@@ -256,6 +256,12 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
    `tldts` guard for a precise covered set. The compiled-filter form lives in
    **design-gmail-integration.md** (Decision 5).
 
+   The guard is **trust-side only**: a **block** rule's standing filter *and* its one-time
+   existing-mail sweep stay coarse (they can't out-precise the un-guardable server-side filter, and
+   a lookalike under a blocked apex is unwanted anyway); the guard exists so the app never *treats*
+   a lookalike as **trusted**. A **trust** parent rule compiles to **no filter at all** (trust =
+   absence of a block) — it only exempts its subtree from blocks via effective status.
+
 6. **UX** — offer it *in context*, like the flagged-siblings offer: while deciding on a subdomain
    (e.g. `news.example.com`) whose eTLD+1 has other seen subdomains, surface *"Apply to all
    example.com subdomains"* with the count. Never auto-escalate — the user opts in. The detail-panel
@@ -273,10 +279,19 @@ a parallel model. The PSL keeps grouping correct; offline keeps the no-backend i
 - *A parent rule that ignores exact-subdomain decisions* — rejected: violates most-specific-wins and
   the user's ability to make a fine-grained exception.
 
+**Known limitation (accepted):** a parent rule and a decision on the *bare apex* share the eTLD+1
+key, so a single `Domain` row can hold only one `decisionScope` for `example.com`. You can decide
+`example.com` as *either* the bare apex (`domain` scope, `@example.com` only) *or* the whole tree
+(`parentDomain` scope) — and override the parent with a more-specific *subdomain* decision (a
+different key) — but you **can't** express "trust the subtree yet block the bare apex `@example.com`"
+in one rule. Accepted as a rare intent not worth a parallel key namespace; revisit only if it comes up.
+
 **Status:** fully **ratified** (2026-07-19) — scope, precedence, PSL library, storage, exceptions,
 UX, and enforcement (native `from:<eTLD+1>` filter + `tldts` guard, verified by the #181 spike).
-Ready to split into implementation issues: (1) PSL/eTLD+1 grouping + the `parentDomain` scope in
-the store; (2) precedence in `resolveEffectiveDecision` + effective-status/prompts/Dashboard;
+**Sequencing:** #136 builds first; the broader **TLD scope (#180)** is deferred but slots into the
+same ladder (design-aligned, revisit after #136); **unsubscribe-first (#178)** is a separate design
+pass. Ready to split into implementation issues: (1) PSL/eTLD+1 grouping + the `parentDomain` scope
+in the store; (2) precedence in `resolveEffectiveDecision` + effective-status/prompts/Dashboard;
 (3) the filter compiler (bare-domain `from:<eTLD+1>` + `tldts`-guarded covered set + exception
 carve-outs); (4) the opt-in "apply to all subdomains" UX.
 
