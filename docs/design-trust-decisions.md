@@ -270,12 +270,14 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
      so a lookalike is never *treated* as the eTLD+1 even though the coarse filter matched it. A
      **trust** parent rule also compiles to **no filter at all** (trust = absence of a block) — it
      only exempts its subtree from blocks via effective status.
-   - **Block side — broad by design, made safe by warnings + exceptions (#182).** The coarse filter
-     catches, beyond the eTLD+1's own subtree, exactly the **same-root trailing-label siblings**
-     (`apple.com.au`, `apple.com.br`). The **match surface is bounded** (#182 spike confirmed
-     2026-07-19): `from:<domain>` reaches only true subdomains + these `<eTLD+1>.<suffix>` siblings —
-     it does **not** prefix-stem to lookalikes that merely start with the same characters
-     (`applebees.com` is not matched). So the block's reach is a **finite, enumerable set**. The
+   - **Block side — broad by design, made safe by warnings + exceptions (#182).** Beyond the eTLD+1's
+     own subtree the coarse filter also catches **same-root trailing-label siblings** (`apple.com.au`).
+     A spot-check (#182, real account 2026-07-19 — not documented Gmail behaviour) found the match is
+     **whole-token, left-anchored**: `from:<domain>` reaches true subdomains + any domain whose leading
+     dot-bounded labels are the eTLD+1 (`apple.com.au`), but **not** partial-label prefix lookalikes
+     (`applebees.com` is not matched). So the surface isn't enumerable in advance, but the *warning*
+     lists the **finite observed** matched senders, and the `tldts` guard + live `negatedQuery` are the
+     safety net regardless (confidence here isn't load-bearing). The
      breadth can be *intended* ("block this org everywhere"), so rather than force a narrow filter,
      keep the broad one (it future-proofs) and make its reach **transparent and reversible**: (1) a
      **clear decision-time warning** listing what the block will catch — the observed senders the

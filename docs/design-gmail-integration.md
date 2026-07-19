@@ -172,11 +172,14 @@ provide durable, server-side enforcement with no backend of ours.
 > rewrites the filter only when the derived exclusion set actually changes, not on every reconcile
 > tick. **Constraints for #182:**
 > Gmail caps a filter at **~1500 chars**, so a long exception list can't all live in one
-> `negatedQuery` (query-simplify / split, cf. gmailctl); the **match surface is bounded** (spike
-> confirmed 2026-07-19): `from:<domain>` reaches **only** true subdomains (`id.apple.com`) and
-> same-root trailing-label siblings (`apple.com.au`) — it does **not** prefix-stem to lookalikes
-> that merely start with the same characters (`applebees.com` is *not* matched). So the block's
-> reach is a finite, enumerable set the warning can list exactly. See #182.
+> `negatedQuery` (query-simplify / split, cf. gmailctl); and the **match is whole-token,
+> left-anchored** — a spot-check (real account, 2026-07-19; `apple.com` vs `applebees.com`, not
+> documented Gmail behaviour) found `from:<domain>` reaches true subdomains (`id.apple.com`) and any
+> domain whose *leading dot-bounded labels* are the eTLD+1 (`apple.com.au`), but **not** partial-label
+> prefix lookalikes (`applebees.com` is *not* matched). So the surface is **not** enumerable in
+> advance (someone could register `apple.com.x.net`), but the *warning* lists the **finite observed**
+> matched senders (`tldts`-grouped) — and the `tldts` guard/live `negatedQuery` are the safety net
+> regardless of the exact surface, so the confidence level here isn't load-bearing. See #182.
 >
 > **Exception-overflow handling (~1500-char criteria limit) — proposed (#182).** A parent block's
 > exclusions all live in one `negatedQuery`, which shares the filter's ~1500-char criteria budget.
@@ -184,11 +187,20 @@ provide durable, server-side enforcement with no backend of ours.
 > 1. **Collapse to the broadest exclusion** — when a whole subdomain/sibling is excepted, exclude it
 >    as `*@sub.example.com` (one short token) rather than enumerating its addresses.
 > 2. **If the derived `negatedQuery` still exceeds the budget, degrade *that rule* to the enumerate
->    form:** emit one `*@<subdomain>` block filter per still-blocked observed subdomain instead of the
->    single broad `from:<eTLD+1>` + `negatedQuery` (an excepted subdomain then simply gets no filter).
+>    form:** emit `*@<eTLD+1>` for the **bare apex** **plus** one `*@<subdomain>` per still-blocked
+>    observed subdomain, instead of the single broad `from:<eTLD+1>` + `negatedQuery` (an excepted
+>    subdomain then simply gets no filter). The apex filter is explicit so apex mail is never dropped.
 >    Precise, but it **loses the future-new-subdomain guarantee for that rule** — surface the caveat
->    ("covers subdomains seen so far") on it. This only triggers when one parent rule accumulates
->    enough exceptions to overflow (rare); the common case stays the single broad filter.
+>    ("covers subdomains seen so far") on it. Rare — only when one parent rule accumulates enough
+>    exceptions to overflow; the common case stays the single broad filter.
+> 3. **Hysteresis** so a rule near the boundary doesn't flip broad↔enumerate (tearing down/rebuilding
+>    1↔N filters) on a single added/removed exception: degrade at the limit, and only re-promote to
+>    the broad form once the derived `negatedQuery` is comfortably back under budget (margin, not the
+>    exact threshold).
+> 4. **Soft cap:** the enumerate form's `*@subdomain` filters count against the ~450 soft cap like any
+>    other; a pathological rule (many blocked subdomains) is bounded by the **existing soft-cap
+>    behaviour** (`capReached`/`skippedAtCap` surfaced), not a special case — it's just the rule that
+>    consumes the most of the budget.
 
 **Prior art — filter compilation & reconcile.** The compile → diff → apply model here isn't novel;
 these were studied (none is a drop-in for a *client-only, browser* app, hence our own `compileFilters`
@@ -511,7 +523,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-19 | **Decision 5 note (#182):** specify parent-block **exception-overflow handling** for Gmail's ~1500-char criteria limit — collapse to the broadest exclusion (`*@sub`), and if the `negatedQuery` still overflows, degrade *that rule* to enumerated `*@subdomain` filters (precise; loses the future-subdomain guarantee, surfaced as a caveat). Rare; common case stays the single broad filter. | Claude |
+| 2026-07-19 | **Decision 5 note (#182):** specify parent-block **exception-overflow handling** for Gmail's ~1500-char criteria limit — collapse to the broadest exclusion (`*@sub`), else degrade *that rule* to enumerated filters (**explicit `*@<eTLD+1>` apex** + `*@subdomain` per still-blocked subdomain; loses the future-subdomain guarantee, surfaced as a caveat). Added **hysteresis** (no broad↔enumerate flip on one exception) and noted the enumerate filters count against the ~450 soft cap (existing `capReached` bounds a pathological rule). Also reframed the match surface (whole-token/left-anchored, not enumerable-in-advance; the warning lists observed matches; one spot-check, not documented Gmail behaviour). | Claude |
 | 2026-07-19 | **Prior-art note (Decision 5):** record the filter compile/diff/apply prior art studied — `gmailctl` (Go; closest model + ~1500-char query simplifier), `gmail-britta` (Ruby DSL; negation patterns), official `googleapis` filter types, and Sieve (RFC 5228). None is a drop-in for a client-only browser app, hence our own compiler. | Claude |
 | 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future); excepted subdomains carve out via `negatedQuery: from:<subdomain>`. Trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling domains like `apple.com.au`) kept broad-by-design with **warnings + exceptions**, mindful of Gmail's ~1500-char/filter limit (#182). Pairs with design-trust-decisions.md Decision 9. | Claude |
 | 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
