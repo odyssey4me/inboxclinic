@@ -150,19 +150,19 @@ them continuously (architecture.md §6):
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
 
-> **Parent-domain filter form (#136, design ratified 2026-07-19) — resolved by the #181 spike.**
-> A parent-domain rule (design-trust-decisions.md Decision 9) must enforce "this registrable domain
-> **and all its subdomains**" as a native filter. The open question is whether one Gmail `from:`
-> criterion can do that reliably. Candidate: a **bare-domain** criterion `from:example.com` (Gmail
-> *appears* to match subdomains for a bare domain, unlike the anchored `from:*@sub.example.com` the
-> compiler uses today) — but it risks **over-matching** display names or lookalike domains
-> (`notexample.com`, `example.com.evil.tld`). The ratified approach is **spike-first: #181** verifies
-> against a real account (as #150 does for `negatedQuery`) that `from:example.com` matches
-> `*@*.example.com` and does **not** false-positive, and its outcome picks the form. Fallbacks if it
-> can't be made reliable: **(b)** enumerate the observed subdomains into an OR-combined `*@sub`
-> filter and re-scan to catch new ones (loses the "future subdomains" guarantee — document the
-> caveat), or **(c)** hybrid (native when verified, enumerate otherwise). Exceptions (excepted
-> subdomains/addresses) carry through the existing `criteria.negatedQuery` carve-out (point 7).
+> **Parent-domain filter form (#136, ratified — #181 spike verified 2026-07-19).** A parent-domain
+> rule (design-trust-decisions.md Decision 9) compiles to a **single bare-domain criterion
+> `from:<eTLD+1>`** (no `*@` anchor). #181 confirmed on a real account: `from:apple.com` matched
+> `@apple.com` **and every subdomain** (`id.apple.com`, `email.apple.com`, …), with no incidental
+> over-match, and a subdomain query (`from:id.apple.com`) is a **precise subset** — so the parent
+> filter covers current *and future* subdomains and an excepted subdomain carves out cleanly via
+> `criteria.negatedQuery: from:<subdomain>` (point 7). **One caveat:** Gmail matches `from:` on
+> dot-separated tokens, so a lookalike whose leading labels are the eTLD+1 (`apple.com.attacker.tld`)
+> can also match — harmless for a block, but the app must not *treat* it as the parent domain. So
+> when resolving the rule's **covered sender set** (scoring/preview/trust exemption), the app
+> re-verifies each matched sender's registrable domain with **`tldts`** client-side; a lookalike is
+> excluded even though the coarse server-side filter matched it. Net: native filter for durable
+> going-forward enforcement, `tldts` guard for a precise covered set.
 
 ### Decision 6: `GmailClient` as a port in `packages/core`
 
@@ -468,7 +468,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-19 | **Decision 5 note (#136, ratified spike-first):** parent-domain filter form for "domain + all subdomains" — candidate bare-domain `from:example.com` criterion, its form **resolved by the #181 real-Gmail spike** (over-matching risk), with enumerate-subdomains / hybrid fallbacks. Pairs with design-trust-decisions.md Decision 9. | Claude |
+| 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future) with no incidental over-match; excepted subdomains carve out via `negatedQuery: from:<subdomain>`. A client-side `tldts` guard on the covered set closes the token-match lookalike vector (`apple.com.attacker.tld`). Pairs with design-trust-decisions.md Decision 9. | Claude |
 | 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
 | 2026-07-18 | **Decision 5 point 7 (#144, #145):** enforcement compiles from the *effective* block set — `resolveEffectiveDecision` (Decision 2) resolves domain overrides + exceptions, not raw `trustStatus`. A domain-trusted sender gets no filter (#144); a blocked domain with a trusted address exception carries a `criteria.negatedQuery` carve-out (and the existing-mail sweep excludes it), kept as one filter with the exclusion in the reconcile signature (#145). | Claude |
 | 2026-07-17 | **Decision 7 doc-sync (#96):** the learning-scan results now feed the **per-sender decision** (prior-block signal → trust score + flagged-sibling surfacing, design-trust-decisions.md Decision 8), not the removed standalone confirm-first import. Filter adoption stays the existing **Decision 10** (`suggestFilterAdoptions`, #80). | Claude |
