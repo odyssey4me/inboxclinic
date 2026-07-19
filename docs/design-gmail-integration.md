@@ -156,13 +156,16 @@ provide durable, server-side enforcement with no backend of ours.
 > `@apple.com` **and every subdomain** (`id.apple.com`, `email.apple.com`, …), with no incidental
 > over-match, and a subdomain query (`from:id.apple.com`) is a **precise subset** — so the parent
 > filter covers current *and future* subdomains and an excepted subdomain carves out cleanly via
-> `criteria.negatedQuery: from:<subdomain>` (point 7). **One caveat:** Gmail matches `from:` on
-> dot-separated tokens, so a lookalike whose leading labels are the eTLD+1 (`apple.com.attacker.tld`)
-> can also match — harmless for a block, but the app must not *treat* it as the parent domain. So
-> when resolving the rule's **covered sender set** (scoring/preview/trust exemption), the app
-> re-verifies each matched sender's registrable domain with **`tldts`** client-side; a lookalike is
-> excluded even though the coarse server-side filter matched it. Net: native filter for durable
-> going-forward enforcement, `tldts` guard for a precise covered set.
+> `criteria.negatedQuery: from:<subdomain>` (point 7). **Caveat — trailing-label breadth:** Gmail
+> matches `from:` on dot-separated tokens *from the left*, so `from:apple.com` also matches a
+> *different registrable domain* whose leading labels are the eTLD+1 — `apple.com.au` (Apple
+> Australia), `apple.com.br`, etc. **Trust side** is solved by the `tldts` covered-set guard (never
+> *treat* a sibling as the parent). **Block side (#182)** keeps the broad filter — the breadth can be
+> *intended* ("block this org everywhere") — but makes it safe: a **clear decision-time warning** of
+> what will be caught (observed senders grouped by real registrable domain) plus **first-class
+> exceptions** (`exceptionDomains[]` → `negatedQuery`, precise per #181 Q3). **Constraint:** Gmail
+> caps a filter at **~1500 chars**, so a long exception list can't all live in one `negatedQuery` —
+> #182 must handle overflow (query-simplify / split, cf. gmailctl). See #182.
 
 ### Decision 6: `GmailClient` as a port in `packages/core`
 
@@ -468,7 +471,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future) with no incidental over-match; excepted subdomains carve out via `negatedQuery: from:<subdomain>`. A client-side `tldts` guard on the covered set closes the token-match lookalike vector (`apple.com.attacker.tld`). Pairs with design-trust-decisions.md Decision 9. | Claude |
+| 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future); excepted subdomains carve out via `negatedQuery: from:<subdomain>`. Trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling domains like `apple.com.au`) kept broad-by-design with **warnings + exceptions**, mindful of Gmail's ~1500-char/filter limit (#182). Pairs with design-trust-decisions.md Decision 9. | Claude |
 | 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
 | 2026-07-18 | **Decision 5 point 7 (#144, #145):** enforcement compiles from the *effective* block set — `resolveEffectiveDecision` (Decision 2) resolves domain overrides + exceptions, not raw `trustStatus`. A domain-trusted sender gets no filter (#144); a blocked domain with a trusted address exception carries a `criteria.negatedQuery` carve-out (and the existing-mail sweep excludes it), kept as one filter with the exclusion in the reconcile signature (#145). | Claude |
 | 2026-07-17 | **Decision 7 doc-sync (#96):** the learning-scan results now feed the **per-sender decision** (prior-block signal → trust score + flagged-sibling surfacing, design-trust-decisions.md Decision 8), not the removed standalone confirm-first import. Filter adoption stays the existing **Decision 10** (`suggestFilterAdoptions`, #80). | Claude |
