@@ -167,6 +167,23 @@ provide durable, server-side enforcement with no backend of ours.
 > caps a filter at **~1500 chars**, so a long exception list can't all live in one `negatedQuery` —
 > #182 must handle overflow (query-simplify / split, cf. gmailctl). See #182.
 
+**Prior art — filter compilation & reconcile.** The compile → diff → apply model here isn't novel;
+these were studied (none is a drop-in for a *client-only, browser* app, hence our own `compileFilters`
+/ `reconcileFilters`, and none solves the eTLD+1/subdomain matching — that's `tldts` + Gmail's coarse
+`from:`, #136):
+
+- **[gmailctl](https://github.com/mbrt/gmailctl)** (Go) — declarative desired filters → diff against
+  the account → apply via the API, with a **query simplifier** for Gmail's **~1500-char/filter limit**.
+  Closest to our model; its char-limit handling informs the OR-combine (#152) and the parent-domain
+  exception overflow (#182).
+- **[gmail-britta](https://github.com/antifuchs/gmail-britta)** (Ruby) — a filter DSL whose negation
+  / "unless" patterns map to our `criteria.negatedQuery` exceptions (#145).
+- **Official [`googleapis`/`@googleapis/gmail`](https://github.com/googleapis/google-api-nodejs-client)**
+  — the `settings.filters` resource + types; the authoritative shape our `GmailClient` port + `FilterSpec`
+  mirror (we hand-roll the client because the app is client-only and talks to the API via `fetch`).
+- **Sieve ([RFC 5228](https://www.rfc-editor.org/rfc/rfc5228))** — the standard mail-filtering language
+  (tests/actions/`anyof`/`allof`); a conceptual reference if the rule model ever generalises.
+
 ### Decision 6: `GmailClient` as a port in `packages/core`
 
 **Decision:** Define a framework-agnostic **`GmailClient` port** (TypeScript interface)
@@ -471,6 +488,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-07-19 | **Prior-art note (Decision 5):** record the filter compile/diff/apply prior art studied — `gmailctl` (Go; closest model + ~1500-char query simplifier), `gmail-britta` (Ruby DSL; negation patterns), official `googleapis` filter types, and Sieve (RFC 5228). None is a drop-in for a client-only browser app, hence our own compiler. | Claude |
 | 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future); excepted subdomains carve out via `negatedQuery: from:<subdomain>`. Trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling domains like `apple.com.au`) kept broad-by-design with **warnings + exceptions**, mindful of Gmail's ~1500-char/filter limit (#182). Pairs with design-trust-decisions.md Decision 9. | Claude |
 | 2026-07-18 | **Decision 5 point 3 (#152):** OR-combine domain chunks are now cut at **content-defined boundaries** (a per-domain hash marker) instead of by sorted position, so adding/removing one domain re-chunks only locally rather than shifting every downstream filter and churning the reconcile. Trade-off: with the marker rate set equal to the cap for tight re-chunk locality, chunks average ~2/3 of the ≤10 cap (~6–7 domains), so more filters are used — accepted given the 450-filter soft-cap headroom. | Claude |
 | 2026-07-18 | **Decision 5 point 7 (#144, #145):** enforcement compiles from the *effective* block set — `resolveEffectiveDecision` (Decision 2) resolves domain overrides + exceptions, not raw `trustStatus`. A domain-trusted sender gets no filter (#144); a blocked domain with a trusted address exception carries a `criteria.negatedQuery` carve-out (and the existing-mail sweep excludes it), kept as one filter with the exclusion in the reconcile signature (#145). | Claude |
