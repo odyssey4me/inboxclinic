@@ -1,0 +1,9 @@
+# .gitleaks.toml — repo-level gitleaks false-positive allowlist
+
+[allowlist]
+  description = "Inbox Clinic false-positive allowlist"
+
+  paths = [
+    # Redact module tests use fabricated tokens to verify the redactor masks them.
+    '''packages/core/src/reporting/redact\.test\.ts$''',
+  ]
