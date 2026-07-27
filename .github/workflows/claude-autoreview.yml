@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 30 # --max-turns 40 finishes well inside this; caps a thrash tail
     steps:
       - name: Checkout the PR branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0 # full history so Claude can diff and push
@@ -54,7 +54,7 @@ jobs:
           persist-credentials: false
 
       - name: Review + auto-fix the Claude PR
-        uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
+        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
         with:
           # Explicit writable token for git push + posting the review, bypassing the buggy
           # OIDC app token (anthropics/claude-code-action#907). A PAT push also triggers CI,
