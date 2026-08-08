@@ -138,8 +138,12 @@ async function applyAddressDecision(
       pendingActions,
     });
 
-    // An address decision made under an existing domain decision is an exception.
-    const domain = await store.domains.get(keyFor(sender.domain));
+    // An address decision made under an existing domain decision is an exception. Defer is
+    // not such a decision — it leaves the subject undecided (`statusFor`) and only decays the
+    // prompt, so it must not write into a field whose entries record a deliberate carve-out
+    // from the domain's rule (#195).
+    const domain =
+      decision === "defer" ? undefined : await store.domains.get(keyFor(sender.domain));
     if (domain?.decisionScope === "domain" && !domain.exceptionAddresses.includes(sender.email)) {
       await store.domains.put({
         ...domain,
