@@ -98,7 +98,7 @@ export function Settings({
     setError(null);
     setFilterBusy("checking");
     try {
-      setOptimisations(await suggestFilterOptimisations(gmail));
+      setOptimisations(await suggestFilterOptimisations(gmail, store));
     } catch (caught) {
       setError(`Could not read filters: ${errorMessage(caught)}`);
     } finally {

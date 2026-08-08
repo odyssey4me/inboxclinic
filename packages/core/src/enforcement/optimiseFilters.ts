@@ -5,6 +5,14 @@
  * filters into one `*@domain` rule, drop **duplicate** rules, and remove **redundant** address
  * rules already covered by a domain rule. Suggestions are confirm-first; `applyFilterOptimisations`
  * commits an accepted set through the normal create/delete filter paths.
+ *
+ * **Ownership gate (#29/#190).** Only filters whose id is tracked in
+ * `filterSyncState.managedFilterIds` are ever offered for deletion — the same rule
+ * `reconcileFilters` applies. A "Trash + skip-inbox" action shape is also what a
+ * hand-built Gmail filter looks like, so shape alone is not proof of provenance; an
+ * untracked filter is left alone even when it is a textbook duplicate. Untracked
+ * filters still *count* as coverage (a hand-built `*@domain` rule genuinely does make
+ * an address rule redundant) — they are simply never the thing removed.
  */
 
 import {
@@ -14,6 +22,7 @@ import {
 } from "./compileFilters";
 import { isBlockFilter, parseFilterSubjects } from "./filterShape";
 import type { FilterSpec, GmailClient, NativeFilter } from "../ports/GmailClient";
+import type { Store } from "../store";
 
 export type OptimisationKind = "consolidate" | "duplicate" | "redundant";
 
@@ -63,14 +72,21 @@ function domainBlockFilter(domain: string): FilterSpec {
 /** Analyse existing block-shaped filters and propose optimisations (no mutation). */
 export async function suggestFilterOptimisations(
   client: GmailClient,
+  store: Store,
   options: OptimiseFiltersOptions = {},
 ): Promise<FilterOptimisation[]> {
   const threshold = options.consolidateThreshold ?? DEFAULT_DOMAIN_BLOCK_THRESHOLD;
   const filters = (await client.listFilters()).filter(isBlockFilter);
 
+  const filterSync = await store.filterSync.get();
+  const managedFilterIds = new Set(filterSync?.managedFilterIds ?? []);
+  const isManaged = (id: string): boolean => managedFilterIds.has(id);
+
   const suggestions: FilterOptimisation[] = [];
 
-  // Duplicates: identical criteria + labels; keep one, remove the rest.
+  // Duplicates: identical criteria + labels; keep one, remove the rest. The survivor is a
+  // managed filter where one exists, so the app keeps tracking the rule it leaves behind;
+  // only the *other managed* copies are removable, so a hand-built duplicate always stays.
   const byKey = new Map<string, string[]>();
   for (const f of filters) {
     const ids = byKey.get(filterKey(f)) ?? [];
@@ -78,13 +94,15 @@ export async function suggestFilterOptimisations(
     byKey.set(filterKey(f), ids);
   }
   for (const ids of byKey.values()) {
-    if (ids.length > 1) {
-      suggestions.push({
-        kind: "duplicate",
-        description: `${ids.length} identical filters — remove ${ids.length - 1} duplicate${ids.length - 1 === 1 ? "" : "s"}`,
-        removeFilterIds: ids.slice(1),
-      });
-    }
+    if (ids.length < 2) continue;
+    const keep = ids.find(isManaged) ?? ids[0];
+    const removeFilterIds = ids.filter((id) => id !== keep && isManaged(id));
+    if (removeFilterIds.length === 0) continue;
+    suggestions.push({
+      kind: "duplicate",
+      description: `${ids.length} identical filters — remove ${removeFilterIds.length} duplicate${removeFilterIds.length === 1 ? "" : "s"}`,
+      removeFilterIds,
+    });
   }
 
   // Classify single-subject filters into domain rules and address rules. A domain rule carries
@@ -106,6 +124,7 @@ export async function suggestFilterOptimisations(
   // Redundant: an address rule already covered by a domain rule — but NOT if that domain rule
   // excludes the address (then the address rule is doing real work).
   for (const rule of addressRules) {
+    if (!isManaged(rule.id)) continue;
     const domainRule = domainRuleFor.get(rule.domain);
     if (domainRule !== undefined && !domainRule.exclude.has(rule.email.toLowerCase())) {
       suggestions.push({
@@ -116,10 +135,12 @@ export async function suggestFilterOptimisations(
     }
   }
 
-  // Consolidate: domains with ≥threshold uncovered address rules → one `*@domain` rule.
+  // Consolidate: domains with ≥threshold uncovered *managed* address rules → one `*@domain`
+  // rule. Untracked rules neither count towards the threshold nor get replaced, so a pile of
+  // hand-built address filters is never traded for one broad rule the user didn't ask for.
   const uncoveredByDomain = new Map<string, { id: string; email: string }[]>();
   for (const rule of addressRules) {
-    if (domainRuleFor.has(rule.domain)) continue;
+    if (domainRuleFor.has(rule.domain) || !isManaged(rule.id)) continue;
     const arr = uncoveredByDomain.get(rule.domain) ?? [];
     arr.push(rule);
     uncoveredByDomain.set(rule.domain, arr);

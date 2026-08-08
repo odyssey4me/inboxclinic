@@ -286,8 +286,18 @@ same-domain `from:addr` rules into one `*@domain` rule (reusing the domain-block
 over-broad matches. Suggestions apply **only after explicit confirmation**, through the normal
 filter-reconcile path (Decision 5); nothing changes silently.
 
+**Ownership gate (#190).** "Through the normal reconcile path" includes its provenance rule
+(Decision 5 point 6, #29): only a filter whose id is in `managedFilterIds` is ever *offered* for
+removal. The block action shape is also what a hand-built Gmail filter looks like, so an
+untracked filter is left alone however textbook a duplicate it is — it may still *count* as
+coverage (a hand-built `*@domain` rule does make an address rule redundant) and it still
+appears in the account's filter total, but it is never the thing deleted. Untracked rules also
+don't count towards `DEFAULT_DOMAIN_BLOCK_THRESHOLD`, so a pile of the user's own address
+filters is never traded for one broad rule they didn't ask for.
+
 **Rationale:** Fewer, cleaner rules are easier to reason about and stay within Gmail's filter
-limits — but filters are the user's, so every change is opt-in.
+limits — but filters are the user's, so every change is opt-in, and the ones this app didn't
+create are out of bounds entirely.
 
 ### Decision 10: Confirm-first filter adoption (#80)
 
@@ -523,6 +533,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-08 | **Decision 9 ownership gate (#190):** spell out that "through the normal reconcile path" carries Decision 5 point 6's provenance rule — `suggestFilterOptimisations` only ever offers a filter for removal if its id is in `managedFilterIds`, so the #29 guarantee (a hand-built "Trash + skip inbox" filter is never deleted) holds on the optimisation path too. Untracked filters still count as *coverage* but not towards `DEFAULT_DOMAIN_BLOCK_THRESHOLD`. | Claude |
 | 2026-07-19 | **Decision 5 note (#182):** specify parent-block **exception-overflow handling** for Gmail's ~1500-char criteria limit — collapse to the broadest exclusion (`*@sub`), else degrade *that rule* to enumerated filters (**explicit `*@<eTLD+1>` apex** + `*@subdomain` per still-blocked subdomain; loses the future-subdomain guarantee, surfaced as a caveat). Added **hysteresis** (no broad↔enumerate flip on one exception) and noted the enumerate filters count against the ~450 soft cap (existing `capReached` bounds a pathological rule). Also reframed the match surface (whole-token/left-anchored, not enumerable-in-advance; the warning lists observed matches; one spot-check, not documented Gmail behaviour). | Claude |
 | 2026-07-19 | **Prior-art note (Decision 5):** record the filter compile/diff/apply prior art studied — `gmailctl` (Go; closest model + ~1500-char query simplifier), `gmail-britta` (Ruby DSL; negation patterns), official `googleapis` filter types, and Sieve (RFC 5228). None is a drop-in for a client-only browser app, hence our own compiler. | Claude |
 | 2026-07-19 | **Decision 5 note (#136, #181 spike verified):** parent-domain enforcement is a **single bare-domain `from:<eTLD+1>` filter** — verified on a real account to match a domain + all subdomains (current + future); excepted subdomains carve out via `negatedQuery: from:<subdomain>`. Trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling domains like `apple.com.au`) kept broad-by-design with **warnings + exceptions**, mindful of Gmail's ~1500-char/filter limit (#182). Pairs with design-trust-decisions.md Decision 9. | Claude |

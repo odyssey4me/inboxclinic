@@ -13,6 +13,7 @@
 
 import { recordDailyAnalytics } from "../analytics/record";
 import { applyDecision } from "../decisions/applyDecision";
+import { FILTER_SYNC_KEY } from "../enforcement/enforce";
 import { keyFor } from "../keys";
 import { runScan } from "../scan/runScan";
 import type { Store } from "../store";
@@ -20,7 +21,8 @@ import {
   DEMO_ACCOUNT_EMAIL,
   DEMO_DECISIONS,
   DEMO_HISTORY_ID,
-  DEMO_LEGACY_FILTERS,
+  DEMO_HAND_BUILT_FILTERS,
+  DEMO_MANAGED_FILTERS,
   demoInbox,
 } from "./demoData";
 import { InMemoryBackupClient } from "./inMemoryBackup";
@@ -71,8 +73,10 @@ export async function seedDemoStore(
 
   gmail.seedInbox(demoInbox(now));
   gmail.setLatestHistoryId(DEMO_HISTORY_ID);
-  // Pre-existing user filters (messy) for the filter-optimisation demo.
-  gmail.seedFilters(DEMO_LEGACY_FILTERS);
+  // Messy pre-existing filters for the filter-optimisation demo: some this app created in
+  // earlier sessions (tracked below, so they can be tidied) and some the user built by hand
+  // (never tracked, so the cleanup tool must leave them alone — #190).
+  gmail.seedFilters([...DEMO_MANAGED_FILTERS, ...DEMO_HAND_BUILT_FILTERS]);
 
   await runScan(gmail, store, { now, accountEmail: DEMO_ACCOUNT_EMAIL });
 
@@ -85,6 +89,14 @@ export async function seedDemoStore(
       onboardingComplete: true,
     });
   }
+
+  // Claim only the app-created filters as managed — the hand-built ones stay untracked.
+  await store.filterSync.put({
+    key: FILTER_SYNC_KEY,
+    lastSyncAt: now,
+    totalFilters: DEMO_MANAGED_FILTERS.length + DEMO_HAND_BUILT_FILTERS.length,
+    managedFilterIds: DEMO_MANAGED_FILTERS.map((filter) => filter.id),
+  });
 
   // A realistic starting mix: a couple trusted, a couple blocked (with staged actions).
   for (const decision of DEMO_DECISIONS) {

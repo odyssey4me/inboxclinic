@@ -117,10 +117,12 @@ export const DEMO_DECISIONS: {
 ];
 
 /**
- * Pre-existing "legacy" Gmail filters seeded for the filter-optimisation demo: three
- * per-address rules on one domain (consolidate → `*@oldshop.example`) and a duplicate.
+ * Messy filters **Inbox Clinic created in earlier sessions**, seeded for the
+ * filter-optimisation demo along with their ids in `filterSyncState.managedFilterIds`:
+ * three per-address rules on one domain (consolidate → `*@oldshop.example`) and a
+ * duplicate. Only tracked filters are ever offered for removal (#190).
  */
-export const DEMO_LEGACY_FILTERS: NativeFilter[] = [
+export const DEMO_MANAGED_FILTERS: NativeFilter[] = [
   {
     id: "legacy-1",
     from: "sale@oldshop.example",
@@ -148,6 +150,33 @@ export const DEMO_LEGACY_FILTERS: NativeFilter[] = [
   {
     id: "legacy-5",
     from: "spammer@junk.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+];
+
+/**
+ * Filters the demo user built **by hand in Gmail**, deliberately shaped like a textbook
+ * consolidation candidate (three per-address rules on one domain, one of them duplicated).
+ * They are absent from `managedFilterIds`, so the cleanup tool must leave every one of
+ * them alone — the #29 guarantee, applied to the optimisation path (#190).
+ */
+export const DEMO_HAND_BUILT_FILTERS: NativeFilter[] = [
+  {
+    id: "hand-1",
+    from: "invoices@receipts.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+  {
+    id: "hand-2",
+    from: "statements@receipts.example",
+    addLabelIds: ["TRASH"],
+    removeLabelIds: ["INBOX"],
+  },
+  {
+    id: "hand-3",
+    from: "statements@receipts.example",
     addLabelIds: ["TRASH"],
     removeLabelIds: ["INBOX"],
   },
