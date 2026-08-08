@@ -339,101 +339,37 @@ store state that changed *during* the confirmation window, not just before it.
 
 ### `GmailClient` port (`packages/core`)
 
-Interface-level contract only; implementations live alongside it. Token acquisition is
-injected so the same port works for browser PKCE today and a native transport later.
+The **authoritative interface is the source file** —
+[`packages/core/src/ports/GmailClient.ts`](../packages/core/src/ports/GmailClient.ts). Its
+methods, the types they exchange (`AccessToken`, `MessageMeta`, `FilterSpec`, `NativeFilter`,
+`HistoryList`, …) and their doc comments **are** the contract. This section deliberately does
+not restate them in an illustrative code block, because a copy drifts silently: an earlier one
+outlived the real port by a whole milestone and sent readers implementing against method names
+that existed nowhere in the codebase (#193). What belongs here instead is what the code cannot
+say for itself — which scope tier each capability needs, and which decision above it serves.
 
-```typescript
-/** Short-lived bearer token + the scopes Google actually granted. */
-interface AccessToken {
-  value: string;
-  expiresAt: number;        // epoch ms; in-memory only, never persisted
-  grantedScopes: string[];
-}
+Implementations are adapters: a browser PKCE/GIS + `fetch` client in `apps/web`, and an
+in-memory fixture (`packages/core/src/demo/inMemoryGmail.ts`, exported to tests as
+`MockGmailClient`). Token acquisition sits behind the port, so the same core logic works for
+browser PKCE today and a native transport later.
 
-/** Tiered scopes; least-permission per architecture.md §6. */
-type ScopeTier = 1 | 2 | 3;
+| Capability (port methods) | Tier | Notes |
+|---------------------------|------|-------|
+| Auth — `authenticate`, `getAccessToken` | 1+ | Requests only the named tiers; incremental escalation (Decision 2). The token is held in memory only (Decision 1) |
+| Identity — `getAccountEmail` | 1 | The signed-in address; the `profile` store's primary key |
+| Scan — `listMessageIds`, `getMessageMeta` | 1 | Bounded `messages.list` query, then `format=metadata` fetches — never bodies or snippets (Decision 3) |
+| Incremental sync — `listHistory`, `getLatestHistoryId` | 1 | `users.history.list` from the stored marker; a marker Gmail rejects as too old raises `StaleHistoryError`, and the caller falls back to a bounded rescan (Decision 4) |
+| Filters — `listFilters`, `createFilter`, `deleteFilter` | 2 | `gmail.settings.basic`. `createFilter` resolves to the created filter **with its id** — recording that id is what makes the filter ours to reconcile later (Decision 5 point 6) |
+| Existing mail — `batchModifyMessages`, `listMessageIdsForSender` | 2 | `gmail.modify`; archive / trash / Trust-rescue label edits over a bounded id set, with a domain sweep able to exclude its trusted exceptions |
+| Contacts lookup | 3 | **Deferred, not implemented in v1** — there is no port method. Planned: batched People API, cached with a 24h TTL |
 
-interface ScanOptions {
-  windowDays: number;       // default 30; bounded initial scan
-  labelIds: string[];       // default ['INBOX']
-}
-
-/** Raw header/label projection — no body, no snippet (Decision 3). */
-interface MessageMetadata {
-  id: string;
-  threadId: string;
-  labelIds: string[];
-  internalDate: number;     // epoch ms
-  headers: Record<string, string>; // From, To, Subject, Date, Message-ID,
-                                    // Reply-To, List-Unsubscribe, List-Id,
-                                    // Authentication-Results
-}
-
-interface SenderSummary {
-  email: string;
-  domain: string;           // denormalised for per-domain queries (§6)
-  displayName?: string;
-  category: string;         // from CATEGORY_* labels / List-* / frequency
-  totalEmails: number;
-  hasListUnsubscribe: boolean;
-}
-
-/** A change set since a stored historyId (§6). */
-interface HistoryDelta {
-  newHistoryId: string;
-  addedMessageIds: string[];
-  removedMessageIds: string[];
-  labelChanges: { id: string; labelIds: string[] }[];
-  stale: boolean;           // true ⇒ caller must run a bounded rescan
-}
-
-/** Action applied to existing mail (Tier 2). */
-type MailAction =
-  | { kind: 'trash'; messageIds: string[] }
-  | { kind: 'archive'; messageIds: string[] }      // remove INBOX
-  | { kind: 'relabel'; messageIds: string[]; add: string[]; remove: string[] };
-
-/** Compiled native filter spec (Decision 5). */
-interface FilterSpec {
-  fromQuery: string;        // 'from:a@x.com' or 'from:(*@a.com OR *@b.com)'
-  addLabelIds: string[];    // e.g. ['TRASH']
-  removeLabelIds: string[]; // e.g. ['INBOX']
-}
-
-interface FilterReconcileResult {
-  created: string[];        // Gmail filter IDs
-  deleted: string[];
-  totalFilters: number;     // current count, for the ~450 soft cap
-  skippedAtCap: number;     // not created because the cap was reached
-}
-
-interface GmailClient {
-  // Auth (browser PKCE today; injectable for a native transport later)
-  authorize(tiers: ScopeTier[]): Promise<AccessToken>;
-  getGrantedScopes(): Promise<string[]>;
-
-  // Scan (metadata only)
-  scanInbox(opts: ScanOptions): AsyncIterable<MessageMetadata>;
-  syncSince(historyId: string): Promise<HistoryDelta>;
-
-  // Senders
-  listSenders(opts: ScanOptions): Promise<SenderSummary[]>;
-  lookupContacts(emails: string[]): Promise<Record<string, boolean>>; // People API — deferred, not implemented in v1
-
-  // Enforcement
-  applyActions(actions: MailAction[]): Promise<void>;
-  reconcileFilters(target: FilterSpec[]): Promise<FilterReconcileResult>;
-}
-```
-
-| Method | Tier | Notes |
-|--------|------|-------|
-| `authorize` | 1+ | Requests only the named tiers; incremental escalation |
-| `scanInbox` / `syncSince` | 1 | `format=metadata` only; `syncSince` returns `stale` on 404 |
-| `listSenders` | 1 | Aggregates scan output into per-sender summaries |
-| `lookupContacts` | 3 | **Deferred, not implemented in v1.** Planned: batched People API; result cached with 24h TTL |
-| `applyActions` | 2 | `gmail.modify` |
-| `reconcileFilters` | 2 | `gmail.settings.basic`; idempotent, respects ~450 cap |
+**What is *not* on the port.** Compiling decisions into a desired filter set and diffing it
+against the account are **pure functions**, not provider calls: `compileFilters` and
+`reconcileFilters` live in `packages/core/src/enforcement/compileFilters.ts` and produce a
+`FilterSpec[]` and a `{ toCreate, toDelete, adoptable }` plan. The port only performs the
+resulting list/create/delete. Keeping the diff pure is what lets the soft cap, the OR-combine
+chunking, and the ownership rules of Decision 5 be tested without a transport, and keeps them
+out of every adapter.
 
 ## Configuration
 
@@ -479,41 +415,53 @@ Gmail HTTP failures to typed errors and recovers locally.
 ### Example 1: Bounded scan, then sender extraction
 
 ```typescript
-const senders = new Map<string, SenderSummary>();
-for await (const msg of gmail.scanInbox({ windowDays: 30, labelIds: ['INBOX'] })) {
-  const from = parseAddress(msg.headers['From']);          // metadata only
-  const domain = from.domain;                              // denormalised (§6)
-  upsertSender(senders, from.email, domain, msg);          // category, counts, List-*
-}
-await repo.senders.bulkPut([...senders.values()]);
+// packages/core/src/scan/runScan.ts — bounded query, then metadata-only fetches.
+const query = buildScanQuery(windowDays, labelIds);        // e.g. 'in:inbox newer_than:30d'
+const ids = await client.listMessageIds(query, maxMessages);
+// Best-effort per message: one that moved or was deleted since listing must not abort the scan.
+const settled = await Promise.allSettled(ids.map((id) => client.getMessageMeta(id)));
+const metas = settled.filter((r) => r.status === "fulfilled").map((r) => r.value);
+
+const { senders, domains } = extractSenders(metas, now);   // headers only, never bodies
+await store.senders.bulkPut(senders);
+await store.domains.bulkPut(domains);
 ```
 
 ### Example 2: Incremental sync with transparent rescan
 
 ```typescript
-const { lastHistoryId } = await repo.profile.get();
-const delta = await gmail.syncSince(lastHistoryId);
-if (delta.stale) {
-  await rescanBounded({ windowDays: 30, labelIds: ['INBOX'] }); // 404 fallback
+// packages/core/src/scan/incrementalSync.ts — a stale marker is a typed error, not a flag.
+const profile = await store.profile.get();
+let history;
+try {
+  history = await client.listHistory(profile.lastHistoryId, { labelId: "INBOX" });
+} catch (error) {
+  if (error instanceof StaleHistoryError) return fullSync(...);  // 404 ⇒ bounded rescan
+  throw error;
 }
-await repo.profile.patch({ lastHistoryId: delta.newHistoryId });
+// Claim the new marker before merging, so a retry resumes instead of re-applying deltas (#48).
+await store.profile.put({ ...profile, lastHistoryId: history.historyId });
 ```
 
 ### Example 3: Compile blocks into filters and reconcile
 
 ```typescript
-const blocked = await repo.senders.where('trustStatus').equals('blocked').toArray();
-const target = compileFilters(blocked, {
-  domainBlockThreshold: 3,   // 3+ senders ⇒ from:*@domain.com
-  maxDomainsPerFilter: 10,   // OR-combine domains
+// packages/core/src/enforcement/enforce.ts — pure compile + diff, then port calls.
+const compiled = compileFilters(await effectiveBlockedSenders(store), blockedDomains, {
+  domainBlockThreshold: 3,   // 3+ blocked senders ⇒ from:*@domain.com
+  maxDomainsPerFilter: 10,   // OR-combine domains at content-defined boundaries
   softCap: 450,
 });
-const result = await gmail.reconcileFilters(target);   // idempotent, best-effort
-await repo.filterSyncState.patch({
-  lastSyncAt: Date.now(),
-  totalFilters: result.totalFilters,
-});
+const existing = await client.listFilters();
+const { toCreate, toDelete } = reconcileFilters(compiled.filters, existing, managedFilterIds);
+
+for (const spec of toCreate) managedFilterIds.add((await client.createFilter(spec)).id);
+for (const id of toDelete) { await client.deleteFilter(id); managedFilterIds.delete(id); }
+await store.filterSync.put({ ...previousSync, managedFilterIds: [...managedFilterIds] });
 ```
+
+> Illustrative, not copy-paste: error handling and the best-effort per-filter failure
+> collection are elided. The linked modules are the real thing.
 
 ## Migration Notes
 
@@ -543,6 +491,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-08-09 | **Decision 9 ownership bookkeeping (#202):** state that the provenance rule runs in both directions — applying a consolidation records the replacement `*@domain` filter's id in `managedFilterIds` and drops the removed ids in the same write, so the app's own broadest rule is never untracked from birth (uncleanable by reconcile, and offered back via Decision 10 adoption). Note that consolidation reusing `DEFAULT_DOMAIN_BLOCK_THRESHOLD` is what keeps the tidy-up from being churned back by the next reconcile. | Claude |
+| 2026-08-09 | **Interfaces + Examples de-drifted (#193):** the illustrative `GmailClient` block described a port that no longer existed (`authorize`/`scanInbox`/`syncSince`/`listSenders`/`applyActions`/`reconcileFilters`, plus a `FilterSpec` of `{ fromQuery, … }`), and the three examples called the same absent methods. Replaced the block with a link to the authoritative source (`packages/core/src/ports/GmailClient.ts`) plus a capability/tier table that carries what the code can't — scope tier and originating decision; rewrote the examples against the real API; and stated explicitly that `compileFilters`/`reconcileFilters` are pure functions in `enforcement/compileFilters.ts`, not port methods. | Claude |
 | 2026-08-08 | **Decision 9 ownership gate (#190):** spell out that "through the normal reconcile path" carries Decision 5 point 6's provenance rule — `suggestFilterOptimisations` only ever offers a filter for removal if its id is in `managedFilterIds`, so the #29 guarantee (a hand-built "Trash + skip inbox" filter is never deleted) holds on the optimisation path too. Untracked filters still count as *coverage* but not towards `DEFAULT_DOMAIN_BLOCK_THRESHOLD`. | Claude |
 | 2026-07-19 | **Decision 5 note (#182):** specify parent-block **exception-overflow handling** for Gmail's ~1500-char criteria limit — collapse to the broadest exclusion (`*@sub`), else degrade *that rule* to enumerated filters (**explicit `*@<eTLD+1>` apex** + `*@subdomain` per still-blocked subdomain; loses the future-subdomain guarantee, surfaced as a caveat). Added **hysteresis** (no broad↔enumerate flip on one exception) and noted the enumerate filters count against the ~450 soft cap (existing `capReached` bounds a pathological rule). Also reframed the match surface (whole-token/left-anchored, not enumerable-in-advance; the warning lists observed matches; one spot-check, not documented Gmail behaviour). | Claude |
 | 2026-07-19 | **Prior-art note (Decision 5):** record the filter compile/diff/apply prior art studied — `gmailctl` (Go; closest model + ~1500-char query simplifier), `gmail-britta` (Ruby DSL; negation patterns), official `googleapis` filter types, and Sieve (RFC 5228). None is a drop-in for a client-only browser app, hence our own compiler. | Claude |
