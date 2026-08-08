@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
-import { FILTER_SYNC_KEY } from "./enforce";
+import { suggestFilterAdoptions } from "./adoptFilters";
+import { FILTER_SYNC_KEY, reconcileNativeFilters } from "./enforce";
 import { applyFilterOptimisations, suggestFilterOptimisations } from "./optimiseFilters";
-import { createInMemoryStore, MockGmailClient } from "../testing";
+import { createInMemoryStore, MockGmailClient, senderBuilder } from "../testing";
 import type { Store } from "../store";
 
 const block = (id: string, from: string) => ({
@@ -215,7 +216,7 @@ describe("suggestFilterOptimisations", () => {
     const store = await storeOwning("f1", "f2", "f3");
 
     const suggestions = await suggestFilterOptimisations(gmail, store);
-    const result = await applyFilterOptimisations(gmail, suggestions);
+    const result = await applyFilterOptimisations(gmail, store, suggestions);
 
     expect(result.filtersCreated).toBe(1);
     expect(result.filtersDeleted).toBe(3);
@@ -224,6 +225,70 @@ describe("suggestFilterOptimisations", () => {
       { from: "*@spam.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     expect(gmail.deletedFilterIds.sort()).toEqual(["f1", "f2", "f3"]);
+  });
+
+  it("records the consolidated filter as managed and drops the removed ids (#202)", async () => {
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      block("f1", "a@spam.com"),
+      block("f2", "b@spam.com"),
+      block("f3", "c@spam.com"),
+    ]);
+    const store = await storeOwning("f1", "f2", "f3");
+
+    const suggestions = await suggestFilterOptimisations(gmail, store);
+    await applyFilterOptimisations(gmail, store, suggestions);
+
+    const created = (await gmail.listFilters()).find((f) => f.from === "*@spam.com");
+    const sync = await store.filterSync.get();
+    // The replacement this app just created is tracked, and the filters it removed are gone
+    // from the set rather than lingering until the next enforce() prunes them.
+    expect(sync?.managedFilterIds).toEqual([created?.id]);
+    expect(sync?.totalFilters).toBe(1);
+  });
+
+  it("never offers to adopt the filter the tidy-up just created (#202)", async () => {
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      block("f1", "a@spam.com"),
+      block("f2", "b@spam.com"),
+      block("f3", "c@spam.com"),
+    ]);
+    const store = await storeOwning("f1", "f2", "f3");
+    for (const email of ["a@spam.com", "b@spam.com", "c@spam.com"]) {
+      await store.senders.put(senderBuilder(email, { trustStatus: "blocked" }));
+    }
+
+    await applyFilterOptimisations(gmail, store, await suggestFilterOptimisations(gmail, store));
+
+    // Untracked, the new *@spam.com rule would match a desired filter with no managed id —
+    // so the app would offer to "adopt" a filter it created itself moments earlier (#80).
+    expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
+
+    // And because consolidation shares compileFilters' domain threshold, the tidy-up is what
+    // enforce would compile from the standing blocks anyway: the next sync leaves it alone.
+    const outcome = await reconcileNativeFilters(gmail, store);
+    expect(outcome.filtersCreated).toBe(0);
+    expect(outcome.filtersDeleted).toBe(0);
+  });
+
+  it("does not claim ownership of a replacement whose create failed (#202)", async () => {
+    class FlakyClient extends MockGmailClient {
+      override createFilter(): never {
+        throw new Error("boom");
+      }
+    }
+    const gmail = new FlakyClient();
+    gmail.seedFilters([
+      block("f1", "a@spam.com"),
+      block("f2", "b@spam.com"),
+      block("f3", "c@spam.com"),
+    ]);
+    const store = await storeOwning("f1", "f2", "f3");
+
+    await applyFilterOptimisations(gmail, store, await suggestFilterOptimisations(gmail, store));
+
+    expect((await store.filterSync.get())?.managedFilterIds).toEqual([]);
   });
 
   it("dedupes filter ids referenced by both the duplicate and consolidate passes", async () => {
@@ -244,7 +309,7 @@ describe("suggestFilterOptimisations", () => {
     // No id appears in more than one suggestion's removeFilterIds.
     expect(new Set(referenced).size).toBe(referenced.length);
 
-    const result = await applyFilterOptimisations(gmail, suggestions);
+    const result = await applyFilterOptimisations(gmail, store, suggestions);
     expect(result.filtersDeleted).toBe(3);
     expect(gmail.deletedFilterIds.sort()).toEqual(["f1", "f2", "f3"]);
     // Each id was deleted exactly once.
@@ -263,7 +328,7 @@ describe("suggestFilterOptimisations", () => {
     const store = await storeOwning("f1", "f2");
 
     const suggestions = await suggestFilterOptimisations(gmail, store);
-    const result = await applyFilterOptimisations(gmail, suggestions);
+    const result = await applyFilterOptimisations(gmail, store, suggestions);
 
     expect(result.filtersDeleted).toBe(0);
     expect(result.failures).toHaveLength(1);
@@ -285,7 +350,7 @@ describe("suggestFilterOptimisations", () => {
     const store = await storeOwning("f1", "f2", "f3");
 
     const suggestions = await suggestFilterOptimisations(gmail, store);
-    const result = await applyFilterOptimisations(gmail, suggestions);
+    const result = await applyFilterOptimisations(gmail, store, suggestions);
 
     expect(result.filtersCreated).toBe(0);
     expect(result.filtersDeleted).toBe(3);
