@@ -93,7 +93,7 @@ export async function simulateEnforcement(
   // Addresses this batch's own address-scope decisions would record as exceptions on their
   // domain: applyDecision.ts adds a sender to `exceptionAddresses` on any non-no-op address
   // decision under a domain-scoped domain (#161). Keyed by lowercased domain. Defer is excluded —
-  // a defer-added exception is effectively blocked, so it never changes a carve-out.
+  // it leaves the subject undecided and records no exception at all (#195).
   const batchExceptionsByDomain = new Map<string, string[]>();
   for (const decision of decisions) {
     if (decision.scope !== "address" || decision.decision === "defer") continue;

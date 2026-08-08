@@ -290,6 +290,27 @@ describe("applyDecision — domain scope (overrides address)", () => {
     expect(effective).toEqual({ status: "blocked", source: "address" });
   });
 
+  it("does not record a defer as a domain exception (#195)", async () => {
+    const store = await seed();
+    await applyDecision(store, {
+      subjectId: keyFor("acme.com"),
+      scope: "domain",
+      decision: "trust",
+      now: NOW,
+    });
+
+    // "Not sure" leaves the sender undecided, so it carves nothing out of the domain's rule.
+    await applyDecision(store, {
+      subjectId: keyFor("a@acme.com"),
+      scope: "address",
+      decision: "defer",
+      now: NOW,
+    });
+
+    const domain = await store.domains.get(keyFor("acme.com"));
+    expect(domain?.exceptionAddresses).toEqual([]);
+  });
+
   it("defers a whole domain, decaying every member prompt", async () => {
     const store = await seed();
     const result = await applyDecision(store, {
