@@ -112,7 +112,7 @@ export function Settings({
     setError(null);
     setFilterBusy("applying");
     try {
-      const result = await applyFilterOptimisations(gmail, optimisations);
+      const result = await applyFilterOptimisations(gmail, store, optimisations);
       setNote(
         `Tidied your filters: ${result.filtersCreated} created, ${result.filtersDeleted} removed.`,
       );

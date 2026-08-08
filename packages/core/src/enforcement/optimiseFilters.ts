@@ -4,7 +4,14 @@
  * Decision 9. Read-only analysis that proposes: **consolidate** many same-domain address
  * filters into one `*@domain` rule, drop **duplicate** rules, and remove **redundant** address
  * rules already covered by a domain rule. Suggestions are confirm-first; `applyFilterOptimisations`
- * commits an accepted set through the normal create/delete filter paths.
+ * commits an accepted set through the normal create/delete filter paths and keeps
+ * `filterSyncState.managedFilterIds` in step with what it created and removed (#202).
+ *
+ * Consolidation uses the same `DEFAULT_DOMAIN_BLOCK_THRESHOLD` that `compileFilters` uses to
+ * prefer a `*@domain` rule, so an accepted consolidation is what the next `enforce()` would
+ * compile from the standing decisions anyway — the tidy-up survives the next sync rather than
+ * being undone by it. Passing a `consolidateThreshold` *below* the compile-side
+ * `domainBlockThreshold` would break that alignment and churn the filters back.
  *
  * **Ownership gate (#29/#190).** Only filters whose id is tracked in
  * `filterSyncState.managedFilterIds` are ever offered for deletion — the same rule
@@ -20,6 +27,7 @@ import {
   BLOCK_FILTER_REMOVE_LABEL_IDS,
   DEFAULT_DOMAIN_BLOCK_THRESHOLD,
 } from "./compileFilters";
+import { FILTER_SYNC_KEY } from "./enforce";
 import { isBlockFilter, parseFilterSubjects } from "./filterShape";
 import type { FilterSpec, GmailClient, NativeFilter } from "../ports/GmailClient";
 import type { Store } from "../store";
@@ -192,18 +200,30 @@ function errMsg(error: unknown): string {
  * old. Best-effort like `reconcileNativeFilters` — a failed create/delete is recorded
  * and does not abort the remaining operations, so a transient failure partway through
  * can't leave an already-applied suggestion re-appliable.
+ *
+ * **Ownership is kept in step (#202).** A consolidation's replacement filter is created
+ * by this app, so its id is recorded in `filterSyncState.managedFilterIds` — otherwise
+ * the app's own broadest rule is untracked from birth: never cleanable by
+ * `reconcileFilters` (#29), invisible to this tool's future passes (#190), and offered
+ * back to the user as something to "adopt" (#80). Deleted ids are dropped from the set
+ * in the same write, so the store doesn't claim filters that no longer exist until the
+ * next `enforce()` prunes them.
  */
 export async function applyFilterOptimisations(
   client: GmailClient,
+  store: Store,
   optimisations: FilterOptimisation[],
 ): Promise<OptimiseApplyResult> {
   let filtersCreated = 0;
   let filtersDeleted = 0;
   const failures: OptimiseApplyFailure[] = [];
+  const previousSync = await store.filterSync.get();
+  const managedFilterIds = new Set(previousSync?.managedFilterIds ?? []);
   for (const opt of optimisations) {
     if (opt.createFilter !== undefined) {
       try {
-        await client.createFilter(opt.createFilter);
+        const created = await client.createFilter(opt.createFilter);
+        managedFilterIds.add(created.id);
         filtersCreated += 1;
       } catch (error) {
         failures.push({ subject: `filter:${opt.createFilter.from}`, error: errMsg(error) });
@@ -212,11 +232,22 @@ export async function applyFilterOptimisations(
     for (const id of opt.removeFilterIds) {
       try {
         await client.deleteFilter(id);
+        managedFilterIds.delete(id);
         filtersDeleted += 1;
       } catch (error) {
         failures.push({ subject: `filter:${id}`, error: errMsg(error) });
       }
     }
   }
+
+  await store.filterSync.put({
+    key: FILTER_SYNC_KEY,
+    lastSyncAt: previousSync?.lastSyncAt ?? null,
+    // Tidying changes how many filters the account holds, so keep the soft-cap headroom
+    // view honest rather than leaving the pre-tidy count until the next sync re-reads it.
+    totalFilters: Math.max(0, (previousSync?.totalFilters ?? 0) + filtersCreated - filtersDeleted),
+    managedFilterIds: [...managedFilterIds],
+  });
+
   return { filtersCreated, filtersDeleted, failures };
 }
