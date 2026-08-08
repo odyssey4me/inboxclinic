@@ -70,6 +70,11 @@ export async function simulateEnforcement(
   const senderById = new Map(senders.map((s) => [s.id, s]));
   const domainById = new Map(domains.map((d) => [d.id, d]));
   const domainByName = new Map(domains.map((d) => [d.domain.toLowerCase(), d]));
+  const sendersByDomain = new Map<string, Sender[]>();
+  for (const sender of senders) {
+    const key = sender.domain.toLowerCase();
+    sendersByDomain.set(key, [...(sendersByDomain.get(key) ?? []), sender]);
+  }
 
   // Prospective trust status: current state with the previewed decisions applied.
   const senderStatus = new Map(senders.map((s) => [s.id, s.trustStatus]));
@@ -130,6 +135,27 @@ export async function simulateEnforcement(
     });
   };
 
+  // Whether a (prospectively) trusted domain's member ends up effectively trusted — the same
+  // resolution `effectiveTrustedSenders` performs at Apply time (#146). An exception address
+  // keeps its own address decision, so a member the batch blocks in the same breath is not
+  // swept up by the domain trust. Only ever called on a domain the batch trusts at domain
+  // scope, so `domainStatus/domainScope` are that known state rather than re-derived.
+  const prospectivelyTrustedMember = (sender: Sender, domain: Domain): boolean => {
+    const batch = batchExceptionsByDomain.get(domain.domain.toLowerCase()) ?? [];
+    const isException = [...domain.exceptionAddresses, ...batch].some(
+      (email) => keyFor(email) === sender.id,
+    );
+    const addressStatus = senderStatus.get(sender.id) ?? sender.trustStatus;
+    return (
+      resolveEffectiveDecision({
+        addressStatus: addressStatus === "pending" ? null : addressStatus,
+        addressIsException: isException,
+        domainStatus: "trusted",
+        domainScope: "domain",
+      }).status === "trusted"
+    );
+  };
+
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;
   let filtersToDelete = 0;
@@ -172,7 +198,9 @@ export async function simulateEnforcement(
   // 2. Existing-mail actions for the previewed decisions.
   let messagesToArchive = 0;
   let messagesToDelete = 0;
-  let messagesToRescue = 0;
+  // Senders a trust in this batch would rescue, collected as ids so a sender covered by both
+  // an address and a domain decision is only counted once.
+  const rescueSenderIds = new Set<string>();
   for (const decision of decisions) {
     if (decision.decision === "block") {
       const sender = decision.scope === "address" ? senderById.get(decision.subjectId) : undefined;
@@ -197,14 +225,29 @@ export async function simulateEnforcement(
           messagesToArchive += ids.length;
         }
       }
-    } else if (decision.decision === "trust" && decision.scope === "address") {
-      // Reversal to Trust rescues the sender's spam-marked mail. (Trash-scoped rescue
-      // counting arrives with the Spam/Trash learning scan — Decision 7.)
-      const sender = senderById.get(decision.subjectId);
-      if (sender !== undefined && sender.spamMarkedCount > 0) {
-        messagesToRescue += sender.spamMarkedCount;
+    } else if (decision.decision === "trust") {
+      // Reversal to Trust rescues spam-marked mail. (Trash-scoped rescue counting arrives
+      // with the Spam/Trash learning scan — Decision 7.) A domain-scope trust rescues every
+      // member it makes effectively trusted, matching enforce's `effectiveTrustedSenders`
+      // sweep (#146) — the estimate previously counted only address-scope trust, so trusting
+      // a domain understated the rescue (#192).
+      if (decision.scope === "address") {
+        const sender = senderById.get(decision.subjectId);
+        if (sender !== undefined) rescueSenderIds.add(sender.id);
+      } else {
+        const domain = domainById.get(decision.subjectId);
+        if (domain !== undefined) {
+          for (const sender of sendersByDomain.get(domain.domain.toLowerCase()) ?? []) {
+            if (prospectivelyTrustedMember(sender, domain)) rescueSenderIds.add(sender.id);
+          }
+        }
       }
     }
+  }
+
+  let messagesToRescue = 0;
+  for (const id of rescueSenderIds) {
+    messagesToRescue += senderById.get(id)?.spamMarkedCount ?? 0;
   }
 
   return {
