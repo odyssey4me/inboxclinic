@@ -315,6 +315,72 @@ describe("simulateEnforcement", () => {
     expect(impact.messagesToRescue).toBe(4);
   });
 
+  it("counts every member a whole-domain trust would rescue (#192)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("news.com"));
+    await store.senders.put(
+      senderBuilder("daily@news.com", { trustStatus: "blocked", spamMarkedCount: 3 }),
+    );
+    await store.senders.put(
+      senderBuilder("weekly@news.com", { trustStatus: "pending", spamMarkedCount: 2 }),
+    );
+    // A different domain's spam-marked mail is untouched by this decision.
+    await store.senders.put(
+      senderBuilder("promo@shop.com", { trustStatus: "blocked", spamMarkedCount: 9 }),
+    );
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("news.com"), scope: "domain", decision: "trust" },
+    ]);
+
+    // Both members become effectively trusted, so enforce would rescue 3 + 2 — the preview
+    // used to report none of it.
+    expect(impact.messagesToRescue).toBe(5);
+  });
+
+  it("does not rescue a member the same batch blocks as an exception (#192)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("news.com"));
+    await store.senders.put(
+      senderBuilder("daily@news.com", { trustStatus: "pending", spamMarkedCount: 3 }),
+    );
+    await store.senders.put(
+      senderBuilder("junk@news.com", { trustStatus: "pending", spamMarkedCount: 7 }),
+    );
+    const gmail = new MockGmailClient();
+
+    // "Trust the domain, except this one sender": the address block is recorded as a domain
+    // exception, so its mail stays where it is.
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("news.com"), scope: "domain", decision: "trust" },
+      {
+        subjectId: keyFor("junk@news.com"),
+        scope: "address",
+        decision: "block",
+        actions: ["create_filter"],
+      },
+    ]);
+
+    expect(impact.messagesToRescue).toBe(3);
+  });
+
+  it("counts a sender covered by both an address and a domain trust once (#192)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("news.com"));
+    await store.senders.put(
+      senderBuilder("daily@news.com", { trustStatus: "blocked", spamMarkedCount: 4 }),
+    );
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("news.com"), scope: "domain", decision: "trust" },
+      { subjectId: keyFor("daily@news.com"), scope: "address", decision: "trust" },
+    ]);
+
+    expect(impact.messagesToRescue).toBe(4);
+  });
+
   it("excludes a domain's trusted exception from the block's message estimate (#151)", async () => {
     const store = createInMemoryStore();
     // A blocked domain with one trusted exception address carved out.
