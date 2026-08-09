@@ -13,8 +13,9 @@
 # mocking the GmailClient port can therefore only encode as a belief:
 #
 #   discover  Samples the mailbox and reports domains that ACTUALLY have mail
-#             from both themselves and their subdomains, plus example addresses,
-#             so the probes below run against real subjects.     [read-only]
+#             from both themselves and their subdomains, busiest first, plus
+#             example addresses — so the probes below run against real subjects
+#             that will send again soon.                         [read-only]
 #   search    Does `from:*@domain` behave as a wildcard, and does it span
 #             SUBDOMAINS? Prints the sender domains a domain query really
 #             returns, and checks a `-from:(a OR b)` exclusion excludes.
@@ -63,6 +64,7 @@
 #   ./scripts/qa-gmail-probe.py search [--domain x.com] [--exclude a@x.com]
 #   ./scripts/qa-gmail-probe.py filters [--json] [--out FILE]
 #   ./scripts/qa-gmail-probe.py limit --i-know [--domain probe.invalid]
+#   ./scripts/qa-gmail-probe.py match arm|check|disarm [--top 3] [--domain x.com]
 #   ./scripts/qa-gmail-probe.py revoke
 # -----------------------------------------------------------------------------
 from __future__ import annotations
@@ -93,10 +95,22 @@ REVOKE_URI = "https://oauth2.googleapis.com/revoke"
 
 TOKEN_CACHE = ".local/qa-token.json"
 CLIENT_FILE = ".local/oauth-client.json"
+MATCH_STATE = ".local/qa-match.json"
 
 # Probe filters are built against an unroutable domain (RFC 2606), so one can
 # never match, label, or trash a real message even in the instant it exists.
 PROBE_DOMAIN = "probe.invalid"
+
+# The `match` probe's action. STARRED is a system label, so it needs no label
+# creation (and so no extra scope), it is plainly visible in the UI, and it is
+# undone by unstarring — the only action that answers "did this filter match?"
+# without moving or hiding a single real message.
+MATCH_LABEL = "STARRED"
+
+# Messages examined per subject when checking. A conclusion drawn from a truncated page
+# would read as confidently as one drawn from everything, so the sample size is reported
+# alongside each verdict rather than left implicit.
+MATCH_PAGE = 100
 
 
 def fail(message: str) -> "NoReturn":  # type: ignore[name-defined]
@@ -200,9 +214,17 @@ def cache_clear() -> None:
     except (OSError, json.JSONDecodeError):
         pass
     if cache and cache.get("access_token"):
+        # Revoke quietly, without the shared helper's report-and-exit: a token that has
+        # simply expired is NOT revocable, and an hour-old credential hitting its designed
+        # end should not be announced as an API failure ahead of the real message.
+        request = urllib.request.Request(
+            REVOKE_URI,
+            data=urllib.parse.urlencode({"token": str(cache["access_token"])}).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
         try:
-            post_form(REVOKE_URI, {"token": str(cache["access_token"])})
-        except SystemExit:
+            urllib.request.urlopen(request, timeout=15).close()
+        except (urllib.error.HTTPError, urllib.error.URLError):
             pass  # already expired or revoked upstream; clearing the cache is the point
     try:
         os.remove(TOKEN_CACHE)
@@ -353,11 +375,11 @@ def api_get(token: str, path: str, params: dict[str, str] | None = None) -> dict
         fail(f"cannot reach the Gmail API: {error}")
 
 
-def sender_addresses(token: str, query: str, limit: int) -> list[str]:
-    """Sender addresses for a query — metadata only, never bodies or snippets."""
+def sender_samples(token: str, query: str, limit: int) -> list[tuple[str, int]]:
+    """(sender address, arrival epoch ms) for a query — metadata only, never bodies."""
     listing = api_get(token, "/messages", {"q": query, "maxResults": str(limit)})
     messages = listing.get("messages") or []
-    found: list[str] = []
+    found: list[tuple[str, int]] = []
     for message in messages:  # type: ignore[union-attr]
         meta = api_get(
             token,
@@ -365,6 +387,7 @@ def sender_addresses(token: str, query: str, limit: int) -> list[str]:
             {"format": "metadata", "metadataHeaders": "From"},
         )
         headers = (meta.get("payload") or {}).get("headers") or []  # type: ignore[union-attr]
+        received = int(str(meta.get("internalDate", "0")) or 0)
         for header in headers:
             if str(header.get("name", "")).lower() != "from":
                 continue
@@ -372,8 +395,13 @@ def sender_addresses(token: str, query: str, limit: int) -> list[str]:
             match = re.search(r"<([^>]+)>", value)
             address = (match.group(1) if match else value).strip().lower()
             if "@" in address:
-                found.append(address)
+                found.append((address, received))
     return found
+
+
+def sender_addresses(token: str, query: str, limit: int) -> list[str]:
+    """Sender addresses for a query — metadata only, never bodies or snippets."""
+    return [address for address, _ in sender_samples(token, query, limit)]
 
 
 def host_of(address: str) -> str:
@@ -383,28 +411,68 @@ def host_of(address: str) -> str:
 # --- probes ------------------------------------------------------------------
 
 
-def find_pairs(token: str, sample: int) -> tuple[list[tuple[str, list[str], str, int]], Counter]:
-    """Domains with mail from BOTH themselves and a subdomain, richest first.
+def find_pairs(
+    token: str, sample: int
+) -> tuple[list[tuple[str, list[str], str, int, int]], Counter]:
+    """Domains with mail from BOTH themselves and a subdomain, **most recently active first**.
 
-    Parent/child is decided by label-boundary suffix matching between hosts we
-    actually observed — no public-suffix list needed, and nothing hard-coded:
-    `notx.com` never counts as under `x.com`.
+    Parent/child is decided by label-boundary suffix matching between hosts we actually
+    observed — no public-suffix list needed, and nothing hard-coded: `notx.com` never counts
+    as under `x.com`.
+
+    Ranked by how OFTEN the subtree sends, not by how many subdomains it has or how recently
+    it wrote. The `match` probe can only conclude from mail arriving after it is armed, so the
+    useful subject is the one that will send repeatedly and soon: a busy domain answers in
+    days and keeps confirming, while a structurally richer one that writes once a quarter
+    leaves the experiment hanging.
+
+    Structure comes from the sample; **volume is then measured directly**, one query per
+    candidate. Counting within the sample would rank on "share of the last N messages", which
+    scores a steady sender zero merely for sitting outside the window — a proxy where a real
+    number is one call away.
     """
-    addresses = sorted(set(sender_addresses(token, "newer_than:180d", sample)))
+    samples = sender_samples(token, "newer_than:180d", sample)
     example: dict[str, str] = {}
-    counts: Counter = Counter()
-    for address in addresses:
+    addresses_per_host: Counter = Counter()
+    for address, _received in samples:
         host = host_of(address)
-        counts[host] += 1
+        if address in example:
+            continue
+        addresses_per_host[host] += 1
         example.setdefault(host, address)
 
-    pairs: list[tuple[str, list[str], str, int]] = []
-    for parent in sorted(counts):
-        subs = sorted(h for h in counts if h != parent and h.endswith(f".{parent}"))
+    pairs: list[tuple[str, list[str], str, int, int]] = []
+    for parent in sorted(addresses_per_host):
+        subs = sorted(h for h in addresses_per_host if h != parent and h.endswith(f".{parent}"))
         if subs:
-            pairs.append((parent, subs, example[subs[0]], counts[parent]))
-    pairs.sort(key=lambda item: len(item[1]), reverse=True)
-    return pairs, counts
+            # `from:*@parent` spans the subtree (that is the behaviour under test), so one
+            # query measures apex and subdomains together — which is the volume that matters.
+            volume = recent_volume(token, parent)
+            pairs.append((parent, subs, example[subs[0]], addresses_per_host[parent], volume))
+    pairs.sort(key=lambda item: item[4], reverse=True)
+    return pairs, addresses_per_host
+
+
+# Ceiling on the per-domain volume count. A real count up to here; at the cap the true
+# figure is only known to be "at least this", which is honest enough to rank on.
+VOLUME_CAP = 200
+
+
+def recent_volume(token: str, domain: str, days: int = 30) -> int:
+    """Messages from a domain's subtree in the last `days` — counted, capped at VOLUME_CAP.
+
+    Counts returned ids rather than reading `resultSizeEstimate`, which is documented as an
+    estimate and measurably is one: on a real account it returned 201 for three unrelated
+    domains at 30 and 14 days, then 201 for two of them and 0 for the third at 7 days. A
+    number that cannot order three domains, and contradicts itself between windows, is worse
+    than no number — ranking on it would be ranking on noise while looking precise.
+    """
+    listing = api_get(
+        token,
+        "/messages",
+        {"q": f"from:*@{domain} newer_than:{days}d", "maxResults": str(VOLUME_CAP)},
+    )
+    return len(listing.get("messages") or [])  # type: ignore[arg-type]
 
 
 def cmd_discover(args: argparse.Namespace) -> None:
@@ -412,14 +480,16 @@ def cmd_discover(args: argparse.Namespace) -> None:
     print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
     pairs, counts = find_pairs(token, args.sample)
 
-    print("-- domains with mail from BOTH themselves and a subdomain (ideal subjects)")
+    print("-- domains with mail from BOTH themselves and a subdomain (busiest first)")
     if not pairs:
         note("none in this sample — try a larger --sample")
-    for parent, subs, sub_example, apex in pairs:
-        note(f"{parent}  (apex senders: {apex})")
+    for parent, subs, sub_example, apex, volume in pairs:
+        note(f"{parent}  ({volume} messages in the last 30d, {apex} apex sender(s))")
         note(f"  subdomains seen: {', '.join(subs)}")
-        note(f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
-             f" --exclude {sub_example}")
+        note(
+            f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
+            f" --exclude {sub_example}"
+        )
 
     print("\n-- domains with the most distinct sender addresses (exclusion subjects)")
     for host, count in counts.most_common(5):
@@ -440,7 +510,7 @@ def cmd_search(args: argparse.Namespace) -> None:
                 f"no domain with observed subdomain senders in the last {args.sample} messages\n"
                 "       pass --domain explicitly, or raise --sample"
             )
-        domain, _subs, auto_exclude, _apex = pairs[0]
+        domain, _subs, auto_exclude, _apex, _volume = pairs[0]
         exclude = exclude or auto_exclude
         note(f"chose {domain} (excluding {exclude})\n")
 
@@ -478,10 +548,31 @@ def cmd_search(args: argparse.Namespace) -> None:
             note("FAIL — the exclusion did NOT remove them.")
 
 
-def unwrap_exclude_from(negated: str) -> str | None:
-    """`from:(a OR b)` -> `a OR b`, mirroring the browser client's read-back."""
+# The criteria fields `FilterSpec` represents; anything else makes a filter foreign to the
+# code being replayed. Mirrors MODELLED_CRITERIA in the browser adapter.
+MODELLED_CRITERIA = {"from", "negatedQuery"}
+
+
+def constrains_matching(value: object) -> bool:
+    """Whether a criteria field actually narrows matching — an echoed default does not."""
+    if value is None or value is False or value == "":
+        return False
+    return not (isinstance(value, list) and not value)
+
+
+def unwrap_exclude_from(negated: str | None) -> str | None:
+    """`from:(a OR b)` -> `a OR b`, mirroring `unwrapExcludeFrom` in the browser client.
+
+    Mirrors it exactly, including the empty-string case: the TS returns a non-matching value
+    unchanged — `""` included, which `toNativeFilter` then sets as `excludeFrom: ""` — so
+    folding that to `None` here would have the dump disagree with what production produces.
+    A missing `negatedQuery` (None) is the only absent case. See #216 on removing this
+    second copy rather than keeping the two in step by hand.
+    """
+    if negated is None:
+        return None
     match = re.fullmatch(r"from:\((.*)\)", negated, re.DOTALL)
-    return match.group(1) if match else (negated or None)
+    return match.group(1) if match else negated
 
 
 def cmd_filters(args: argparse.Namespace) -> None:
@@ -506,9 +597,21 @@ def cmd_filters(args: argparse.Namespace) -> None:
             # key rather than setting it null. A dump that emits null is not a
             # NativeFilter, and code written against the real shape rightly breaks on
             # it — so omit it here too, or the replay tests a fiction.
-            exclude = unwrap_exclude_from(str(criteria.get("negatedQuery", "")))
+            raw_negated = criteria.get("negatedQuery")
+            exclude = unwrap_exclude_from(None if raw_negated is None else str(raw_negated))
             if exclude is not None:
                 entry["excludeFrom"] = exclude
+            # Mirror the adapter: name the criteria the port cannot represent, since the code
+            # under replay refuses to reason about a filter carrying any. Omitting this would
+            # feed the suggesters filters that look plainly comparable when production would
+            # have set them aside — testing a rule the app no longer follows.
+            unmodelled = sorted(
+                field
+                for field, value in criteria.items()
+                if field not in MODELLED_CRITERIA and constrains_matching(value)
+            )
+            if unmodelled:
+                entry["unmodelledCriteria"] = unmodelled
             dump.append(entry)
         # Ship the RAW filter beside our projection. The projection is lossy by
         # design — the port models `from`/`negatedQuery` and nothing else — so a
@@ -667,6 +770,318 @@ def cmd_limit(args: argparse.Namespace) -> None:
     note("Below that => the budget is too generous and over-long filters still get rejected.")
     note("Above it   => domains degrade to enumerate form earlier than they need to.")
 
+def cmd_match(args: argparse.Namespace) -> None:
+    """Arm / check / disarm the live-matching experiment.
+
+    The only two questions left about filter behaviour are about **arriving** mail, which no
+    amount of reading the account can answer: does a `*@domain` filter reach the domain's
+    SUBDOMAINS, and does its `negatedQuery` actually spare the excepted sender?
+
+    Several subjects are armed at once, not one. Each needs mail to arrive before it can say
+    anything, so a single subject that goes quiet stalls the experiment — and independent
+    domains agreeing is far better evidence than one domain answering, while domains
+    DISAGREEING is itself a finding worth having.
+    """
+    if args.action == "check":
+        state = _load_match_state()
+        if state is None:
+            fail("nothing armed — run: ./scripts/qa-gmail-probe.py match arm")
+        token = ensure_token(SCOPE_READ)
+        _match_report(token, state)
+        return
+
+    if args.action == "disarm":
+        state = _load_match_state()
+        if state is None:
+            # "Nothing armed" reads as "nothing to clean up", which is only true if the state
+            # file was never lost. A probe filter outlives its record — a stray clean of the
+            # gitignored `.local/`, or a crash between creating a filter and writing the file,
+            # leaves one starring mail with no id to find it by. Look for the shape instead.
+            note("no armed state recorded — checking the account for stranded probe filters")
+            _report_stranded(ensure_token(SCOPE_READ))
+            return
+        token = ensure_token(SCOPE_FILTERS)
+        armed_at = int(state["armedAt"])  # type: ignore[arg-type]
+        subjects: list[dict[str, str]] = state["subjects"]  # type: ignore[assignment]
+        for subject in subjects:
+            _delete_filter(token, str(subject["filterId"]))
+            note(f"removed the probe filter for {subject['domain']}")
+        os.remove(MATCH_STATE)
+
+        # Deleting a filter does not undo what it already did, and this probe deliberately
+        # holds no scope to modify mail — unstarring would need `gmail.modify`, the same
+        # permission the app uses to trash and archive, which is far more than a QA tool
+        # should carry to tidy up after itself. Hand over the exact searches instead: each
+        # selects only this probe's work, so it is select-all then unstar, per subject.
+        stamp = time.strftime("%Y/%m/%d", time.gmtime(armed_at))
+        domains = " OR ".join(f"*@{subject['domain']}" for subject in subjects)
+        print()
+        note("The stars it added are still there. Paste this into Gmail search,")
+        note("then select all and unstar:")
+        note(f"  is:starred after:{stamp} from:({domains})")
+        note("(dated from the arming day, so it can also catch mail you starred yourself")
+        note(" from those domains since then — worth a glance before unstarring.)")
+        return
+
+    # arm
+    if _load_match_state() is not None:
+        fail(
+            "already armed — disarm first, or the old filters keep starring mail:\n"
+            "       ./scripts/qa-gmail-probe.py match disarm"
+        )
+    token = ensure_token(SCOPE_FILTERS)
+
+    subjects: list[dict[str, str]] = []
+    if args.domain:
+        exclude = args.exclude or _pick_exclusion(token, args.domain)
+        subjects.append({"domain": args.domain, "exclude": exclude})
+    else:
+        # Busiest first: a subject that sends often answers soonest and keeps confirming.
+        print(f"== choosing the {args.top} busiest subjects in the mailbox ==")
+        pairs, addresses_per_host = find_pairs(token, args.sample)
+        if not pairs:
+            fail(
+                f"no domain with observed subdomain senders in the last {args.sample} messages\n"
+                "       pass --domain explicitly, or raise --sample"
+            )
+        for domain, subs, _example, _apex, volume in pairs[: args.top]:
+            exclude = _pick_exclusion(token, domain)
+            if exclude is None:
+                note(f"skipping {domain} — no apex sender to except, so nothing to prove")
+                continue
+            note(f"{domain} ({volume} msgs/30d; subdomains: {', '.join(subs)})")
+            subjects.append({"domain": domain, "exclude": exclude})
+
+        # The two questions have DIFFERENT eligibility. Only a domain with subdomain senders
+        # can answer the subdomain question, so the subjects above are chosen for it — but
+        # the exclusion question needs no subdomains at all, just two senders at one domain.
+        # Left as-is, that half waits on whether the apex senders above happen to write, and
+        # apex addresses at these domains are often the quiet ones. Add the busiest
+        # multi-sender domain outright so it can answer on its own schedule.
+        chosen = {subject["domain"] for subject in subjects}
+        candidates = sorted(
+            (host for host, count in addresses_per_host.items() if count >= 2 and host not in chosen),
+            key=lambda host: recent_volume(token, host),
+            reverse=True,
+        )
+        for host in candidates[:1]:
+            exclude = _pick_exclusion(token, host)
+            if exclude is None:
+                continue
+            note(f"{host} — added for the exclusion question alone (no subdomains needed)")
+            subjects.append({"domain": host, "exclude": exclude})
+
+    if not subjects:
+        fail("no usable subject found")
+
+    armed_at = int(time.time())
+    for subject in subjects:
+        subject["filterId"] = _create_match_filter(token, subject["domain"], subject["exclude"])
+    with open(MATCH_STATE, "w", encoding="utf-8") as handle:
+        # Only mail arriving after this point is evidence; anything older predates the filters.
+        json.dump({"armedAt": armed_at, "subjects": subjects}, handle)
+
+    print()
+    for subject in subjects:
+        note(f"armed: from:*@{subject['domain']} except {subject['exclude']} → adds {MATCH_LABEL}")
+    note("They star matching mail and nothing else — no message is moved, hidden or deleted.")
+    note("Wait for mail from those domains, then:")
+    note("  ./scripts/qa-gmail-probe.py match check")
+    note("  ./scripts/qa-gmail-probe.py match disarm     # when done (then unstar)")
+
+
+def _report_stranded(token: str) -> None:
+    """Name probe-shaped filters the tool has no record of, without deleting them.
+
+    Deleting on shape alone would mean removing a filter this tool cannot prove it created —
+    the exact guess-from-shape that #29 forbids in the app itself, and no more acceptable in
+    the QA tool. So it reports and leaves the choice with the user.
+    """
+    listing = api_get(token, "/settings/filters")
+    stranded = [
+        f
+        for f in listing.get("filter") or []  # type: ignore[union-attr]
+        if (f.get("action") or {}).get("addLabelIds") == [MATCH_LABEL]
+        and not (f.get("action") or {}).get("removeLabelIds")
+        and str((f.get("criteria") or {}).get("from", "")).startswith("*@")
+        and (f.get("criteria") or {}).get("negatedQuery")
+    ]
+    if not stranded:
+        note("none found — nothing is starring mail on this tool's behalf")
+        return
+    note(f"{len(stranded)} filter(s) look like this probe's work but are not recorded:")
+    for f in stranded:
+        criteria = f.get("criteria") or {}
+        note(f"  {f.get('id')}  from:{criteria.get('from')}  except {criteria.get('negatedQuery')}")
+    note("Not deleted: shape is not proof this tool made them, and guessing ownership from")
+    note("shape is exactly what the app itself refuses to do. Remove any you recognise via")
+    note("Gmail's filter settings, or the API.")
+
+
+def _load_match_state() -> dict[str, object] | None:
+    """The armed state, normalised — tolerating a single-subject file from an earlier arm."""
+    try:
+        with open(MATCH_STATE, encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if "subjects" not in state and "filterId" in state:
+        state = {
+            "armedAt": state["armedAt"],
+            "subjects": [
+                {
+                    "filterId": state["filterId"],
+                    "domain": state["domain"],
+                    "exclude": state["exclude"],
+                }
+            ],
+        }
+    return state
+
+
+def _pick_exclusion(token: str, domain: str) -> str | None:
+    """An apex address that genuinely sends — an exclusion nothing matches proves nothing."""
+    addresses = sorted(set(sender_addresses(token, f"from:*@{domain}", 60)))
+    apex = [a for a in addresses if host_of(a) == domain]
+    return apex[0] if apex else None
+
+
+def _create_match_filter(token: str, domain: str, exclude: str) -> str:
+    body = json.dumps(
+        {
+            "criteria": {"from": f"*@{domain}", "negatedQuery": f"from:({exclude})"},
+            "action": {"addLabelIds": [MATCH_LABEL]},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        f"{GMAIL_API}/settings/filters",
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return str(json.load(response)["id"])
+    except urllib.error.HTTPError as error:
+        fail(f"could not create the probe filter for {domain}: "
+             f"{error.read().decode('utf-8', 'replace')}")
+
+
+def _delete_filter(token: str, filter_id: str) -> None:
+    request = urllib.request.Request(
+        f"{GMAIL_API}/settings/filters/{filter_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="DELETE",
+    )
+    try:
+        urllib.request.urlopen(request, timeout=30).close()
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            note(f"WARNING: could not delete filter {filter_id} — remove it by hand")
+    except urllib.error.URLError:
+        note(f"WARNING: could not delete filter {filter_id} — remove it by hand")
+
+
+def _subject_counts(token: str, subject: dict[str, str], armed_at: int) -> tuple[int, int, int, int, int, int]:
+    """(apex starred, apex total, sub starred, sub total, excluded starred, excluded total)."""
+    domain, exclude = subject["domain"], subject["exclude"]
+    # `after:` takes seconds; only mail that arrived since arming can be evidence.
+    # `after:` narrows the fetch, but the boundary is enforced client-side against
+    # `internalDate`: Gmail's date operators are documented at day granularity, and an epoch
+    # value there may be rounded to a day boundary in the account's timezone — which would
+    # quietly count mail that arrived BEFORE arming, and so never met the filter, as evidence.
+    listing = api_get(
+        token,
+        "/messages",
+        {"q": f"from:*@{domain} after:{armed_at}", "maxResults": str(MATCH_PAGE)},
+    )
+    apex_starred = apex_total = sub_starred = sub_total = excluded_starred = excluded_total = 0
+    for message in listing.get("messages") or []:  # type: ignore[union-attr]
+        meta = api_get(
+            token,
+            f"/messages/{message['id']}",  # type: ignore[index]
+            {"format": "metadata", "metadataHeaders": "From"},
+        )
+        headers = (meta.get("payload") or {}).get("headers") or []  # type: ignore[union-attr]
+        raw = next(
+            (str(h.get("value", "")) for h in headers if str(h.get("name", "")).lower() == "from"),
+            "",
+        )
+        match = re.search(r"<([^>]+)>", raw)
+        address = (match.group(1) if match else raw).strip().lower()
+        if int(str(meta.get("internalDate", "0")) or 0) < armed_at * 1000:
+            continue  # predates the filter; cannot be evidence of what it did
+        starred = MATCH_LABEL in (meta.get("labelIds") or [])  # type: ignore[operator]
+
+        if address == exclude:
+            excluded_total += 1
+            excluded_starred += int(starred)
+        elif host_of(address) == domain:
+            apex_total += 1
+            apex_starred += int(starred)
+        else:
+            sub_total += 1
+            sub_starred += int(starred)
+    return apex_starred, apex_total, sub_starred, sub_total, excluded_starred, excluded_total
+
+
+def _match_report(token: str, state: dict[str, object]) -> None:
+    armed_at = int(state["armedAt"])  # type: ignore[arg-type]
+    subjects: list[dict[str, str]] = state["subjects"]  # type: ignore[assignment]
+    print(f"== live filter matching ({int(time.time()) - armed_at}s since arming) ==")
+    note(f"examining up to {MATCH_PAGE} messages per subject")
+
+    spans: list[bool] = []
+    spares: list[bool] = []
+    for subject in subjects:
+        counts = _subject_counts(token, subject, armed_at)
+        apex_s, apex_t, sub_s, sub_t, exc_s, exc_t = counts
+        print()
+        note(f"{subject['domain']} (excepting {subject['exclude']})")
+        note(f"  apex:      {apex_s}/{apex_t} starred")
+        note(f"  subdomain: {sub_s}/{sub_t} starred")
+        note(f"  excepted:  {exc_s}/{exc_t} starred")
+        if sub_t == 0:
+            note("  subdomains: no evidence yet")
+        elif sub_s == sub_t:
+            spans.append(True)
+            note(f"  subdomains: REACHED by the filter (from {sub_t} message(s))")
+        elif sub_s == 0:
+            spans.append(False)
+            note(f"  subdomains: NOT reached (from {sub_t} message(s))")
+        else:
+            note("  subdomains: mixed — record which senders matched; not a clean answer")
+        if exc_t == 0:
+            note("  exception:  no evidence yet")
+        else:
+            spares.append(exc_s == 0)
+            note(
+                "  exception:  "
+                + ("SPARED" if exc_s == 0 else "NOT spared")
+                + f" (from {exc_t} message(s))"
+            )
+
+    print()
+    if not spans:
+        note("SUBDOMAINS: still inconclusive — no subdomain mail has arrived for any subject.")
+    elif all(spans):
+        note(f"SUBDOMAINS: reached, consistently across {len(spans)} subject(s). A domain block")
+        note("            enforces over the whole subtree going forward.")
+    elif not any(spans):
+        note(f"SUBDOMAINS: NOT reached, across {len(spans)} subject(s) — while search does reach")
+        note("            them. The sweep over-reaches while future subdomain mail is unblocked.")
+    else:
+        note("SUBDOMAINS: subjects DISAGREE — matching is not uniform, which is itself the")
+        note("            finding. Record which domains did what before concluding anything.")
+
+    if not spares:
+        note("EXCEPTION:  still inconclusive — no excepted sender has written since arming.")
+    elif all(spares):
+        note("EXCEPTION:  negatedQuery spares the excepted sender's arriving mail.")
+    else:
+        note("EXCEPTION:  negatedQuery did NOT spare it somewhere — a domain block would trash a")
+        note("            sender the user explicitly trusted. A correctness bug, not a caveat.")
+
 
 # --- cli ---------------------------------------------------------------------
 
@@ -704,6 +1119,14 @@ def main() -> None:
     limit.add_argument("--i-know", action="store_true")
     limit.add_argument("--domain")
     limit.set_defaults(func=cmd_limit)
+
+    match = sub.add_parser("match", help="live filter matching: subdomains + exclusion (writes!)")
+    match.add_argument("action", choices=["arm", "check", "disarm"])
+    match.add_argument("--domain", help="a domain you actually receive mail from")
+    match.add_argument("--exclude", help="address to except; discovered from the mailbox if omitted")
+    match.add_argument("--sample", type=int, default=200)
+    match.add_argument("--top", type=int, default=3, help="how many subjects to arm at once")
+    match.set_defaults(func=cmd_match)
 
     args = parser.parse_args()
     args.func(args)
