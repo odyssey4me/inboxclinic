@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { reconcileFilters } from "./compileFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
-import { isBlockFilter, parseFilterSubjects } from "./filterShape";
+import { carriesUnmodelledCriteria, isBlockFilter, parseFilterSubjects } from "./filterShape";
 import { filterKey, suggestFilterOptimisations } from "./optimiseFilters";
 import { createInMemoryStore, MockGmailClient } from "../testing";
 import type { FilterSpec, NativeFilter } from "../ports/GmailClient";
@@ -115,12 +115,22 @@ describe.skipIf(FIXTURE === undefined)("real account filters", () => {
         : `criteria fields the model drops: ${[...dropped].sort().join(", ")}`,
     );
 
+    // Only filters the code will actually compare. A filter carrying criteria we cannot see
+    // is set aside before any identity reasoning (#212), so including it here would assert a
+    // rule the app no longer follows — and keep reporting a defect that is fixed, which is
+    // how a harness teaches people to ignore it.
+    const comparable = filters.filter((f) => !carriesUnmodelledCriteria(f));
+    console.log(
+      `${filters.length - comparable.length} of ${filters.length} filters set aside as ` +
+        "carrying criteria the model cannot represent",
+    );
+
     // Group by the identity duplicate-detection, reconcile signatures and adoption all
     // compare on. Two filters sharing it MUST be the same rule — otherwise the tidy-up
     // offers to delete one as a "duplicate" of the other, reconcile thinks it owns a rule
     // that does something else, and adoption claims one on a resemblance that isn't real.
     const groups = new Map<string, NativeFilter[]>();
-    for (const f of filters) groups.set(filterKey(f), [...(groups.get(filterKey(f)) ?? []), f]);
+    for (const f of comparable) groups.set(filterKey(f), [...(groups.get(filterKey(f)) ?? []), f]);
 
     const collisions: string[] = [];
     for (const [key, group] of groups) {
@@ -176,10 +186,15 @@ describe.skipIf(FIXTURE === undefined)("real account filters", () => {
   it("is idempotent against the account's own rules — reconcile proposes no churn", async () => {
     const { filters } = await load();
 
+    // Over the filters the app can actually own. A foreign one is excluded deliberately:
+    // desiring its shape compiles a plain replacement beside it (#217), which is the rule
+    // working, not churn — so including it here would assert the opposite of the design.
+    const ownable = filters.filter((f) => !carriesUnmodelledCriteria(f));
+
     // Desired set == what's already there, all managed: a correct reconcile is a no-op.
     // Any create/delete here is the signature failing to round-trip real criteria — the
     // churn-on-every-sync failure, seen against real data instead of fixtures.
-    const plan = reconcileFilters(filters.map(asSpec), filters, new Set(filters.map((f) => f.id)));
+    const plan = reconcileFilters(ownable.map(asSpec), filters, new Set(ownable.map((f) => f.id)));
 
     expect(plan.toCreate).toEqual([]);
     expect(plan.toDelete).toEqual([]);

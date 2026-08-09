@@ -485,6 +485,18 @@ def cmd_search(args: argparse.Namespace) -> None:
             note("FAIL — the exclusion did NOT remove them.")
 
 
+# The criteria fields `FilterSpec` represents; anything else makes a filter foreign to the
+# code being replayed. Mirrors MODELLED_CRITERIA in the browser adapter.
+MODELLED_CRITERIA = {"from", "negatedQuery"}
+
+
+def constrains_matching(value: object) -> bool:
+    """Whether a criteria field actually narrows matching — an echoed default does not."""
+    if value is None or value is False or value == "":
+        return False
+    return not (isinstance(value, list) and not value)
+
+
 def unwrap_exclude_from(negated: str) -> str | None:
     """`from:(a OR b)` -> `a OR b`, mirroring the browser client's read-back."""
     match = re.fullmatch(r"from:\((.*)\)", negated, re.DOTALL)
@@ -516,6 +528,17 @@ def cmd_filters(args: argparse.Namespace) -> None:
             exclude = unwrap_exclude_from(str(criteria.get("negatedQuery", "")))
             if exclude is not None:
                 entry["excludeFrom"] = exclude
+            # Mirror the adapter: name the criteria the port cannot represent, since the code
+            # under replay refuses to reason about a filter carrying any. Omitting this would
+            # feed the suggesters filters that look plainly comparable when production would
+            # have set them aside — testing a rule the app no longer follows.
+            unmodelled = sorted(
+                field
+                for field, value in criteria.items()
+                if field not in MODELLED_CRITERIA and constrains_matching(value)
+            )
+            if unmodelled:
+                entry["unmodelledCriteria"] = unmodelled
             dump.append(entry)
         # Ship the RAW filter beside our projection. The projection is lossy by
         # design — the port models `from`/`negatedQuery` and nothing else — so a
