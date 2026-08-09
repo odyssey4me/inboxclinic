@@ -201,10 +201,13 @@ senders together. The keep/defer split removes today's dismiss ambiguity.
 ### Decision 9: Parent-domain (registrable-domain) rules — **ratified 2026-07-19 (#136); #181 spike done**
 
 > **Ratified** (maintainer, 2026-07-19), including enforcement: the #181 real-Gmail spike confirmed
-> a native bare-domain filter covers subdomains (point 5). Build 1/4 (#183) has landed — the
-> `tldts` grouping helpers, the `parentDomain` scope, and `Domain.exceptionDomains[]` — with no
-> behaviour change yet; precedence (#184), the filter compiler (#185) and the opt-in UX (#186)
-> follow.
+> a native bare-domain filter covers subdomains (point 5). Builds 1/4 (#183) and 2/4 (#184)
+> have landed: the `tldts` grouping helpers, the `parentDomain` scope,
+> `Domain.exceptionDomains[]`, and most-specific-wins resolution across the ladder — including
+> the write side, where a decision made under a broader rule records its carve-out on that
+> rule. The filter compiler (#185) and the opt-in UX (#186) follow; #185 should be planned
+> against the #210 finding that `*@domain` already spans subdomains in Gmail's matching, which
+> narrows what the compiler still has to add.
 
 **Context:** One organisation often sends from many subdomains of a single registrable domain —
 `news.example.com`, `mail.example.com`, `t.example.com`, `email.mkt.example.com`. Today each is a
@@ -628,6 +631,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 9 build 2/4 landed (#184):** `resolveEffectiveDecision` resolves the parent-domain rule across the ladder, broadest-first, each rule applying unless the narrower subject is carved out of it. Threaded through the effective-status helpers, `generatePrompts` and the Dashboard, which now share one resolution instead of hand-rolling it. On the write side, `applyDecision` records an address or subdomain decided under a broader rule as an exception **on that rule**, a parent decision covers the whole subtree rather than exact-name members, and batch apply order derives from `SCOPE_SPECIFICITY` so a new scope cannot be given an accidental order. | Claude |
 | 2026-08-09 | **Decision 9 PSL churn caveat (#183 review):** recorded that PRIVATE-section entries are company-submitted and can appear or disappear on a routine `tldts` bump, regrouping a standing `parentDomain` rule with no code change — accepted as the lesser risk, with the consequence that downstream builds must derive a rule's eTLD+1 on read rather than freeze it as a key. | Claude |
 | 2026-08-09 | **Decision 9 build 1/4 landed (#183)** — `tldts` grouping helpers, `parentDomain` on the `DecisionScope` ladder, `Domain.exceptionDomains[]`; no behaviour change yet. Recorded the implementation constraint the decision assumed but didn't state: **`allowPrivateDomains: true`**, without which `x.github.io` groups as `github.io` and one tenant's rule would cover every other tenant — the very failure point 1 cites. | Claude |
 | 2026-07-19 | **Decision 9 point 5 (#182 spike):** a real-account spot-check (not documented Gmail behaviour) found `from:` matches **whole-token, left-anchored** — reaches true subdomains + any domain whose leading dot-bounded labels are the eTLD+1 (`apple.com.au`), but **not** partial-label prefix lookalikes (`applebees.com`). The surface isn't enumerable in advance; the warning lists the **finite observed** matched senders (`tldts`-grouped), and the `tldts` guard + live `negatedQuery` are the safety net regardless. | Claude |
