@@ -903,6 +903,7 @@ export function Dashboard({
       <DomainDetail
         domain={selectedDomain}
         members={selectedDomain !== null ? membersOf(selectedDomain) : []}
+        allDomains={domains}
         store={store}
         gmail={gmail}
         online={online}

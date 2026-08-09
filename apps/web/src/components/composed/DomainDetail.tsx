@@ -5,6 +5,8 @@ import {
   enforce,
   senderToSnapshot,
   simulateEnforcement,
+  keyFor,
+  parentDomainRuleFor,
   type BlockAction,
   type Decision,
   type Domain,
@@ -26,6 +28,12 @@ import { statusTone } from "../../lib/statusTone";
 export interface DomainDetailProps {
   /** The domain to act on, or null to close the drawer. */
   domain: Domain | null;
+  /**
+   * Every known domain record, so a whole-subtree rule covering this one can be found and
+   * named. Without it a domain decided by a rule reads as decided by nobody: the breadth was
+   * stated once, when the rule was made, and never again (design-trust-decisions.md D9).
+   */
+  allDomains?: Domain[];
   /** The domain's member senders (joined on `sender.domain`). */
   members: Sender[];
   store: Store;
@@ -64,6 +72,7 @@ function averageScore(members: Sender[]): number | null {
 export function DomainDetail({
   domain,
   members,
+  allDomains = [],
   store,
   gmail,
   online,
@@ -89,6 +98,15 @@ export function DomainDetail({
 
   const subjectId = domain.id;
   const score = averageScore(members);
+
+  // The rule governing this domain from above, if any — and whether it has already been
+  // carved out of it. This is the answer to "why is this blocked when I never decided it?",
+  // which nothing in the UI could give once the decision moment had passed.
+  const domainsByKey = new Map(allDomains.map((d) => [keyFor(d.domain), d]));
+  const parentRule = parentDomainRuleFor(domain.domain, domainsByKey);
+  const carvedOut = parentRule?.exceptionDomains.includes(domain.domain) ?? false;
+  const governedByParent =
+    parentRule !== undefined && parentRule.trustStatus !== "pending" && !carvedOut;
 
   const commit = async (decision: Decision, actions: BlockAction[]): Promise<void> => {
     setBusy(true);
@@ -145,6 +163,37 @@ export function DomainDetail({
             <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
           )}
         </div>
+
+        {parentRule !== undefined && parentRule.trustStatus !== "pending" && (
+          <div className="space-y-2 rounded-md bg-accent-soft px-3 py-3 text-sm text-accent-ink">
+            {governedByParent ? (
+              <>
+                <p>
+                  <span className="font-medium">
+                    {parentRule.trustStatus === "blocked" ? "Blocked" : "Trusted"} by the rule on{" "}
+                    {parentRule.domain}
+                  </span>{" "}
+                  — which covers every domain beneath it, including this one. No decision was made
+                  about {domain.domain} on its own.
+                </p>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    commit(parentRule.trustStatus === "blocked" ? "trust" : "block", [])
+                  }
+                >
+                  {parentRule.trustStatus === "blocked" ? "Keep this one" : "Block this one"}
+                </Button>
+              </>
+            ) : (
+              <p>
+                Carved out of the rule on {parentRule.domain}: this domain keeps its own decision,
+                and the rule no longer applies to it.
+              </p>
+            )}
+          </div>
+        )}
 
         {members.length > 0 && (
           <div className="space-y-1">
