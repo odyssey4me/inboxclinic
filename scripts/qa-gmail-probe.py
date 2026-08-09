@@ -107,6 +107,11 @@ PROBE_DOMAIN = "probe.invalid"
 # without moving or hiding a single real message.
 MATCH_LABEL = "STARRED"
 
+# Messages examined per subject when checking. A conclusion drawn from a truncated page
+# would read as confidently as one drawn from everything, so the sample size is reported
+# alongside each verdict rather than left implicit.
+MATCH_PAGE = 100
+
 
 def fail(message: str) -> "NoReturn":  # type: ignore[name-defined]
     print(f"error: {message}", file=sys.stderr)
@@ -555,10 +560,19 @@ def constrains_matching(value: object) -> bool:
     return not (isinstance(value, list) and not value)
 
 
-def unwrap_exclude_from(negated: str) -> str | None:
-    """`from:(a OR b)` -> `a OR b`, mirroring the browser client's read-back."""
+def unwrap_exclude_from(negated: str | None) -> str | None:
+    """`from:(a OR b)` -> `a OR b`, mirroring `unwrapExcludeFrom` in the browser client.
+
+    Mirrors it exactly, including the empty-string case: the TS returns a non-matching value
+    unchanged — `""` included, which `toNativeFilter` then sets as `excludeFrom: ""` — so
+    folding that to `None` here would have the dump disagree with what production produces.
+    A missing `negatedQuery` (None) is the only absent case. See #216 on removing this
+    second copy rather than keeping the two in step by hand.
+    """
+    if negated is None:
+        return None
     match = re.fullmatch(r"from:\((.*)\)", negated, re.DOTALL)
-    return match.group(1) if match else (negated or None)
+    return match.group(1) if match else negated
 
 
 def cmd_filters(args: argparse.Namespace) -> None:
@@ -583,7 +597,8 @@ def cmd_filters(args: argparse.Namespace) -> None:
             # key rather than setting it null. A dump that emits null is not a
             # NativeFilter, and code written against the real shape rightly breaks on
             # it — so omit it here too, or the replay tests a fiction.
-            exclude = unwrap_exclude_from(str(criteria.get("negatedQuery", "")))
+            raw_negated = criteria.get("negatedQuery")
+            exclude = unwrap_exclude_from(None if raw_negated is None else str(raw_negated))
             if exclude is not None:
                 entry["excludeFrom"] = exclude
             # Mirror the adapter: name the criteria the port cannot represent, since the code
@@ -778,7 +793,12 @@ def cmd_match(args: argparse.Namespace) -> None:
     if args.action == "disarm":
         state = _load_match_state()
         if state is None:
-            note("nothing armed")
+            # "Nothing armed" reads as "nothing to clean up", which is only true if the state
+            # file was never lost. A probe filter outlives its record — a stray clean of the
+            # gitignored `.local/`, or a crash between creating a filter and writing the file,
+            # leaves one starring mail with no id to find it by. Look for the shape instead.
+            note("no armed state recorded — checking the account for stranded probe filters")
+            _report_stranded(ensure_token(SCOPE_READ))
             return
         token = ensure_token(SCOPE_FILTERS)
         armed_at = int(state["armedAt"])  # type: ignore[arg-type]
@@ -870,6 +890,34 @@ def cmd_match(args: argparse.Namespace) -> None:
     note("  ./scripts/qa-gmail-probe.py match disarm     # when done (then unstar)")
 
 
+def _report_stranded(token: str) -> None:
+    """Name probe-shaped filters the tool has no record of, without deleting them.
+
+    Deleting on shape alone would mean removing a filter this tool cannot prove it created —
+    the exact guess-from-shape that #29 forbids in the app itself, and no more acceptable in
+    the QA tool. So it reports and leaves the choice with the user.
+    """
+    listing = api_get(token, "/settings/filters")
+    stranded = [
+        f
+        for f in listing.get("filter") or []  # type: ignore[union-attr]
+        if (f.get("action") or {}).get("addLabelIds") == [MATCH_LABEL]
+        and not (f.get("action") or {}).get("removeLabelIds")
+        and str((f.get("criteria") or {}).get("from", "")).startswith("*@")
+        and (f.get("criteria") or {}).get("negatedQuery")
+    ]
+    if not stranded:
+        note("none found — nothing is starring mail on this tool's behalf")
+        return
+    note(f"{len(stranded)} filter(s) look like this probe's work but are not recorded:")
+    for f in stranded:
+        criteria = f.get("criteria") or {}
+        note(f"  {f.get('id')}  from:{criteria.get('from')}  except {criteria.get('negatedQuery')}")
+    note("Not deleted: shape is not proof this tool made them, and guessing ownership from")
+    note("shape is exactly what the app itself refuses to do. Remove any you recognise via")
+    note("Gmail's filter settings, or the API.")
+
+
 def _load_match_state() -> dict[str, object] | None:
     """The armed state, normalised — tolerating a single-subject file from an earlier arm."""
     try:
@@ -938,8 +986,14 @@ def _subject_counts(token: str, subject: dict[str, str], armed_at: int) -> tuple
     """(apex starred, apex total, sub starred, sub total, excluded starred, excluded total)."""
     domain, exclude = subject["domain"], subject["exclude"]
     # `after:` takes seconds; only mail that arrived since arming can be evidence.
+    # `after:` narrows the fetch, but the boundary is enforced client-side against
+    # `internalDate`: Gmail's date operators are documented at day granularity, and an epoch
+    # value there may be rounded to a day boundary in the account's timezone — which would
+    # quietly count mail that arrived BEFORE arming, and so never met the filter, as evidence.
     listing = api_get(
-        token, "/messages", {"q": f"from:*@{domain} after:{armed_at}", "maxResults": "50"}
+        token,
+        "/messages",
+        {"q": f"from:*@{domain} after:{armed_at}", "maxResults": str(MATCH_PAGE)},
     )
     apex_starred = apex_total = sub_starred = sub_total = excluded_starred = excluded_total = 0
     for message in listing.get("messages") or []:  # type: ignore[union-attr]
@@ -955,6 +1009,8 @@ def _subject_counts(token: str, subject: dict[str, str], armed_at: int) -> tuple
         )
         match = re.search(r"<([^>]+)>", raw)
         address = (match.group(1) if match else raw).strip().lower()
+        if int(str(meta.get("internalDate", "0")) or 0) < armed_at * 1000:
+            continue  # predates the filter; cannot be evidence of what it did
         starred = MATCH_LABEL in (meta.get("labelIds") or [])  # type: ignore[operator]
 
         if address == exclude:
@@ -973,6 +1029,7 @@ def _match_report(token: str, state: dict[str, object]) -> None:
     armed_at = int(state["armedAt"])  # type: ignore[arg-type]
     subjects: list[dict[str, str]] = state["subjects"]  # type: ignore[assignment]
     print(f"== live filter matching ({int(time.time()) - armed_at}s since arming) ==")
+    note(f"examining up to {MATCH_PAGE} messages per subject")
 
     spans: list[bool] = []
     spares: list[bool] = []
@@ -988,17 +1045,21 @@ def _match_report(token: str, state: dict[str, object]) -> None:
             note("  subdomains: no evidence yet")
         elif sub_s == sub_t:
             spans.append(True)
-            note("  subdomains: REACHED by the filter")
+            note(f"  subdomains: REACHED by the filter (from {sub_t} message(s))")
         elif sub_s == 0:
             spans.append(False)
-            note("  subdomains: NOT reached")
+            note(f"  subdomains: NOT reached (from {sub_t} message(s))")
         else:
             note("  subdomains: mixed — record which senders matched; not a clean answer")
         if exc_t == 0:
             note("  exception:  no evidence yet")
         else:
             spares.append(exc_s == 0)
-            note("  exception:  " + ("SPARED" if exc_s == 0 else "NOT spared"))
+            note(
+                "  exception:  "
+                + ("SPARED" if exc_s == 0 else "NOT spared")
+                + f" (from {exc_t} message(s))"
+            )
 
     print()
     if not spans:
