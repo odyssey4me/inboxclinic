@@ -169,8 +169,10 @@ export {
   DEFAULT_DOMAIN_BLOCK_THRESHOLD,
   DEFAULT_MAX_DOMAINS_PER_FILTER,
   DEFAULT_FILTER_SOFT_CAP,
+  DEFAULT_MAX_CRITERIA_CHARS,
   type CompileFiltersOptions,
   type CompiledFilters,
+  type ExceptionOverflow,
   type FilterReconcilePlan,
 } from "./enforcement/compileFilters";
 

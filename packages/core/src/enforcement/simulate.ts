@@ -179,12 +179,21 @@ export async function simulateEnforcement(
     });
     const blockedDomains = domains
       .filter((d) => domainStatus.get(d.id) === "blocked")
-      .map((d) => ({
-        domain: d.domain,
-        // Carve out exception addresses this (prospectively) blocked domain no longer blocks,
-        // so the previewed filter set matches what enforce would create (#145).
-        excludeAddresses: prospectiveDomainExclusions(d),
-      }));
+      .map((d) => {
+        const excludeAddresses = prospectiveDomainExclusions(d);
+        const excluded = new Set(excludeAddresses.map((email) => keyFor(email)));
+        return {
+          domain: d.domain,
+          // Carve out exception addresses this (prospectively) blocked domain no longer blocks,
+          // so the previewed filter set matches what enforce would create (#145).
+          excludeAddresses,
+          // The members the block still covers, so an overflowing carve-out previews the same
+          // enumerate fallback enforce would compile (#191).
+          blockedMemberAddresses: (sendersByDomain.get(d.domain.toLowerCase()) ?? [])
+            .filter((s) => !excluded.has(s.id))
+            .map((s) => s.email),
+        };
+      });
     const compiled = compileFilters(blockedSenders, blockedDomains);
     const existing = await client.listFilters();
     const managedFilterIds = new Set((await store.filterSync.get())?.managedFilterIds ?? []);

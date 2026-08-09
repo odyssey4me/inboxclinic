@@ -24,7 +24,12 @@
  * Everything is best-effort: per-subject failures are collected and do not abort the run.
  */
 
-import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
+import {
+  compileFilters,
+  reconcileFilters,
+  type CompileFiltersOptions,
+  type ExceptionOverflow,
+} from "./compileFilters";
 import { planActions } from "./planActions";
 import { recordDailyAnalytics } from "../analytics/record";
 import {
@@ -78,6 +83,8 @@ export interface EnforceResult {
   capReached: boolean;
   /** Filters not created because the cap was reached. */
   skippedAtCap: number;
+  /** Domain blocks whose exception carve-out didn't fit one filter's criteria budget (#191). */
+  exceptionOverflows: ExceptionOverflow[];
   failures: EnforceFailure[];
 }
 
@@ -95,6 +102,8 @@ export interface FilterReconcileOutcome {
   capReached: boolean;
   /** Filters not created because the cap was reached. */
   skippedAtCap: number;
+  /** Domain blocks whose exception carve-out didn't fit one filter's criteria budget (#191). */
+  exceptionOverflows: ExceptionOverflow[];
   /** Ids of filters this app owns after this run — persist to `store.filterSync` (#29). */
   managedFilterIds: string[];
   failures: EnforceFailure[];
@@ -118,7 +127,11 @@ export async function reconcileNativeFilters(
   const blockedDomains = await effectiveBlockedDomains(store);
   const compiled = compileFilters(
     blockedSenders,
-    blockedDomains.map((d) => ({ domain: d.domain.domain, excludeAddresses: d.excludeAddresses })),
+    blockedDomains.map((d) => ({
+      domain: d.domain.domain,
+      excludeAddresses: d.excludeAddresses,
+      blockedMemberAddresses: d.blockedMemberAddresses,
+    })),
     options,
   );
 
@@ -165,6 +178,7 @@ export async function reconcileNativeFilters(
     totalFilters,
     capReached: compiled.capReached,
     skippedAtCap: compiled.skippedAtCap,
+    exceptionOverflows: compiled.exceptionOverflows,
     managedFilterIds: [...managedFilterIds],
     failures,
   };
@@ -321,6 +335,7 @@ export async function enforce(
     totalFilters,
     capReached: filters.capReached,
     skippedAtCap: filters.skippedAtCap,
+    exceptionOverflows: filters.exceptionOverflows,
     failures,
   };
 }

@@ -17,6 +17,7 @@ function baseResult(overrides: Partial<EnforceResult> = {}): EnforceResult {
     totalFilters: 0,
     capReached: false,
     skippedAtCap: 0,
+    exceptionOverflows: [],
     failures: [],
     ...overrides,
   };
@@ -63,5 +64,36 @@ describe("EnforcementSummary", () => {
     expect(screen.getByText("3 action(s) failed; will retry on sync.")).toBeInTheDocument();
     expect(screen.getAllByText("network error")).toHaveLength(1);
     expect(screen.getByText("quota exceeded")).toBeInTheDocument();
+  });
+
+  it("explains a domain narrowed to sender-by-sender blocking (#191)", () => {
+    render(
+      <EnforcementSummary
+        result={baseResult({
+          filtersCreated: 1,
+          exceptionOverflows: [{ domain: "shop.com", strategy: "enumerate", exceptionCount: 120 }],
+        })}
+      />,
+    );
+    // The whole point of the fix is that this narrowing is stated, not silently inferred.
+    const note = screen.getByText(/shop\.com has too many exceptions \(120\)/);
+    expect(note).toHaveTextContent("blocked sender by sender");
+    expect(note).toHaveTextContent("senders it hasn't seen yet won't be covered");
+    // A survivable caveat, not a failure — warning styling, not the block/error styling.
+    expect(note).toHaveClass("text-defer");
+  });
+
+  it("says plainly when a domain ended up not blocked at all (#191)", () => {
+    render(
+      <EnforcementSummary
+        result={baseResult({
+          exceptionOverflows: [{ domain: "shop.com", strategy: "dropped", exceptionCount: 120 }],
+        })}
+      />,
+    );
+    const note = screen.getByText(/shop\.com has too many exceptions \(120\)/);
+    expect(note).toHaveTextContent("is not blocked");
+    // Stronger styling than the enumerate caveat — this one means the block isn't in force.
+    expect(note).toHaveClass("text-block");
   });
 });

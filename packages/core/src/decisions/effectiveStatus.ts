@@ -62,6 +62,12 @@ export interface BlockedDomainTarget {
   domain: Domain;
   /** Exception addresses whose effective status is NOT blocked — carved out via negatedQuery. */
   excludeAddresses: string[];
+  /**
+   * The domain's observed senders whose effective status IS still blocked. Used only when the
+   * carve-out overflows one filter's criteria budget and the compiler falls back to enumerating
+   * them (#191).
+   */
+  blockedMemberAddresses: string[];
 }
 
 /**
@@ -81,7 +87,13 @@ export async function effectiveBlockedDomains(store: Store): Promise<BlockedDoma
         excludeAddresses.push(email);
       }
     }
-    targets.push({ domain, excludeAddresses });
+    // The members the block still covers — the enumerate fallback's input when the carve-out
+    // grows past what one filter's criteria can hold (#191).
+    const members = await store.senders.query({ domain: domain.domain });
+    const blockedMemberAddresses = members
+      .filter((sender) => effectiveSenderStatus(sender, domain) === "blocked")
+      .map((sender) => sender.email);
+    targets.push({ domain, excludeAddresses, blockedMemberAddresses });
   }
   return targets;
 }
