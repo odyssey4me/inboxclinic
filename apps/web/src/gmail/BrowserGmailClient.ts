@@ -8,7 +8,7 @@
  * Implements the `GmailClient` port from `@inboxclinic/core`.
  */
 
-import { SCOPES_BY_TIER, StaleHistoryError } from "@inboxclinic/core";
+import { SCOPES_BY_TIER, StaleHistoryError, unwrapExcludeFrom } from "@inboxclinic/core";
 import type {
   AccessToken,
   FilterSpec,
@@ -98,13 +98,6 @@ const MODELLED_CRITERIA = new Set(["from", "negatedQuery"]);
 
 interface GmailFilterListResponse {
   filter?: GmailFilterResource[];
-}
-
-/** Our `negatedQuery` shape `from:(a OR b)` → the `excludeFrom` addresses `a OR b`. */
-function unwrapExcludeFrom(negatedQuery: string | undefined): string | undefined {
-  if (negatedQuery === undefined) return undefined;
-  const match = /^from:\((.*)\)$/s.exec(negatedQuery);
-  return match ? match[1] : negatedQuery;
 }
 
 /**
