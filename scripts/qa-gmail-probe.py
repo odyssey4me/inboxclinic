@@ -560,21 +560,6 @@ def constrains_matching(value: object) -> bool:
     return not (isinstance(value, list) and not value)
 
 
-def unwrap_exclude_from(negated: str | None) -> str | None:
-    """`from:(a OR b)` -> `a OR b`, mirroring `unwrapExcludeFrom` in the browser client.
-
-    Mirrors it exactly, including the empty-string case: the TS returns a non-matching value
-    unchanged — `""` included, which `toNativeFilter` then sets as `excludeFrom: ""` — so
-    folding that to `None` here would have the dump disagree with what production produces.
-    A missing `negatedQuery` (None) is the only absent case. See #216 on removing this
-    second copy rather than keeping the two in step by hand.
-    """
-    if negated is None:
-        return None
-    match = re.fullmatch(r"from:\((.*)\)", negated, re.DOTALL)
-    return match.group(1) if match else negated
-
-
 def cmd_filters(args: argparse.Namespace) -> None:
     token = ensure_token(SCOPE_READ)
     listing = api_get(token, "/settings/filters")
@@ -593,14 +578,10 @@ def cmd_filters(args: argparse.Namespace) -> None:
                 "addLabelIds": action.get("addLabelIds", []),
                 "removeLabelIds": action.get("removeLabelIds", []),
             }
-            # `excludeFrom` is OPTIONAL on the port, and the browser client omits the
-            # key rather than setting it null. A dump that emits null is not a
-            # NativeFilter, and code written against the real shape rightly breaks on
-            # it — so omit it here too, or the replay tests a fiction.
-            raw_negated = criteria.get("negatedQuery")
-            exclude = unwrap_exclude_from(None if raw_negated is None else str(raw_negated))
-            if exclude is not None:
-                entry["excludeFrom"] = exclude
+            # `excludeFrom` is left for the replay spec to derive, not computed here: it
+            # reads `negatedQuery` off `raw` (below) through the real `unwrapExcludeFrom`
+            # from `packages/core`, so this dump has no second implementation of that parse
+            # left to drift out of step with production (#216).
             # Mirror the adapter: name the criteria the port cannot represent, since the code
             # under replay refuses to reason about a filter carrying any. Omitting this would
             # feed the suggesters filters that look plainly comparable when production would

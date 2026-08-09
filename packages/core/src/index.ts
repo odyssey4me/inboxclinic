@@ -191,6 +191,9 @@ export {
   type FilterReconcilePlan,
 } from "./enforcement/compileFilters";
 
+// Reading existing native filters (shared by the provider adapter and replay tooling).
+export { unwrapExcludeFrom } from "./enforcement/filterShape";
+
 // Confirm-first adoption of untracked filters that already match a desired one (#80).
 export {
   suggestFilterAdoptions,

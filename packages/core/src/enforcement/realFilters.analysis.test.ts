@@ -22,7 +22,12 @@ import { describe, expect, it } from "vitest";
 
 import { reconcileFilters } from "./compileFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
-import { carriesUnmodelledCriteria, isBlockFilter, parseFilterSubjects } from "./filterShape";
+import {
+  carriesUnmodelledCriteria,
+  isBlockFilter,
+  parseFilterSubjects,
+  unwrapExcludeFrom,
+} from "./filterShape";
 import { filterKey, suggestFilterOptimisations } from "./optimiseFilters";
 import { createInMemoryStore, MockGmailClient } from "../testing";
 import type { FilterSpec, NativeFilter } from "../ports/GmailClient";
@@ -46,12 +51,28 @@ interface RawFilter {
   action: Record<string, unknown>;
 }
 
-/** Load the dump. An absolute path; JSON is imported rather than read off disk. */
+/**
+ * Load the dump. An absolute path; JSON is imported rather than read off disk.
+ *
+ * The probe dumps the raw `negatedQuery` in `raw` and leaves `excludeFrom` unset on
+ * `filters` (#216) — so it is derived here, through the same `unwrapExcludeFrom` the
+ * provider adapter calls in production, rather than trusting a second implementation the
+ * probe would otherwise have to keep in step by hand.
+ */
 const load = async (): Promise<{ filters: NativeFilter[]; raw: RawFilter[] }> => {
   const mod = (await import(/* @vite-ignore */ FIXTURE as string)) as {
     default: { filters: NativeFilter[]; raw: RawFilter[] };
   };
-  return mod.default;
+  const { filters, raw } = mod.default;
+  const rawById = new Map(raw.map((r) => [r.id, r]));
+  const withExcludeFrom = filters.map((filter) => {
+    const negatedQuery = rawById.get(filter.id)?.criteria.negatedQuery;
+    const excludeFrom = unwrapExcludeFrom(
+      typeof negatedQuery === "string" ? negatedQuery : undefined,
+    );
+    return excludeFrom !== undefined ? { ...filter, excludeFrom } : filter;
+  });
+  return { filters: withExcludeFrom, raw };
 };
 
 /** The fields our model reads. Everything else in `criteria` is invisible to it. */
