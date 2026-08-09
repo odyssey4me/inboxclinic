@@ -321,21 +321,31 @@ export function Dashboard({
   const shownSenders = sortedSenders.slice(0, ROW_CAP);
 
   // ---- Domain surface ---------------------------------------------------------------
+  // A domain covered by a parent-domain rule it isn't carved out of is decided, whatever its
+  // own record says. Reading raw status here would show it "pending" on this tab while its
+  // senders read "blocked" on the sender tab — the same data, two answers.
+  const domainStatus = (domain: Domain): TrustStatus => {
+    const parent = parentDomainRuleFor(domain.domain, domainsByKey);
+    if (parent === undefined || parent.trustStatus === "pending") return domain.trustStatus;
+    return parent.exceptionDomains.includes(domain.domain)
+      ? domain.trustStatus
+      : parent.trustStatus;
+  };
   const domainSearchFiltered = domains.filter(
     (d) =>
-      q === "" || d.domain.toLowerCase().includes(q) || d.trustStatus.toLowerCase().includes(q),
+      q === "" || d.domain.toLowerCase().includes(q) || domainStatus(d).toLowerCase().includes(q),
   );
   const domainCounts = {
-    pending: domainSearchFiltered.filter((d) => d.trustStatus === "pending").length,
-    decided: domainSearchFiltered.filter((d) => d.trustStatus !== "pending").length,
+    pending: domainSearchFiltered.filter((d) => domainStatus(d) === "pending").length,
+    decided: domainSearchFiltered.filter((d) => domainStatus(d) !== "pending").length,
     all: domainSearchFiltered.length,
   };
   const domainsInTab = domainSearchFiltered.filter((d) =>
     tab === "all"
       ? true
       : tab === "pending"
-        ? d.trustStatus === "pending"
-        : d.trustStatus !== "pending",
+        ? domainStatus(d) === "pending"
+        : domainStatus(d) !== "pending",
   );
   const compareDomain = (a: Domain, b: Domain): number => {
     switch (sortKey) {
@@ -351,7 +361,7 @@ export function Dashboard({
         return sortDir === "asc" ? sa - sb : -(sa - sb);
       }
       case "status":
-        return STATUS_ORDER[a.trustStatus] - STATUS_ORDER[b.trustStatus];
+        return STATUS_ORDER[domainStatus(a)] - STATUS_ORDER[domainStatus(b)];
       default: // volume (and any non-domain key coerced on toggle)
         return a.totalEmails - b.totalEmails;
     }
@@ -676,7 +686,7 @@ export function Dashboard({
               </td>
               <td className="py-2 pr-4 tabular-nums text-muted">{domain.senderCount}</td>
               <td className="py-2 pr-4">
-                <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
+                <Badge tone={statusTone(domainStatus(domain))}>{domainStatus(domain)}</Badge>
               </td>
               <td className="py-2 pl-4 text-right tabular-nums">{domain.totalEmails}</td>
               <td className="py-2 pl-4">
@@ -711,7 +721,7 @@ export function Dashboard({
                   {domain.totalEmails} emails
                 </p>
               </div>
-              <Badge tone={statusTone(domain.trustStatus)}>{domain.trustStatus}</Badge>
+              <Badge tone={statusTone(domainStatus(domain))}>{domainStatus(domain)}</Badge>
             </div>
             <div className="flex items-center justify-between gap-2">
               {score === null ? (

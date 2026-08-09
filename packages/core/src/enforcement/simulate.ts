@@ -13,6 +13,7 @@
 import { compileFilters, reconcileFilters } from "./compileFilters";
 import { planActions } from "./planActions";
 import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
+import { registrableDomain } from "../domains/registrableDomain";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import type {
@@ -70,6 +71,7 @@ export async function simulateEnforcement(
   const senderById = new Map(senders.map((s) => [s.id, s]));
   const domainById = new Map(domains.map((d) => [d.id, d]));
   const domainByName = new Map(domains.map((d) => [d.domain.toLowerCase(), d]));
+  const domainByKey = new Map(domains.map((d) => [d.id, d]));
   const sendersByDomain = new Map<string, Sender[]>();
   for (const sender of senders) {
     const key = sender.domain.toLowerCase();
@@ -86,7 +88,10 @@ export async function simulateEnforcement(
     // appearing to lose its override in the preview (#148).
     if (decision.decision === "defer") continue;
     const next: TrustStatus = decision.decision === "block" ? "blocked" : "trusted";
-    if (decision.scope === "domain") domainStatus.set(decision.subjectId, next);
+    // Any non-address scope decides a DOMAIN record — `parentDomain` included. Testing for
+    // `"domain"` alone would file a parent decision against a sender id that doesn't exist,
+    // so the rule would be invisible to the preview while plainly applying at Apply time.
+    if (decision.scope !== "address") domainStatus.set(decision.subjectId, next);
     else senderStatus.set(decision.subjectId, next);
   }
 
@@ -102,6 +107,58 @@ export async function simulateEnforcement(
     const key = sender.domain.toLowerCase();
     batchExceptionsByDomain.set(key, [...(batchExceptionsByDomain.get(key) ?? []), sender.email]);
   }
+
+  // Exceptions this batch would record on ANY broader rule. `applyDecision` writes a narrower
+  // decision into every broader rule covering it — the exact domain AND the registrable
+  // domain's parent rule — so the preview has to model the same, or a "block the parent, keep
+  // this one" batch previews the opposite of what applying it does.
+  const batchAddressExceptionIds = new Set<string>();
+  const batchDomainExceptionNames = new Set<string>();
+  for (const decision of decisions) {
+    if (decision.decision === "defer") continue;
+    if (decision.scope === "address") batchAddressExceptionIds.add(decision.subjectId);
+    else if (decision.scope === "domain") {
+      const domain = domainById.get(decision.subjectId);
+      if (domain !== undefined) batchDomainExceptionNames.add(domain.domain.toLowerCase());
+    }
+  }
+
+  /** The prospective decision scope of a domain record — a previewed decision sets it. */
+  const prospectiveScope = (domain: Domain): DecisionScope | null => {
+    const previewed = decisions.find(
+      (d) => d.subjectId === domain.id && d.scope !== "address" && d.decision !== "defer",
+    );
+    return previewed?.scope ?? domain.decisionScope;
+  };
+
+  /**
+   * The parent-domain rule covering a sender, under PROSPECTIVE scope — so a rule this batch
+   * is about to create counts, exactly as it will once applied.
+   */
+  const parentRuleFor = (senderDomain: string): Domain | undefined => {
+    const registrable = registrableDomain(senderDomain);
+    if (registrable === null || keyFor(registrable) === keyFor(senderDomain)) return undefined;
+    const rule = domainByKey.get(keyFor(registrable));
+    return rule !== undefined && prospectiveScope(rule) === "parentDomain" ? rule : undefined;
+  };
+
+  /** The parent-rule half of a resolver input, prospective statuses and exceptions included. */
+  const parentFields = (
+    sender: Sender,
+  ): { parentDomainStatus: TrustStatus | null; parentDomainIsException: boolean } => {
+    const parent = parentRuleFor(sender.domain);
+    if (parent === undefined) return { parentDomainStatus: null, parentDomainIsException: false };
+    const status = domainStatus.get(parent.id) ?? parent.trustStatus;
+    const senderDomain = sender.domain.toLowerCase();
+    return {
+      parentDomainStatus: status === "pending" ? null : status,
+      parentDomainIsException:
+        parent.exceptionAddresses.some((email) => keyFor(email) === sender.id) ||
+        batchAddressExceptionIds.has(sender.id) ||
+        parent.exceptionDomains.some((name) => name.toLowerCase() === senderDomain) ||
+        batchDomainExceptionNames.has(senderDomain),
+    };
+  };
 
   // A (prospectively) blocked domain's trusted exception addresses — the ones whose effective
   // status is no longer blocked. Excluded from both the domain's `*@domain` filter (#145) and
@@ -130,6 +187,7 @@ export async function simulateEnforcement(
           addressIsException: true,
           domainStatus: "blocked",
           domainScope: "domain",
+          ...parentFields(s),
         }).status !== "blocked"
       );
     });
@@ -152,9 +210,34 @@ export async function simulateEnforcement(
         addressIsException: isException,
         domainStatus: "trusted",
         domainScope: "domain",
+        ...parentFields(sender),
       }).status === "trusted"
     );
   };
+
+  /**
+   * A sender's effective status under the previewed decisions — the whole ladder, resolved
+   * once. Extracted because every consumer that re-derived it inline drifted: each had to
+   * remember the parent half, and each place that forgot silently disagreed with Apply.
+   */
+  const prospectiveStatusOf = (sender: Sender): TrustStatus => {
+    const domain = domainByName.get(sender.domain.toLowerCase());
+    const addressStatus = senderStatus.get(sender.id) ?? sender.trustStatus;
+    const domainStat = domain ? (domainStatus.get(domain.id) ?? domain.trustStatus) : "pending";
+    return resolveEffectiveDecision({
+      addressStatus: addressStatus === "pending" ? null : addressStatus,
+      addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
+      domainStatus: domainStat === "pending" ? null : domainStat,
+      // A domain only gets a status via a domain-scope decision (stored or previewed),
+      // so a non-pending prospective status is a domain-scope override.
+      domainScope: domainStat === "pending" ? null : "domain",
+      ...parentFields(sender),
+    }).status;
+  };
+
+  /** The senders a parent-domain decision covers — the whole subtree, by registrable domain. */
+  const subtreeMembers = (domain: Domain): Sender[] =>
+    senders.filter((s) => registrableDomain(s.domain) === domain.domain.toLowerCase());
 
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;
@@ -162,21 +245,7 @@ export async function simulateEnforcement(
   try {
     // Effective blocked set: a sender whose (prospective) domain trusts it is not blocked,
     // so the preview matches what enforce would actually do (#144).
-    const blockedSenders = senders.filter((s) => {
-      const domain = domainByName.get(s.domain.toLowerCase());
-      const addressStatus = senderStatus.get(s.id) ?? s.trustStatus;
-      const domainStat = domain ? (domainStatus.get(domain.id) ?? domain.trustStatus) : "pending";
-      return (
-        resolveEffectiveDecision({
-          addressStatus: addressStatus === "pending" ? null : addressStatus,
-          addressIsException: domain?.exceptionAddresses.includes(s.email) ?? false,
-          domainStatus: domainStat === "pending" ? null : domainStat,
-          // A domain only gets a status via a domain-scope decision (stored or previewed),
-          // so a non-pending prospective status is a domain-scope override.
-          domainScope: domainStat === "pending" ? null : "domain",
-        }).status === "blocked"
-      );
-    });
+    const blockedSenders = senders.filter((s) => prospectiveStatusOf(s) === "blocked");
     const blockedDomains = domains
       .filter((d) => domainStatus.get(d.id) === "blocked")
       .map((d) => {
@@ -212,10 +281,14 @@ export async function simulateEnforcement(
   const rescueSenderIds = new Set<string>();
   for (const decision of decisions) {
     if (decision.decision === "block") {
+      // Any non-address scope decides a DOMAIN record, and enforce sweeps it as `*@domain`
+      // whatever its scope — `effectiveBlockedDomains` selects on trustStatus, not scope. A
+      // `=== "domain"` test here left a parent block resolving to an empty subject, so the
+      // preview reported no swept mail for a decision that sweeps plenty.
       const sender = decision.scope === "address" ? senderById.get(decision.subjectId) : undefined;
-      const domain = decision.scope === "domain" ? domainById.get(decision.subjectId) : undefined;
+      const domain = decision.scope !== "address" ? domainById.get(decision.subjectId) : undefined;
       const from =
-        decision.scope === "domain" ? `*@${domain?.domain ?? ""}` : (sender?.email ?? "");
+        decision.scope !== "address" ? `*@${domain?.domain ?? ""}` : (sender?.email ?? "");
       if (from === "" || from === "*@") continue;
       const plan = planActions({
         decision: "block",
@@ -246,8 +319,17 @@ export async function simulateEnforcement(
       } else {
         const domain = domainById.get(decision.subjectId);
         if (domain !== undefined) {
-          for (const sender of sendersByDomain.get(domain.domain.toLowerCase()) ?? []) {
-            if (prospectivelyTrustedMember(sender, domain)) rescueSenderIds.add(sender.id);
+          if (decision.scope === "parentDomain") {
+            // Subtree members resolve through the full ladder: their own exact-domain record
+            // may say anything, and the parent rule this batch creates is what covers them.
+            // An exact-name member lookup would find none of them.
+            for (const sender of subtreeMembers(domain)) {
+              if (prospectiveStatusOf(sender) === "trusted") rescueSenderIds.add(sender.id);
+            }
+          } else {
+            for (const sender of sendersByDomain.get(domain.domain.toLowerCase()) ?? []) {
+              if (prospectivelyTrustedMember(sender, domain)) rescueSenderIds.add(sender.id);
+            }
           }
         }
       }

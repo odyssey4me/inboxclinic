@@ -433,3 +433,86 @@ describe("simulateEnforcement", () => {
     expect(gmail.senderQueries).toContain("*@promo.com");
   });
 });
+
+describe("simulateEnforcement — parent-domain rules (#218)", () => {
+  it("counts the rescue when a parent-domain trust covers a blocked subtree member", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("example.com"));
+    await store.domains.put(
+      domainBuilder("news.example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    await store.senders.put(
+      senderBuilder("promo@news.example.com", { trustStatus: "blocked", spamMarkedCount: 6 }),
+    );
+    const gmail = new MockGmailClient();
+
+    // A parent-scope TRUST — the path that resolves members through the ladder. An
+    // address-scope trust would credit the rescue unconditionally and prove nothing.
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("example.com"), scope: "parentDomain", decision: "trust" },
+    ]);
+
+    // The member lives at a SUBdomain, so an exact-name member lookup finds nobody, and a
+    // resolver blind to the parent rule leaves it blocked. Either way the rescue reads 0.
+    expect(impact.messagesToRescue).toBe(6);
+  });
+
+  it("previews a parent block as covering the subtree's senders", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("example.com"));
+    await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("example.com"), scope: "parentDomain", decision: "block" },
+    ]);
+
+    expect(impact.filtersToCreate).toBeGreaterThan(0);
+  });
+
+  it("counts the existing mail a parent block would sweep", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("example.com"));
+    await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
+    // Apex senders: the in-memory client matches `*@domain` on the exact domain, which is
+    // what the app believed before #210 measured Gmail actually spanning subdomains. Testing
+    // the sweep's breadth here would assert the mock's belief, not Gmail's behaviour — that
+    // belongs with #210's fix, which has to update the mock too.
+    const gmail = new MockGmailClient([msgFrom("one@example.com"), msgFrom("two@example.com")]);
+
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("example.com"),
+        scope: "parentDomain",
+        decision: "block",
+        actions: ["create_filter", "delete"],
+      },
+    ]);
+
+    // enforce sweeps a blocked domain record as `*@domain` whatever its scope, so a preview
+    // that resolved the subject only for `scope === "domain"` reported nothing swept at all.
+    expect(impact.messagesToDelete).toBe(2);
+  });
+
+  it("keeps a sender the same batch carves out of a parent block", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("example.com"));
+    await store.senders.put(senderBuilder("vip@example.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("promo@example.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient([msgFrom("vip@example.com"), msgFrom("promo@example.com")]);
+
+    // "Block the whole subtree, but keep this one": applyDecision records the address as an
+    // exception on the parent, so its mail must be excluded from the sweep — kept, not swept.
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("example.com"),
+        scope: "parentDomain",
+        decision: "block",
+        actions: ["delete"],
+      },
+      { subjectId: keyFor("vip@example.com"), scope: "address", decision: "trust" },
+    ]);
+
+    expect(impact.messagesToDelete).toBe(1);
+  });
+});
