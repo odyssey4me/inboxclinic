@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { keyFor, type Store } from "@inboxclinic/core";
-import { createInMemoryStore, MockGmailClient, senderBuilder } from "@inboxclinic/core/testing";
+import {
+  createInMemoryStore,
+  domainBuilder,
+  MockGmailClient,
+  senderBuilder,
+} from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -86,5 +91,133 @@ describe("SenderDetail — flagged siblings (#96)", () => {
     expect(screen.queryByText(/other flagged sender/i)).not.toBeInTheDocument();
     // The normal single-sender actions still render.
     expect(screen.getByRole("button", { name: /^Trust$/ })).toBeInTheDocument();
+  });
+});
+
+describe("SenderDetail — the rule governing a sender (#229)", () => {
+  it("names the domain rule deciding a sender that was never decided itself", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        sender={senderBuilder("news@shop.com")}
+        allDomains={[
+          domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    // Without this the sender reads as blocked by nobody — the gap #186 closed for domains.
+    expect(screen.getByText(/Blocked by the rule on/i)).toBeInTheDocument();
+    expect(screen.getByText(/no decision was made about this address on its own/i)).toBeVisible();
+  });
+
+  it("states the breadth of a subtree rule reaching down from the registrable domain", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        sender={senderBuilder("a@news.example.com")}
+        allDomains={[
+          domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "parentDomain" }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    // The breadth was stated once, when the rule was made; a sender under it has to be told too.
+    expect(screen.getByText(/covers every domain beneath it/i)).toBeInTheDocument();
+  });
+
+  it("says so when the rule overrides a decision made before it existed", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        // Trusted earlier, and NOT a recorded exception — so the later domain block wins.
+        sender={senderBuilder("old@shop.com", { trustStatus: "trusted", decisionScope: "address" })}
+        allDomains={[
+          domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/overrides the earlier decision on this address/i)).toBeInTheDocument();
+  });
+
+  it("offers a carved-out sender the way back, clearing the decision and the carve-out", async () => {
+    const { store, gmail } = setup();
+    const sender = senderBuilder("vip@shop.com", {
+      trustStatus: "trusted",
+      decisionScope: "address",
+    });
+    await store.senders.put(sender);
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["vip@shop.com"],
+      }),
+    );
+
+    render(
+      <SenderDetail
+        sender={sender}
+        allDomains={[
+          domainBuilder("shop.com", {
+            trustStatus: "blocked",
+            decisionScope: "domain",
+            exceptionAddresses: ["vip@shop.com"],
+          }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Carved out of the rule on/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /follow the rule again/i }));
+
+    // Both halves, or the model and the behaviour diverge: the decision goes, and so does the
+    // carve-out that told the rule to skip this address.
+    await waitFor(async () => {
+      expect((await store.senders.get(keyFor("vip@shop.com")))?.trustStatus).toBe("pending");
+      expect((await store.domains.get(keyFor("shop.com")))?.exceptionAddresses).toEqual([]);
+    });
+  });
+
+  it("says nothing when no rule governs the sender", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        // A domain record exists, but carries no decision — there is no rule to explain.
+        sender={senderBuilder("solo@x.com")}
+        allDomains={[domainBuilder("x.com")]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/by the rule on/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /follow the rule again/i }),
+    ).not.toBeInTheDocument();
   });
 });

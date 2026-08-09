@@ -5,10 +5,13 @@ import {
   enforce,
   keyFor,
   parentDomainCoverage,
+  parentDomainRuleFor,
   simulateEnforcement,
+  withdrawDecision,
   type BlockAction,
   type Decision,
   type DecisionScope,
+  type Domain,
   type GmailClient,
   type Sender,
   type SimulatedImpact,
@@ -32,6 +35,12 @@ export interface SenderDetailProps {
    * state that breadth before the decision (design-trust-decisions.md Decision 9).
    */
   allSenders?: Sender[];
+  /**
+   * Every known domain record, so the rule governing this sender can be found and named.
+   * Without it a sender decided by a rule reads as decided by nobody — the same gap #186
+   * closed for domains, one level down (#229).
+   */
+  allDomains?: Domain[];
   store: Store;
   gmail: GmailClient;
   online: boolean;
@@ -62,6 +71,7 @@ export function SenderDetail({
   sender,
   flaggedSiblings = [],
   allSenders = [],
+  allDomains = [],
   store,
   gmail,
   online,
@@ -100,6 +110,28 @@ export function SenderDetail({
     coverage.subtree.length > 1
       ? coverage
       : undefined;
+
+  // The rule governing this sender from above, and whether it has already been carved out of
+  // it — the answer to "why is this blocked when I never decided it?" (#229). Deliberately a
+  // single line rather than DomainDetail's panel: making the carve-out is what the Trust/Block
+  // buttons below already do at address scope, so only *rejoining* needs a control of its own.
+  const domainsByKey = new Map(allDomains.map((d) => [keyFor(d.domain), d]));
+  const exactRule = domainsByKey.get(keyFor(sender.domain));
+  const parentRule = parentDomainRuleFor(sender.domain, domainsByKey);
+  // Most specific first, matching the precedence ladder the resolver walks.
+  const governingRule =
+    exactRule !== undefined && exactRule.trustStatus !== "pending"
+      ? exactRule
+      : parentRule !== undefined && parentRule.trustStatus !== "pending"
+        ? parentRule
+        : undefined;
+  // A recorded exception is what makes the rule step aside — the same marker enforcement reads.
+  const carvedOut = governingRule?.exceptionAddresses.includes(sender.email) ?? false;
+  // A decision of its own that the rule currently overrides: made before the rule existed, since
+  // deciding under one records the carve-out. Dormant, but it resurfaces if the rule is removed.
+  const overriddenDecision =
+    !carvedOut && (sender.trustStatus !== "pending" || sender.decisionScope !== null);
+  const ruleIsSubtree = governingRule !== undefined && governingRule === parentRule;
 
   // The scope-toggle (single-sender domain) path always supplies concrete actions from
   // TrustActions; the fallback only fires for the address-scoped flagged batch.
@@ -178,6 +210,24 @@ export function SenderDetail({
     sender: s,
   }));
 
+  // Rejoining is not the same as deciding to agree: that would leave the sender individually
+  // decided, so a later change to the rule would not reach it. Withdrawing removes the decision
+  // and the carve-out together (#225).
+  const rejoinRule = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await withdrawDecision(store, { subjectId: sender.id, scope: "address" });
+      // The effective status can move either way, so reconcile rather than assume.
+      await enforce(gmail, store);
+      onChanged();
+      onClose();
+    } catch (caught) {
+      setError(`Could not apply: ${errorMessage(caught)}`);
+      setBusy(false);
+    }
+  };
+
   const onDecide = async (decision: Decision, actions: BlockAction[]): Promise<void> => {
     if (decision === "block") return previewBlock([singleTarget], actions);
     await commit([singleTarget], decision, undefined);
@@ -191,6 +241,35 @@ export function SenderDetail({
 
       {confirm === null ? (
         <>
+          {governingRule !== undefined && (
+            <p className="text-sm text-muted">
+              {carvedOut ? (
+                <>
+                  Carved out of the rule on{" "}
+                  <span className="font-medium text-ink">{governingRule.domain}</span>: this address
+                  keeps its own decision.{" "}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void rejoinRule()}
+                    className="underline transition-colors hover:text-accent-ink disabled:opacity-50"
+                  >
+                    Follow the rule again
+                  </button>
+                </>
+              ) : (
+                <>
+                  {governingRule.trustStatus === "blocked" ? "Blocked" : "Trusted"} by the rule on{" "}
+                  <span className="font-medium text-ink">{governingRule.domain}</span>
+                  {ruleIsSubtree ? ", which covers every domain beneath it" : ""} —{" "}
+                  {overriddenDecision
+                    ? "it overrides the earlier decision on this address."
+                    : "no decision was made about this address on its own."}
+                </>
+              )}
+            </p>
+          )}
+
           <TrustActions
             sender={sender}
             scope={scope}

@@ -893,6 +893,7 @@ export function Dashboard({
               )
         }
         allSenders={senders}
+        allDomains={domains}
         store={store}
         gmail={gmail}
         online={online}
