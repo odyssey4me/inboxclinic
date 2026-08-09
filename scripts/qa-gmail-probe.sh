@@ -43,24 +43,22 @@
 #   INBOXCLINIC_FILTER_FIXTURE=.local/filters.json npx vitest run realFilters
 # (dumps carry your own sender addresses — .local/ is gitignored, keep it there)
 #
-# Auth: a short-lived (~1h) user credential minted by the Google CLI, which must
-# already be installed and logged in. `login` requests read-only scope alone
-# unless `--with-filters` is passed. The token is never printed, and never
-# written to the repo.
+# Auth: a short-lived (~1h) credential for EXACTLY the Gmail scopes a probe needs,
+# obtained by scripts/qa-gmail-auth.py — the standard installed-app loopback flow
+# against a project-owned Desktop OAuth client (.local/oauth-client.json).
 #
-# The CLI's BUILT-IN OAuth client cannot be used for this: it mandates the
-# `cloud-platform` scope, so a Gmail probe would also carry broad Google Cloud
-# access to the account. The CLI's own documentation directs non-GCP scopes to
-# `--client-id-file` with your own OAuth client, which is what keeps this to
-# `gmail.readonly`. One-time setup, in the Cloud project that already hosts the
-# app's OAuth client:
+# The Google CLI cannot do this: `gcloud auth application-default login` refuses
+# to mint a credential without `cloud-platform` even when given
+# `--client-id-file`, and `gcloud auth login` has no scope flag at all. Either
+# would hand a mailbox probe broad Google Cloud access to the account.
 #
+# Only the ACCESS token is cached (.local/qa-token.json, 0600, gitignored) —
+# never a refresh token — so the credential expires rather than persisting. The
+# token is never printed, and never written anywhere else.
+#
+# One-time setup, in the Cloud project that already hosts the app's OAuth client:
 #   Credentials -> Create credentials -> OAuth client ID -> Desktop app
-#   Download the JSON to .local/oauth-client.json (gitignored)
-#
-# `--allow-cloud-scope` falls back to the built-in client and its mandatory
-# `cloud-platform` grant. It exists for a quick one-off; it is not the intended
-# path, and the script says so each time.
+#   Download the JSON to .local/oauth-client.json
 #
 # Usage:
 #   ./scripts/qa-gmail-probe.sh login [--with-filters] [--client-id-file F]
@@ -76,14 +74,14 @@ SCOPE_READ="https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_FILTERS="https://www.googleapis.com/auth/gmail.settings.basic"
 API="https://gmail.googleapis.com/gmail/v1/users/me"
 TOKENINFO="https://oauth2.googleapis.com/tokeninfo"
-SCOPE_CLOUD="https://www.googleapis.com/auth/cloud-platform"
+AUTH_HELPER="$(dirname "$0")/qa-gmail-auth.py"
+TOKEN_CACHE=".local/qa-token.json"
 
 DOMAIN=""
 EXCLUDE=""
 WITH_FILTERS=0
 CONFIRM_WRITE=0
 AS_JSON=0
-ALLOW_CLOUD=0
 CLIENT_ID_FILE=""
 DEFAULT_CLIENT_ID_FILE=".local/oauth-client.json"
 OUT_FILE=""
@@ -107,103 +105,62 @@ usage() {
 
 # --- auth -------------------------------------------------------------------
 
-# The credential's remaining life, or "dead". The CLI refreshes an expired access
-# token by itself, so what actually goes stale is the underlying grant — revoked
-# in the Google account, expired, or scoped for a different purpose. Both failure
-# modes surface here rather than as an opaque 401 mid-probe.
-credential_seconds_left() {
-  local token info
-  token=$(gcloud auth application-default print-access-token 2>/dev/null) || {
-    echo "dead"
-    return
-  }
-  info=$(curl -sS --max-time 15 "${TOKENINFO}?access_token=${token}" 2>/dev/null) || {
-    echo "dead"
-    return
-  }
-  [[ $(jq -r '.error // ""' <<<"${info}") == "" ]] || {
-    echo "dead"
-    return
-  }
-  jq -r '.expires_in // 0' <<<"${info}"
-}
-
-# Remove a credential that can no longer be used, so the next run starts clean
-# instead of re-failing against a dead grant.
-clear_credential() {
-  gcloud auth application-default revoke --quiet >/dev/null 2>&1 || true
-  rm -f "${HOME}/.config/gcloud/application_default_credentials.json"
+# The credential's remaining life, or "dead" — expired, absent, or too close to
+# expiry to start a probe with. Surfaces here rather than as an opaque 401
+# part-way through a run.
+credential_status() {
+  python3 "${AUTH_HELPER}" status "${TOKEN_CACHE}" 2>/dev/null || echo "dead"
 }
 
 # Establish $TOKEN for a probe, or exit with what to do about it. Never echoes
-# the token; the CLI owns its lifetime.
+# the token.
 ensure_credential() {
-  local needed="$1" left granted extra=""
+  local needed="$1" status left granted extra=""
   [[ ${needed} == "${SCOPE_FILTERS}" ]] && extra=" --with-filters"
 
-  left=$(credential_seconds_left)
-  if [[ ${left} == "dead" ]]; then
-    note "credential is expired or revoked — clearing it"
-    clear_credential
+  status=$(credential_status)
+  if [[ ${status} == "dead" ]]; then
+    # A dead credential is cleared rather than left to fail again next run.
+    python3 "${AUTH_HELPER}" revoke "${TOKEN_CACHE}" 2>/dev/null || true
     die "no usable credential — run: ./scripts/qa-gmail-probe.sh login${extra}"
   fi
 
-  TOKEN=$(gcloud auth application-default print-access-token 2>/dev/null)
-  granted=$(curl -sS --max-time 15 "${TOKENINFO}?access_token=${TOKEN}" | jq -r '.scope // ""')
+  left=${status%% *}
+  granted=${status#* }
   [[ " ${granted} " == *" ${needed} "* ]] ||
     die "credential lacks ${needed} — re-run: ./scripts/qa-gmail-probe.sh login${extra}"
 
+  TOKEN=$(python3 "${AUTH_HELPER}" token "${TOKEN_CACHE}") ||
+    die "could not read the cached token — run: ./scripts/qa-gmail-probe.sh login${extra}"
   ((left < 300)) && note "note: this credential expires in ${left}s; re-run login if a probe fails part-way"
   return 0
 }
 
 cmd_login() {
-  local scopes="openid,https://www.googleapis.com/auth/userinfo.email,${SCOPE_READ}"
+  local scopes=("${SCOPE_READ}")
   local client_file=${CLIENT_ID_FILE:-${DEFAULT_CLIENT_ID_FILE}}
 
   if ((WITH_FILTERS)); then
-    scopes="${scopes},${SCOPE_FILTERS}"
-    echo "Requesting read scope + filter WRITE scope (${SCOPE_FILTERS})."
+    scopes+=("${SCOPE_FILTERS}")
+    echo "Requesting read scope + filter WRITE scope."
     echo "Only the 'limit' probe needs write; the others do not."
-  else
-    echo "Requesting read-only scope (${SCOPE_READ})."
   fi
 
-  if [[ -f ${client_file} ]]; then
-    echo "Using your OAuth client (${client_file}) — Gmail scopes only."
-    gcloud auth application-default login \
-      --client-id-file="${client_file}" --scopes="${scopes}"
-  elif ((ALLOW_CLOUD)); then
-    # The built-in client refuses to mint a credential without cloud-platform, so
-    # this path grants far more than a mailbox probe needs.
-    echo
-    echo "WARNING: falling back to the CLI's built-in OAuth client, which requires"
-    echo "         ${SCOPE_CLOUD}"
-    echo "         The credential will also carry broad Google Cloud access to this"
-    echo "         account. Revoke as soon as you are done."
-    echo
-    gcloud auth application-default login --scopes="${scopes},${SCOPE_CLOUD}"
-  else
-    die "no OAuth client file at ${client_file}.
+  [[ -f ${client_file} ]] || die "no OAuth client file at ${client_file}.
 
-       The CLI's built-in client mandates ${SCOPE_CLOUD},
-       which would hand a mailbox probe broad Google Cloud access. To keep this to
-       Gmail scopes, create a Desktop OAuth client once — in the Cloud project that
-       already hosts the app's client:
-
+       Create one once, in the Cloud project that already hosts the app's client:
          Credentials -> Create credentials -> OAuth client ID -> Desktop app
-
        Download the JSON to ${DEFAULT_CLIENT_ID_FILE} (gitignored), then re-run login.
-       Pass --client-id-file to use a different path, or --allow-cloud-scope to accept
-       the broader grant instead."
-  fi
+       Pass --client-id-file to use a different path."
+
+  python3 "${AUTH_HELPER}" login "${client_file}" "${TOKEN_CACHE}" "${scopes[@]}"
   echo
-  echo "Done. Revoke when finished:  ./scripts/qa-gmail-probe.sh revoke"
+  echo "Revoke when finished:  ./scripts/qa-gmail-probe.sh revoke"
 }
 
 cmd_revoke() {
-  clear_credential
-  echo "Credential cleared. Also review https://myaccount.google.com/permissions"
+  python3 "${AUTH_HELPER}" revoke "${TOKEN_CACHE}" 2>/dev/null || true
+  echo "Token revoked and cache removed. Also review https://myaccount.google.com/permissions"
 }
 
 # --- api helpers ------------------------------------------------------------
@@ -542,16 +499,12 @@ while [[ $# -gt 0 ]]; do
       CLIENT_ID_FILE=$2
       shift 2
       ;;
-    --allow-cloud-scope)
-      ALLOW_CLOUD=1
-      shift
-      ;;
     -h | --help) usage 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done
 
-command -v gcloud >/dev/null || die "the Google CLI (gcloud) is required and must already be logged in"
+command -v python3 >/dev/null || die "python3 is required (it runs the OAuth loopback flow)"
 command -v jq >/dev/null || die "jq is required"
 
 case ${COMMAND} in

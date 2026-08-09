@@ -112,11 +112,13 @@ tier — this is how that belief gets checked. Design criteria (read-only wherev
 allows, least-privilege short-lived credentials, metadata-only reads, never destructive) live
 in [docs/design-testing.md](docs/design-testing.md) Decision 9.
 
-**One-time setup.** The Google CLI's built-in OAuth client refuses to mint a credential
-without `cloud-platform`, which would give a mailbox probe broad Cloud access — so the probe
-uses a **Desktop** OAuth client of your own instead, keeping the grant to Gmail scopes. In the
-Cloud project that already hosts the app's client: *Credentials → Create credentials → OAuth
-client ID → Desktop app*, then save the JSON to `.local/oauth-client.json` (gitignored).
+**One-time setup.** Consent must grant *only* Gmail scopes, and no `gcloud` route can do that
+(ADC login mandates `cloud-platform` even with `--client-id-file`; `gcloud auth login` takes no
+scopes). The probe therefore runs the installed-app loopback flow itself against a **Desktop**
+OAuth client of your own. In the Cloud project that already hosts the app's client:
+*Credentials → Create credentials → OAuth client ID → Desktop app*, then save the JSON to
+`.local/oauth-client.json` (gitignored). Each session re-consents in the browser and caches only
+an access token (~1h, no refresh token), so nothing long-lived sits on disk.
 
 ```bash
 ./scripts/qa-gmail-probe.sh login       # read-only consent via the Google CLI (~1h)

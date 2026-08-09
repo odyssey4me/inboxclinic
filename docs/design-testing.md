@@ -298,18 +298,22 @@ Criteria it is built to:
    Write scope (`gmail.settings.basic`) is requested only for the one question nothing
    existing can answer (where the length limit falls), and that probe is additionally
    opt-in at the command line.
-2. **Least privilege, short-lived.** The credential is minted by the already-authenticated
-   Google CLI, scoped per probe, lives about an hour, and is revocable in one command. No
-   token is printed or stored in the repo (architecture.md §7).
+2. **Least privilege, short-lived.** Consent grants **exactly** the Gmail scopes the probe
+   needs — read-only unless a write probe is explicitly requested — and lasts about an hour.
+   Only the **access token** is cached (`.local/`, mode 0600, gitignored); no refresh token is
+   requested, so the credential expires rather than persisting on disk, and a leaked cache
+   file is worth an hour at most. Re-consent per session is accepted as the cost of that.
 
-   The CLI's **built-in OAuth client cannot be used**: it refuses to mint a credential
-   without `cloud-platform`, so a mailbox probe would also carry broad Google Cloud access
-   to the account — the opposite of this criterion. Google's own guidance routes non-GCP
-   scopes through `--client-id-file` with a project-owned **Desktop** OAuth client, which is
-   what keeps the grant to Gmail scopes. That client file is developer-local
-   (`.local/`, gitignored); it is not a deployment input and never reaches the app, whose
-   own client stays public/PKCE (design-deployment.md). A `--allow-cloud-scope` escape
-   hatch exists for a one-off, and warns every time.
+   **The Google CLI cannot provide this.** `gcloud auth application-default login` refuses to
+   mint a credential without `cloud-platform` — even when given `--client-id-file` — and
+   `gcloud auth login` has no scope flag at all. Either route would hand a mailbox probe broad
+   Google Cloud access to the account, defeating this criterion entirely. The probe therefore
+   runs the standard installed-app **loopback flow (PKCE)** itself, against a project-owned
+   **Desktop** OAuth client kept developer-local (`.local/oauth-client.json`). That client is
+   not a deployment input and never reaches the app, whose own client stays public/PKCE
+   (design-deployment.md). The flow needs a local HTTP listener to receive the redirect, which
+   is why that one helper is Python rather than Bash.
+
 3. **Metadata only.** Message reads use `format=metadata` with the `From` header — the same
    restriction the app itself observes (architecture.md §5), so running QA never inspects
    content the product would refuse to.
@@ -515,8 +519,8 @@ it("applies a block decision and records a compiled filter", async () => {
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2026-08-09 | **Decision 9 auth constraint:** record that the Google CLI's built-in OAuth client mandates `cloud-platform` and so cannot be used for a Gmail-only probe; least privilege requires `--client-id-file` with a project-owned Desktop client, kept developer-local. | Claude |
-| 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.sh`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived CLI-minted credentials (self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
+| 2026-08-09 | **Decision 9 auth mechanism:** the Google CLI cannot mint a Gmail-only credential by any route — ADC login mandates `cloud-platform` even with `--client-id-file`, and `gcloud auth login` takes no scopes — so the probe runs the installed-app loopback flow (PKCE) itself against a developer-local Desktop OAuth client, caching only the access token (no refresh token, ~1h, 0600). Re-consent per session is the accepted cost of keeping the grant to Gmail scopes. | Claude |
+| 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.sh`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived credentials (access token only, self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |
 | 2026-07-18 | Add **Decision 8: property-based tests** (fast-check under Vitest, `*.property.test.ts`) for pure-core invariants — when to reach for them vs example tests, seed/reproducibility, generous bounds for probabilistic invariants; fuzzing of untrusted-input boundaries noted as related (#166). Landed compiler (cap/coverage/idempotence/stability), effective-status precedence, and `keyFor` collision properties (#165). | Claude |
