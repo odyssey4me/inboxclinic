@@ -30,6 +30,7 @@ import {
   type CompileFiltersOptions,
   type ExceptionOverflow,
 } from "./compileFilters";
+import { enumeratedFormOf, withCurrentFilterForm } from "./filterForm";
 import { planActions } from "./planActions";
 import { recordDailyAnalytics } from "../analytics/record";
 import {
@@ -106,6 +107,12 @@ export interface FilterReconcileOutcome {
   exceptionOverflows: ExceptionOverflow[];
   /** Ids of filters this app owns after this run — persist to `store.filterSync` (#29). */
   managedFilterIds: string[];
+  /**
+   * Domains left in the enumerate form after this run — persist to `store.filterSync`, so the
+   * next compile can apply the dead band instead of flipping a boundary domain back (#208).
+   * Carries the *previous* value forward when the reconcile didn't reach Gmail.
+   */
+  enumeratedDomains: string[];
   failures: EnforceFailure[];
 }
 
@@ -125,6 +132,9 @@ export async function reconcileNativeFilters(
   // excluded (unless it's an exception), so its filter is dropped rather than kept alive (#144).
   const blockedSenders = await effectiveBlockedSenders(store);
   const blockedDomains = await effectiveBlockedDomains(store);
+  // Preserve the last known-good count so a transient listFilters() failure below
+  // doesn't corrupt the persisted soft-cap headroom view with a false "zero" reading.
+  const previousSync = await store.filterSync.get();
   const compiled = compileFilters(
     blockedSenders,
     blockedDomains.map((d) => ({
@@ -132,15 +142,16 @@ export async function reconcileNativeFilters(
       excludeAddresses: d.excludeAddresses,
       blockedMemberAddresses: d.blockedMemberAddresses,
     })),
-    options,
+    await withCurrentFilterForm(store, options),
   );
 
   let filtersCreated = 0;
   let filtersDeleted = 0;
-  // Preserve the last known-good count so a transient listFilters() failure below
-  // doesn't corrupt the persisted soft-cap headroom view with a false "zero" reading.
-  const previousSync = await store.filterSync.get();
   let totalFilters = previousSync?.totalFilters ?? 0;
+  // The form only changes once a reconcile has actually applied it: a compile that never
+  // reached Gmail describes a shape the account isn't in, and persisting it would hold the
+  // domain at the lower promote threshold on the next run for no reason (#208).
+  let enumeratedDomains = previousSync?.enumeratedDomains ?? [];
   let managedFilterIds = new Set(previousSync?.managedFilterIds ?? []);
   try {
     const existing = await client.listFilters();
@@ -175,6 +186,7 @@ export async function reconcileNativeFilters(
       }
     }
     totalFilters = existing.length - filtersDeleted + filtersCreated;
+    enumeratedDomains = enumeratedFormOf(compiled);
   } catch (error) {
     failures.push({ subject: "filters", error: errMsg(error) });
   }
@@ -187,6 +199,7 @@ export async function reconcileNativeFilters(
     skippedAtCap: compiled.skippedAtCap,
     exceptionOverflows: compiled.exceptionOverflows,
     managedFilterIds: [...managedFilterIds],
+    enumeratedDomains,
     failures,
   };
 }
@@ -326,6 +339,7 @@ export async function enforce(
     lastSyncAt: now,
     totalFilters,
     managedFilterIds: filters.managedFilterIds,
+    enumeratedDomains: filters.enumeratedDomains,
   });
   await recordDailyAnalytics(store, now, {
     emailsBlocked: messagesArchived + messagesTrashed,

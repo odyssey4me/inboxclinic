@@ -88,6 +88,7 @@ async function seeded(filters: NativeFilter[], managed: string[]) {
     lastSyncAt: null,
     totalFilters: filters.length,
     managedFilterIds: managed,
+    enumeratedDomains: [],
   });
   return { gmail, store };
 }

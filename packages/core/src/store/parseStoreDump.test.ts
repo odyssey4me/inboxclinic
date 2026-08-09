@@ -133,4 +133,36 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
     expect(dump.domains[0]?.exceptionDomains).toEqual(["spam.shop.com"]);
     expect(dump.domains[1]?.exceptionDomains).toEqual([]);
   });
+
+  it("defaults enumeratedDomains on a filter-sync row from a pre-#208 backup", async () => {
+    // The second required-field carve-out, and the reason the doc comment above exists: the
+    // double cast means the compiler never flags a new required field missing its default here.
+    const legacy = JSON.stringify({
+      filterSyncState: [
+        {
+          key: "singleton",
+          lastSyncAt: 123,
+          totalFilters: 4,
+          managedFilterIds: ["filter-1"],
+        },
+      ],
+    });
+
+    const dump = parseStoreDump(encode(legacy));
+
+    expect(dump.filterSyncState[0]?.enumeratedDomains).toEqual([]);
+    // The rest of the record is untouched.
+    expect(dump.filterSyncState[0]?.managedFilterIds).toEqual(["filter-1"]);
+  });
+
+  it("keeps a stored enumeratedDomains list, and replaces a non-array one", async () => {
+    const dump = parseStoreDump(
+      encode(
+        JSON.stringify({
+          filterSyncState: [{ key: "singleton", enumeratedDomains: "not-an-array" }],
+        }),
+      ),
+    );
+    expect(dump.filterSyncState[0]?.enumeratedDomains).toEqual([]);
+  });
 });

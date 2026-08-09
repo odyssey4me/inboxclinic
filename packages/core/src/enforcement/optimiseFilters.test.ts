@@ -30,6 +30,7 @@ async function storeOwning(...managedFilterIds: string[]): Promise<Store> {
     lastSyncAt: null,
     totalFilters: managedFilterIds.length,
     managedFilterIds,
+    enumeratedDomains: [],
   });
   return store;
 }

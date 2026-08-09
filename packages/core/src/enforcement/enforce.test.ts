@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
-import { enforce, FILTER_SYNC_KEY } from "./enforce";
+import { enforce, reconcileNativeFilters, FILTER_SYNC_KEY } from "./enforce";
 import {
   createInMemoryStore,
   domainBuilder,
@@ -47,6 +47,7 @@ describe("enforce", () => {
       lastSyncAt: NOW,
       totalFilters: 1,
       managedFilterIds: ["filter-1"],
+      enumeratedDomains: [],
     });
   });
 
@@ -444,6 +445,7 @@ describe("enforce", () => {
       lastSyncAt: NOW - 1000,
       totalFilters: 7,
       managedFilterIds: [],
+      enumeratedDomains: [],
     });
     await store.senders.put(senderBuilder("x@y.com", { trustStatus: "blocked" }));
     const gmail = new FlakyListClient();
@@ -542,5 +544,50 @@ describe("enforce", () => {
     const again = await enforce(gmail, store, { now: NOW + 1000 });
     expect(again.filtersCreated).toBe(0);
     expect(again.filtersDeleted).toBe(0);
+  });
+
+  it("persists which domains it left enumerated, so the next compile can damp them (#208)", async () => {
+    const store = createInMemoryStore();
+    const exceptions = Array.from({ length: 100 }, (_, i) => `vip${i}@shop.com`);
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: exceptions,
+      }),
+    );
+    for (const email of exceptions) {
+      await store.senders.put(senderBuilder(email, { trustStatus: "trusted" }));
+    }
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "pending" }));
+
+    await enforce(new MockGmailClient(), store, { now: NOW });
+
+    // Without this the next compile has no idea the domain is already enumerated, and the dead
+    // band can never apply — the form has to survive the run that produced it.
+    expect((await store.filterSync.get())?.enumeratedDomains).toEqual(["shop.com"]);
+  });
+
+  it("keeps the previous form when the reconcile never reached Gmail (#208)", async () => {
+    class DeadListClient extends MockGmailClient {
+      override listFilters(): Promise<never> {
+        return Promise.reject(new Error("network"));
+      }
+    }
+    const store = createInMemoryStore();
+    await store.filterSync.put({
+      key: FILTER_SYNC_KEY,
+      lastSyncAt: NOW - 1000,
+      totalFilters: 3,
+      managedFilterIds: [],
+      enumeratedDomains: ["shop.com"],
+    });
+
+    const result = await reconcileNativeFilters(new DeadListClient(), store);
+
+    // A compile that never reached Gmail describes a shape the account isn't in. Persisting it
+    // would move a domain to the lower promote threshold on the strength of work never done.
+    expect(result.enumeratedDomains).toEqual(["shop.com"]);
+    expect(result.failures).toHaveLength(1);
   });
 });

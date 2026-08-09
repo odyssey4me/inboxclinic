@@ -17,9 +17,10 @@
  * **One carve-out, deliberately narrow:** a field whose absence would leak `undefined` past a
  * non-optional type is defaulted here, because restore is the one path the Dexie migration
  * never sees — it writes rows straight through, and an upgrade only runs on a version change.
- * `Domain.exceptionDomains` (#183) is the first such field. Note the double cast on the return
- * means the compiler will NOT remind you: adding a required field to a stored type means adding
- * its default here too, or a restored record silently violates its own type.
+ * `Domain.exceptionDomains` (#183) is the first such field; `FilterSyncState.enumeratedDomains`
+ * (#208) the second. Note the double cast on the return means the compiler will NOT remind you:
+ * adding a required field to a stored type means adding its default here too, or a restored
+ * record silently violates its own type.
  */
 
 import type {
@@ -135,6 +136,13 @@ export function parseStoreDump(blob: Uint8Array): StoreDump {
   for (const row of dump.domains) {
     if (!Array.isArray((row as Record<string, unknown>).exceptionDomains)) {
       (row as Record<string, unknown>).exceptionDomains = [];
+    }
+  }
+  // Same for `FilterSyncState.enumeratedDomains` (#208) — a backup taken before the filter form
+  // was tracked carries no such field.
+  for (const row of dump.filterSyncState) {
+    if (!Array.isArray((row as Record<string, unknown>).enumeratedDomains)) {
+      (row as Record<string, unknown>).enumeratedDomains = [];
     }
   }
   return dump as unknown as StoreDump;

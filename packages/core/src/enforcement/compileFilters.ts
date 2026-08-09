@@ -39,6 +39,18 @@ export const DEFAULT_FILTER_SOFT_CAP = 450;
  * (design-gmail-integration.md Decision 5, exception-overflow handling; #182/#191).
  */
 export const DEFAULT_MAX_CRITERIA_CHARS = 1500;
+/**
+ * How far back under the criteria budget a domain must fall before its block returns to the
+ * broad form. Degrading and promoting at the *same* threshold makes a domain sitting on the
+ * boundary flip 1↔N filters on a single added or removed exception, and each flip is a burst
+ * of Gmail writes; a dead band absorbs the wobble (#208, design-gmail-integration.md
+ * Decision 5 point 3).
+ *
+ * Chosen, not measured — 20% of the budget is wide enough to absorb several addresses at any
+ * plausible budget. Worth revisiting if #213 raises `DEFAULT_MAX_CRITERIA_CHARS` towards the
+ * measured ~16k, where 20% is a very wide band in absolute terms.
+ */
+export const ENUMERATE_PROMOTE_RATIO = 0.8;
 
 export interface CompileFiltersOptions {
   domainBlockThreshold?: number;
@@ -46,6 +58,13 @@ export interface CompileFiltersOptions {
   softCap?: number;
   /** Character budget for one filter's criteria (`from` + `negatedQuery`). */
   maxCriteriaChars?: number;
+  /**
+   * Domains currently compiled in the enumerate form, from `filterSyncState`. The compiler is
+   * **told** the current form rather than discovering it — it stays pure, and every caller
+   * reads the one persisted value through `withCurrentFilterForm`, so a preview and the apply
+   * that follows can never disagree about where a domain already is.
+   */
+  enumeratedDomains?: readonly string[];
 }
 
 /**
@@ -176,6 +195,10 @@ export function compileFilters(
   const maxPerFilter = options.maxDomainsPerFilter ?? DEFAULT_MAX_DOMAINS_PER_FILTER;
   const softCap = options.softCap ?? DEFAULT_FILTER_SOFT_CAP;
   const maxCriteriaChars = options.maxCriteriaChars ?? DEFAULT_MAX_CRITERIA_CHARS;
+  // Where each domain's block already is, so the threshold below can be asymmetric (#208).
+  const currentlyEnumerated = new Set(
+    (options.enumeratedDomains ?? []).map((domain) => domain.toLowerCase()),
+  );
 
   // Group address-blocked senders by domain (deduplicated, lowercased).
   const sendersByDomain = new Map<string, Set<string>>();
@@ -204,7 +227,13 @@ export function compileFilters(
       .sort();
     if (addresses.length === 0) continue;
     const negatedQuery = addresses.join(" OR ");
-    if (criteriaLength(`*@${domain}`, negatedQuery) <= maxCriteriaChars) {
+    // Asymmetric by design: a domain already enumerated has to fall back under a *lower* bar
+    // before returning to the broad form, so an exception added and removed around the budget
+    // doesn't rebuild the whole filter set twice (#208).
+    const budget = currentlyEnumerated.has(domain)
+      ? maxCriteriaChars * ENUMERATE_PROMOTE_RATIO
+      : maxCriteriaChars;
+    if (criteriaLength(`*@${domain}`, negatedQuery) <= budget) {
       excludeByDomain.set(domain, negatedQuery);
       continue;
     }

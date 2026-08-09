@@ -96,6 +96,8 @@ export async function seedDemoStore(
     lastSyncAt: now,
     totalFilters: DEMO_MANAGED_FILTERS.length + DEMO_HAND_BUILT_FILTERS.length,
     managedFilterIds: DEMO_MANAGED_FILTERS.map((filter) => filter.id),
+    // No demo domain carries a carve-out large enough to overflow, so nothing is enumerated.
+    enumeratedDomains: [],
   });
 
   // A realistic starting mix: a couple trusted, a couple blocked (with staged actions).

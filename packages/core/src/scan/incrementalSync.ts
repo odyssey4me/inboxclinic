@@ -356,6 +356,9 @@ async function runIncrementalSync(
     lastSyncAt: now,
     totalFilters: filters.totalFilters,
     managedFilterIds: filters.managedFilterIds,
+    // Carried from the reconcile, not omitted: this record replaces the whole row, so
+    // dropping the field here would reset the filter form on every sync (#208).
+    enumeratedDomains: filters.enumeratedDomains,
   });
 
   return {
@@ -399,6 +402,9 @@ async function fullSync(
     lastSyncAt: now,
     totalFilters: filters.totalFilters,
     managedFilterIds: filters.managedFilterIds,
+    // Carried from the reconcile, not omitted: this record replaces the whole row, so
+    // dropping the field here would reset the filter form on every sync (#208).
+    enumeratedDomains: filters.enumeratedDomains,
   });
 
   return {
