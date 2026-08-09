@@ -316,6 +316,53 @@ describe("enforce", () => {
     expect(result.totalFilters).toBe(1);
   });
 
+  it("disowns a managed filter the user hand-edited, without deleting it (#232)", async () => {
+    const store = createInMemoryStore();
+    await store.senders.put(senderBuilder("a@x.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+
+    // First run creates and tracks the filter as managed.
+    await enforce(gmail, store, { now: NOW });
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      { from: "a@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+    ]);
+    let sync = await store.filterSync.get();
+    expect(sync?.managedFilterIds).toEqual(["filter-1"]);
+
+    // The user then hand-edits it in Gmail's UI, adding a `subject:` criterion the app
+    // does not model — it stops being comparable, so it drops out of every matching
+    // decision from here on.
+    gmail.seedFilters([
+      {
+        id: "filter-1",
+        from: "a@x.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+        unmodelledCriteria: ["subject"],
+      },
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW + 1000 });
+
+    // The user's hand-edit is left alone — never deleted.
+    expect(gmail.deletedFilterIds).toEqual([]);
+    expect(result.filtersDeleted).toBe(0);
+    // Still blocked and no longer covered by a comparable filter, so a fresh one is
+    // created for it, distinct from the hand-edited filter it no longer stands in for.
+    expect(result.filtersCreated).toBe(1);
+    expect(result.totalFilters).toBe(2);
+
+    // The stale id is dropped from persistence — it must not sit in managedFilterIds
+    // forever claiming ownership of a filter no code path can act on.
+    sync = await store.filterSync.get();
+    expect(sync?.managedFilterIds).toEqual(["filter-2"]);
+
+    // Idempotent: re-running doesn't try to re-disown it or create yet another filter.
+    const again = await enforce(gmail, store, { now: NOW + 2000 });
+    expect(again.filtersCreated).toBe(0);
+    expect(again.filtersDeleted).toBe(0);
+  });
+
   it("does not create a duplicate filter when an untracked one already matches (#80)", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
