@@ -275,6 +275,70 @@ the corpus. A crash found by fuzzing is fixed (or filed) and its reproducing inp
 corpus. Validation is **shape/safety**, not schema enforcement (a restore is the user's own
 data; deep per-field checks are the migration layer's job).
 
+### Decision 9: Real-account probes for undocumented provider behaviour
+
+**Context:** Tiers 1–3 never touch Google, by design — that is what makes them
+deterministic. But native-filter enforcement rests on Gmail behaviour that Google **does
+not document and no emulator reproduces**: whether `from:*@domain` is a wildcard, whether
+it spans subdomains, whether `criteria.negatedQuery` round-trips byte-for-byte, and where
+the criteria length limit actually falls. Mocking the `GmailClient` port (Decision 3)
+deliberately encodes our *belief* about those semantics — so a wrong belief is invisible to
+every automated tier, and stays invisible until it reaches a real inbox. The design docs can
+only cite one-off manual spot-checks, which are unrepeatable and go stale silently.
+
+**Decision:** Keep a **probe script** (`scripts/qa-gmail-probe.sh`) as a **fourth,
+manual, non-gating tier**. It is deliberately *not* wired into CI: it needs a real account
+and real mail, so it can never be deterministic, and a red probe is a fact about Gmail
+rather than a fact about our code.
+
+Criteria it is built to:
+
+1. **Read-only wherever the question allows it.** Anything answerable by *observing* the
+   account — query semantics, the shape of stored filter criteria — uses `gmail.readonly`.
+   Write scope (`gmail.settings.basic`) is requested only for the one question nothing
+   existing can answer (where the length limit falls), and that probe is additionally
+   opt-in at the command line.
+2. **Least privilege, short-lived.** The credential is minted by the already-authenticated
+   Google CLI, scoped per probe, lives about an hour, and is revocable in one command. No
+   token is printed or stored in the repo (architecture.md §7).
+3. **Metadata only.** Message reads use `format=metadata` with the `From` header — the same
+   restriction the app itself observes (architecture.md §5), so running QA never inspects
+   content the product would refuse to.
+4. **Never destructive.** Probes that must write build filters against a domain that cannot
+   receive mail (`.invalid`, RFC 2606) and delete each one immediately, including on
+   interrupt — a probe can never match, label, or trash a real message.
+5. **Reports evidence, not a verdict.** Output states what Gmail did (the sender domains a
+   query returned, the stored criteria string) so the finding can be pasted into an issue
+   and re-verified later, rather than collapsing to pass/fail.
+6. **Finds its own subjects.** No domain or address is baked in: the probe samples the
+   mailbox and reports which domains genuinely have mail from *both* themselves and a
+   subdomain (parent/child by label-boundary suffix match between observed hosts — no
+   public-suffix list, no guessing), then points the other probes at them.
+7. **Feeds the real rule set back into the real code.** `filters --json` dumps the account's
+   filters in the `NativeFilter` shape, which a skipped-by-default spec
+   (`realFilters.analysis.test.ts`) replays through the compiler, `reconcileFilters` and
+   the confirm-first suggesters. Every other tier feeds those functions filters *we*
+   invented, so they only meet shapes we already thought of; a years-old mailbox supplies
+   the ones we didn't. The spec asserts the guarantees that must hold on any input —
+   nothing untracked is offered for deletion, no id is deleted twice, a consolidation always
+   replaces what it removes, and reconciling the account against itself is a no-op (the
+   churn-on-every-sync failure, checked against real criteria). Dumps carry the account's own
+   sender addresses, so they stay in the gitignored `.local/`.
+8. **Self-cleaning credentials.** A credential that has expired or been revoked is detected
+   and cleared, rather than resurfacing as an opaque 401 on the next run.
+
+**Rationale:** These semantics change what we build, not just whether a test passes — a
+wrong assumption about subdomain matching is a data-affecting bug, and the character budget
+decides when a domain block silently narrows. Making the check repeatable means a finding
+can be re-confirmed when Gmail drifts or when the filter compiler grows, instead of being
+re-derived by hand each time.
+
+**Alternatives considered:**
+- *Wire it into CI* — rejected: it needs a real mailbox with real mail, so it cannot be
+  deterministic, and a Gmail-side change would break the gate for reasons no commit caused.
+- *Trust the mock* — rejected: that is exactly how an undocumented-behaviour bug survives
+  every tier and ships.
+
 ## Interfaces
 
 ### Test File Layout
@@ -442,6 +506,7 @@ it("applies a block decision and records a compiled filter", async () => {
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.sh`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived CLI-minted credentials (self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |
 | 2026-07-18 | Add **Decision 8: property-based tests** (fast-check under Vitest, `*.property.test.ts`) for pure-core invariants — when to reach for them vs example tests, seed/reproducibility, generous bounds for probabilistic invariants; fuzzing of untrusted-input boundaries noted as related (#166). Landed compiler (cap/coverage/idempotence/stability), effective-status precedence, and `keyFor` collision properties (#165). | Claude |

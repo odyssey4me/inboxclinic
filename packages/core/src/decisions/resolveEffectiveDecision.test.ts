@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
-import { isMoreSpecific, resolveEffectiveDecision, SCOPE_SPECIFICITY } from "./resolveEffectiveDecision";
+import {
+  isMoreSpecific,
+  resolveEffectiveDecision,
+  SCOPE_SPECIFICITY,
+} from "./resolveEffectiveDecision";
 
 describe("resolveEffectiveDecision", () => {
   it("lets a domain decision override an address decision", () => {

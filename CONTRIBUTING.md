@@ -103,6 +103,26 @@ HTML report lands in `playwright-report/`.
 Test structure, tiers, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
 Coverage gate: **≥80%** on `packages/core` and `packages/store` logic.
 
+**Manual QA against real Gmail — `./scripts/qa-gmail-probe.sh`.** A fourth, **non-gating**
+tier for provider behaviour Google doesn't document and no emulator reproduces: whether
+`from:*@domain` is a wildcard, whether it spans **subdomains**, whether `criteria.negatedQuery`
+round-trips byte-for-byte, and where the criteria length limit really falls. Mocking the
+`GmailClient` port encodes our *belief* about these, so a wrong belief passes every automated
+tier — this is how that belief gets checked. Design criteria (read-only wherever the question
+allows, least-privilege short-lived credentials, metadata-only reads, never destructive) live
+in [docs/design-testing.md](docs/design-testing.md) Decision 9.
+
+```bash
+./scripts/qa-gmail-probe.sh login       # read-only consent via the Google CLI (~1h)
+./scripts/qa-gmail-probe.sh discover    # find real subjects in the mailbox
+./scripts/qa-gmail-probe.sh search      # wildcard + subdomain + exclusion semantics
+./scripts/qa-gmail-probe.sh filters     # stored negatedQuery shape (read-only)
+./scripts/qa-gmail-probe.sh revoke      # drop the credential when done
+```
+
+Paste findings into the relevant issue as evidence — they date-stamp what Gmail did, which is
+the only ground truth available for these questions.
+
 ### Dependency updates
 
 **Renovate** opens update PRs; CI gates every merge. Coupled ecosystems (vite, eslint, types)
