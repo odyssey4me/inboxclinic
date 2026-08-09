@@ -91,6 +91,7 @@ describe("simulateEnforcement", () => {
       lastSyncAt: null,
       totalFilters: 1,
       managedFilterIds: ["f1"],
+      enumeratedDomains: [],
     });
 
     const impact = await simulateEnforcement(gmail, store, []);
@@ -117,6 +118,7 @@ describe("simulateEnforcement", () => {
       lastSyncAt: null,
       totalFilters: 1,
       managedFilterIds: ["f1"],
+      enumeratedDomains: [],
     });
 
     // Previewing "trust promo@shop.com" would (in the real apply) record it as a domain
@@ -205,6 +207,7 @@ describe("simulateEnforcement", () => {
       lastSyncAt: null,
       totalFilters: 1,
       managedFilterIds: ["f1"],
+      enumeratedDomains: [],
     });
 
     const impact = await simulateEnforcement(gmail, store, [
@@ -229,6 +232,7 @@ describe("simulateEnforcement", () => {
       lastSyncAt: null,
       totalFilters: 1,
       managedFilterIds: ["f1"],
+      enumeratedDomains: [],
     });
 
     // Previewing "not sure" (defer) must leave the block intact — the real apply is a no-op,
@@ -254,6 +258,7 @@ describe("simulateEnforcement", () => {
       lastSyncAt: null,
       totalFilters: 1,
       managedFilterIds: ["d1"],
+      enumeratedDomains: [],
     });
 
     const impact = await simulateEnforcement(gmail, store, [

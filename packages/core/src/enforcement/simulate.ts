@@ -11,6 +11,7 @@
  */
 
 import { compileFilters, reconcileFilters } from "./compileFilters";
+import { withCurrentFilterForm } from "./filterForm";
 import { planActions } from "./planActions";
 import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
 import { registrableDomain } from "../domains/registrableDomain";
@@ -265,7 +266,13 @@ export async function simulateEnforcement(
             .map((s) => s.email),
         };
       });
-    const compiled = compileFilters(blockedSenders, blockedDomains);
+    // Same filter-form input as enforce, so the previewed filter counts match what an
+    // apply would actually do to a domain sitting on the criteria budget (#208).
+    const compiled = compileFilters(
+      blockedSenders,
+      blockedDomains,
+      await withCurrentFilterForm(store),
+    );
     const existing = await client.listFilters();
     const managedFilterIds = new Set((await store.filterSync.get())?.managedFilterIds ?? []);
     const plan = reconcileFilters(compiled.filters, existing, managedFilterIds);

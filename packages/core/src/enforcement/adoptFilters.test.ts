@@ -76,6 +76,7 @@ describe("suggestFilterAdoptions", () => {
       lastSyncAt: null,
       totalFilters: 1,
       managedFilterIds: ["already-managed"],
+      enumeratedDomains: [],
     });
     const gmail = new MockGmailClient();
     gmail.seedFilters([block("already-managed", "spam@a.com")]);
@@ -119,6 +120,7 @@ describe("applyFilterAdoptions", () => {
       lastSyncAt: 1000,
       totalFilters: 2,
       managedFilterIds: ["existing"],
+      enumeratedDomains: [],
     });
 
     await applyFilterAdoptions(store, [

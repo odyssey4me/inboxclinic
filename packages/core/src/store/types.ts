@@ -269,6 +269,20 @@ export interface FilterSyncState {
    * metadata field, so provenance is tracked locally instead of inferred from shape.
    */
   managedFilterIds: string[];
+  /**
+   * Domains whose block is currently compiled in the **enumerate form** — one
+   * `from:<address>` filter per still-blocked member instead of a single `*@domain` +
+   * `negatedQuery` — because its exception carve-out overflowed one filter's criteria
+   * budget (#191).
+   *
+   * The compiler is pure and sees only the desired state, so it cannot know which form a
+   * domain is already in; this is how it is told (#208). Without it, a domain sitting on the
+   * budget boundary tears down and rebuilds 1↔N filters every time an exception is added or
+   * removed. **Required, not optional, deliberately:** every `filterSync.put` writes a whole
+   * record rather than spreading the previous one, so an optional field would be silently
+   * dropped by the sync/tidy/adopt paths and the form would reset on every sync.
+   */
+  enumeratedDomains: string[];
 }
 
 export interface Setting {

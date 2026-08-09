@@ -191,6 +191,7 @@ export {
   DEFAULT_MAX_DOMAINS_PER_FILTER,
   DEFAULT_FILTER_SOFT_CAP,
   DEFAULT_MAX_CRITERIA_CHARS,
+  ENUMERATE_PROMOTE_RATIO,
   type CompileFiltersOptions,
   type CompiledFilters,
   type ExceptionOverflow,
@@ -199,6 +200,9 @@ export {
 
 // Reading existing native filters (shared by the provider adapter and replay tooling).
 export { unwrapExcludeFrom } from "./enforcement/filterShape";
+
+// The current broad↔enumerate filter form — read once, shared by every compile site (#208).
+export { enumeratedFormOf, withCurrentFilterForm } from "./enforcement/filterForm";
 
 // Confirm-first adoption of untracked filters that already match a desired one (#80).
 export {

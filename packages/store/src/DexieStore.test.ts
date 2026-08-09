@@ -269,6 +269,7 @@ describe("DexieStore filterSync (singleton) and settings", () => {
       lastSyncAt: 123,
       totalFilters: 7,
       managedFilterIds: ["filter-1"],
+      enumeratedDomains: ["shop.com"],
     };
     await store.filterSync.put(state);
 

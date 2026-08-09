@@ -196,6 +196,55 @@ describe("compileFilters", () => {
       expect(overflows.exceptionOverflows).toHaveLength(1);
     });
 
+    it("holds an enumerated domain there until it is comfortably back under budget (#208)", () => {
+      // The whole point is the asymmetry, so the sizes are exact. `*@shop.com` is 11 chars,
+      // the wrapper 7, each `aN@shop.com` 11, joined by " OR " (4) — so n addresses cost
+      // 15n + 14. With a budget of 100 the promote threshold is 80:
+      //   n=6 → 104  over the budget       → degrade
+      //   n=5 →  89  under 100, over 80    → the dead band: stays enumerated
+      //   n=4 →  74  under 80              → promote back
+      const domain = "shop.com";
+      const addresses = (n: number): string[] =>
+        Array.from({ length: n }, (_, i) => `a${i}@shop.com`);
+      const compile = (n: number, enumerated: boolean) =>
+        compileFilters(
+          [],
+          [
+            {
+              domain,
+              excludeAddresses: addresses(n),
+              blockedMemberAddresses: ["promo@shop.com"],
+            },
+          ],
+          { maxCriteriaChars: 100, enumeratedDomains: enumerated ? [domain] : [] },
+        );
+
+      expect(compile(6, false).exceptionOverflows).toHaveLength(1);
+      // The step a single threshold gets wrong: back under the budget, so it would rebuild the
+      // broad filter — and the next added exception would tear it down again.
+      expect(compile(5, true).exceptionOverflows).toHaveLength(1);
+      expect(compile(4, true).exceptionOverflows).toEqual([]);
+    });
+
+    it("applies the full budget to a domain that is not already enumerated (#208)", () => {
+      // Same 89-char carve-out that stays enumerated above — a domain arriving at it from the
+      // broad form is under budget and stays broad. The threshold depends on where it already is.
+      const { exceptionOverflows, filters } = compileFilters(
+        [],
+        [
+          {
+            domain: "shop.com",
+            excludeAddresses: Array.from({ length: 5 }, (_, i) => `a${i}@shop.com`),
+            blockedMemberAddresses: ["promo@shop.com"],
+          },
+        ],
+        { maxCriteriaChars: 100 },
+      );
+
+      expect(exceptionOverflows).toEqual([]);
+      expect(filters.map((f) => f.from)).toEqual(["*@shop.com"]);
+    });
+
     it("degrades to one filter per still-blocked member when the carve-out won't fit", () => {
       const { filters, exceptionOverflows } = compileFilters(
         [],

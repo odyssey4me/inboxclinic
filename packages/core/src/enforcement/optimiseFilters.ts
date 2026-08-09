@@ -260,6 +260,9 @@ export async function applyFilterOptimisations(
     // view honest rather than leaving the pre-tidy count until the next sync re-reads it.
     totalFilters: Math.max(0, (previousSync?.totalFilters ?? 0) + filtersCreated - filtersDeleted),
     managedFilterIds: [...managedFilterIds],
+    // Tidying doesn't recompile, so the filter form is unchanged — carry it forward rather
+    // than let a whole-row write silently reset it (#208).
+    enumeratedDomains: previousSync?.enumeratedDomains ?? [],
   });
 
   return { filtersCreated, filtersDeleted, failures };

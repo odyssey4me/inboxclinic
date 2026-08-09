@@ -223,11 +223,23 @@ provide durable, server-side enforcement with no backend of ours.
 >    that can never be created.
 > 3. **Hysteresis** so a rule near the boundary doesn't flip broad↔enumerate (tearing down/rebuilding
 >    1↔N filters) on a single added/removed exception: degrade at the limit, and only re-promote to
->    the broad form once the derived `negatedQuery` is comfortably back under budget (margin, not the
->    exact threshold). **Not yet implemented** — the compiler is pure and doesn't know which form a
->    rule currently takes, so hysteresis needs the reconcile side to feed that back in; #191 shipped
->    the single deterministic threshold first, since flapping costs filter churn while an
->    unbounded query costs the block entirely.
+>    the broad form once the derived `negatedQuery` is back under **`ENUMERATE_PROMOTE_RATIO`** (0.8)
+>    of the budget — a margin, not the exact threshold. Implemented in #208.
+>
+>    The compiler is pure and sees only the desired state, so it is **told** which form each domain
+>    is currently in: `filterSyncState.enumeratedDomains`, written after a reconcile has actually
+>    applied that form, and read back through **one shared helper** (`withCurrentFilterForm`) by
+>    every `compileFilters` caller. The alternative — each call site inferring the form from the
+>    account's filters — is the shape that produced three separate preview/apply divergences
+>    (#192, #218, #221); one stored value read one way cannot drift between call sites. The field
+>    is **required** on `FilterSyncState` rather than optional, because every `filterSync.put`
+>    writes a whole record instead of spreading the previous one, so an optional field would be
+>    silently dropped by the sync/tidy/adopt paths.
+>
+>    Drift against Gmail is tolerated and self-correcting: the stored form picks the desired
+>    *shape*, never asserts what exists, and a stale entry only biases a domain towards *staying*
+>    enumerated until its carve-out is comfortably under budget. Note that raising the budget
+>    (#213) does not remove this boundary — it moves it, and makes each crossing larger.
 > 4. **Soft cap:** the enumerate form's `*@subdomain` filters count against the ~450 soft cap like any
 >    other; a pathological rule (many blocked subdomains) is bounded by the **existing soft-cap
 >    behaviour** (`capReached`/`skippedAtCap` surfaced), not a special case — it's just the rule that
@@ -523,6 +535,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 |------|--------|--------|
 | 2026-08-09 | **Decision 5 point 6 — release ownership of a hand-edited managed filter (#232):** `reconcileFilters` narrows to filters it can reason about, dropping any carrying unmodelled criteria — but a filter the app created and the user then hand-edited in Gmail's UI stayed in `managedFilterIds` forever, since the "does it still exist?" prune can't remove an id whose filter is still there, just no longer comparable. `FilterReconcilePlan` gains `disowned: string[]` — managed ids whose filter is present but no longer comparable — which the caller drops from persisted `managedFilterIds`. The filter itself is never deleted; ownership is released, not enforced. | Claude |
 | 2026-08-09 | **Decision 5 point 6 — only reason about filters we fully model (#212):** a real account turned up filters matching on `to`/`subject`/`query`, which `FilterSpec` drops. Two such filters signed identically and the tidy-up offered to delete one as a duplicate; a `from:X AND subject:Y` rule also signs like a plain block on X, so adoption would claim it and reconcile could later delete it. Such filters are now foreign by construction — never adopted, deleted, deduplicated, counted as coverage, or read as a prior decision — and the adapter reports which criteria it dropped. Renumbers the former points 6–7 to 7–8. | Claude |
+| 2026-08-09 | **Decision 5 point 3 — hysteresis implemented (#208):** a domain sitting on the criteria budget flipped broad↔enumerate on a single added or removed exception, each flip tearing down and rebuilding 1↔N Gmail filters. `compileFilters` now applies a dead band — degrade at the budget, re-promote only under `ENUMERATE_PROMOTE_RATIO` (0.8) of it — fed by `filterSyncState.enumeratedDomains`, written after a reconcile applies the form and read by every compile site through one shared `withCurrentFilterForm`. Chose **persist** over each call site deriving the form from the account's filters: independent re-derivation is what produced #192/#218/#221. The field is required rather than optional, since every `filterSync.put` writes a whole record and an optional one would be silently dropped by the sync/tidy/adopt paths. Built now rather than after #213 because raising the budget moves the boundary rather than removing it — and makes each crossing larger. | Claude |
 | 2026-08-09 | **Decision 5 exception-overflow generalised + implemented for exact-domain blocks (#191):** the ~1500-char criteria budget binds *any* domain-scope carve-out, not just the parent blocks of #182 — today's shipped `*@domain` + `negatedQuery` path could already build a rule Gmail rejects, retried forever while the domain stayed unblocked. Spelled out the exact-domain enumerate form (one `from:<address>` per still-blocked observed sender, **no** `*@domain` filter, since a plain one would trash the excepted addresses), the "emit nothing and report it" fallback when no member list is available, and marked hysteresis (point 3) as not yet implemented — it needs the reconcile side to feed back which form a rule currently takes. | Claude |
 | 2026-08-09 | **Decision 9 ownership bookkeeping (#202):** state that the provenance rule runs in both directions — applying a consolidation records the replacement `*@domain` filter's id in `managedFilterIds` and drops the removed ids in the same write, so the app's own broadest rule is never untracked from birth (uncleanable by reconcile, and offered back via Decision 10 adoption). Note that consolidation reusing `DEFAULT_DOMAIN_BLOCK_THRESHOLD` is what keeps the tidy-up from being churned back by the next reconcile. | Claude |
 | 2026-08-09 | **Interfaces + Examples de-drifted (#193):** the illustrative `GmailClient` block described a port that no longer existed (`authorize`/`scanInbox`/`syncSince`/`listSenders`/`applyActions`/`reconcileFilters`, plus a `FilterSpec` of `{ fromQuery, … }`), and the three examples called the same absent methods. Replaced the block with a link to the authoritative source (`packages/core/src/ports/GmailClient.ts`) plus a capability/tier table that carries what the code can't — scope tier and originating decision; rewrote the examples against the real API; and stated explicitly that `compileFilters`/`reconcileFilters` are pure functions in `enforcement/compileFilters.ts`, not port methods. | Claude |

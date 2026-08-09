@@ -11,6 +11,7 @@
 
 import { compileFilters, reconcileFilters, type CompileFiltersOptions } from "./compileFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
+import { withCurrentFilterForm } from "./filterForm";
 import { effectiveBlockedDomains, effectiveBlockedSenders } from "../decisions/effectiveStatus";
 import type { GmailClient } from "../ports/GmailClient";
 import type { Store } from "../store";
@@ -41,7 +42,7 @@ export async function suggestFilterAdoptions(
       excludeAddresses: d.excludeAddresses,
       blockedMemberAddresses: d.blockedMemberAddresses,
     })),
-    options,
+    await withCurrentFilterForm(store, options),
   );
 
   const existing = await client.listFilters();
@@ -81,7 +82,7 @@ export async function applyFilterAdoptions(
       excludeAddresses: d.excludeAddresses,
       blockedMemberAddresses: d.blockedMemberAddresses,
     })),
-    options,
+    await withCurrentFilterForm(store, options),
   );
   const desiredFroms = new Set(compiled.filters.map((filter) => filter.from.toLowerCase()));
 
@@ -102,6 +103,9 @@ export async function applyFilterAdoptions(
     lastSyncAt: previousSync?.lastSyncAt ?? null,
     totalFilters: previousSync?.totalFilters ?? 0,
     managedFilterIds: [...managedFilterIds],
+    // Adoption records ownership of an existing filter; it compiles nothing, so the form is
+    // unchanged and must survive this whole-row write (#208).
+    enumeratedDomains: previousSync?.enumeratedDomains ?? [],
   });
 
   return { adopted: adoptions.length - skipped, skipped };
