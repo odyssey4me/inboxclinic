@@ -449,3 +449,84 @@ describe("applyDecisions — batch ordering (#167)", () => {
     expect((await store.senders.get(keyFor("a@acme.com")))?.trustStatus).toBe("trusted");
   });
 });
+
+describe("parent-domain scope (#184)", () => {
+  /** A store with a parent rule over example.com, plus a subdomain sender. */
+  async function seedSubtree(): Promise<Store> {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainFix("example.com", { trustStatus: "blocked", decisionScope: "parentDomain" }),
+    );
+    await store.domains.put(domainFix("news.example.com"));
+    await store.senders.put(senderFix("promo@news.example.com"));
+    await store.prompts.put(promptFix("promo@news.example.com"));
+    return store;
+  }
+
+  it("records an address decided under a parent rule as an exception to it", async () => {
+    const store = await seedSubtree();
+
+    await applyDecision(store, {
+      subjectId: keyFor("promo@news.example.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    // Without this the parent rule silently overrides the decision just made, and the
+    // sender's mail is trashed anyway — the #167 failure, one level up.
+    const parent = await store.domains.get(keyFor("example.com"));
+    expect(parent?.exceptionAddresses).toContain("promo@news.example.com");
+  });
+
+  it("records a subdomain decided under a parent rule as an exception to it", async () => {
+    const store = await seedSubtree();
+
+    await applyDecision(store, {
+      subjectId: keyFor("news.example.com"),
+      scope: "domain",
+      decision: "trust",
+      now: NOW,
+    });
+
+    const parent = await store.domains.get(keyFor("example.com"));
+    expect(parent?.exceptionDomains).toContain("news.example.com");
+  });
+
+  it("resolves the prompts of every sender in the subtree, not just exact-name members", async () => {
+    const store = await seedSubtree();
+
+    const result = await applyDecision(store, {
+      subjectId: keyFor("example.com"),
+      scope: "parentDomain",
+      decision: "block",
+      now: NOW,
+    });
+
+    // The sender is at news.example.com — an exact-name member query would never find it.
+    expect(result.resolvedPromptIds).toEqual([keyFor("promo@news.example.com")]);
+    const domain = await store.domains.get(keyFor("example.com"));
+    expect(domain?.decisionScope).toBe("parentDomain");
+  });
+
+  it("applies broadest-first in a batch, so each narrower decision is carved out", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainFix("example.com"));
+    await store.domains.put(domainFix("news.example.com"));
+    await store.senders.put(senderFix("vip@news.example.com"));
+
+    // Submitted narrowest-first on purpose: the ordering must not depend on the caller.
+    await applyDecisions(store, [
+      { subjectId: keyFor("vip@news.example.com"), scope: "address", decision: "trust", now: NOW },
+      { subjectId: keyFor("news.example.com"), scope: "domain", decision: "trust", now: NOW },
+      { subjectId: keyFor("example.com"), scope: "parentDomain", decision: "block", now: NOW },
+    ]);
+
+    const parent = await store.domains.get(keyFor("example.com"));
+    expect(parent?.exceptionDomains).toContain("news.example.com");
+    expect(parent?.exceptionAddresses).toContain("vip@news.example.com");
+    // …and the sender the user kept is effectively trusted, not swept by the parent block.
+    const sender = await store.senders.get(keyFor("vip@news.example.com"));
+    expect(sender?.trustStatus).toBe("trusted");
+  });
+});

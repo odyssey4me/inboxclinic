@@ -25,7 +25,9 @@
 
 import { recordDailyAnalytics } from "../analytics/record";
 import { computeTrustScore } from "../scoring/trustScore";
+import { registrableDomain } from "../domains/registrableDomain";
 import { keyFor } from "../keys";
+import { SCOPE_SPECIFICITY } from "./resolveEffectiveDecision";
 import { senderToSnapshot } from "../scoring/senderSnapshot";
 import type { Store } from "../store";
 import type {
@@ -109,6 +111,27 @@ async function deferPrompt(store: Store, id: string, now: number): Promise<boole
   return true;
 }
 
+/**
+ * The broader rules currently covering a sender domain: its own record when domain-scoped,
+ * and the registrable domain's record when that carries a parent-domain rule.
+ *
+ * A narrower decision made under either must be recorded as an exception on it, or the
+ * broader rule silently overrides the decision the user just made — the failure #167 fixed
+ * for domains, which a parent rule reintroduces one level up.
+ */
+async function broaderRulesFor(store: Store, senderDomain: string): Promise<Domain[]> {
+  const rules: Domain[] = [];
+  const exact = await store.domains.get(keyFor(senderDomain));
+  if (exact?.decisionScope === "domain") rules.push(exact);
+
+  const registrable = registrableDomain(senderDomain);
+  if (registrable !== null && keyFor(registrable) !== keyFor(senderDomain)) {
+    const parent = await store.domains.get(keyFor(registrable));
+    if (parent?.decisionScope === "parentDomain") rules.push(parent);
+  }
+  return rules;
+}
+
 async function applyAddressDecision(
   store: Store,
   input: ApplyDecisionInput,
@@ -138,17 +161,19 @@ async function applyAddressDecision(
       pendingActions,
     });
 
-    // An address decision made under an existing domain decision is an exception. Defer is
+    // An address decision made under an existing broader rule is an exception to it. Defer is
     // not such a decision — it leaves the subject undecided (`statusFor`) and only decays the
     // prompt, so it must not write into a field whose entries record a deliberate carve-out
-    // from the domain's rule (#195).
-    const domain =
-      decision === "defer" ? undefined : await store.domains.get(keyFor(sender.domain));
-    if (domain?.decisionScope === "domain" && !domain.exceptionAddresses.includes(sender.email)) {
-      await store.domains.put({
-        ...domain,
-        exceptionAddresses: [...domain.exceptionAddresses, sender.email],
-      });
+    // from a rule (#195). Both the exact domain and the registrable domain can carry one, and
+    // each records the carve-out on its own record.
+    if (decision !== "defer") {
+      for (const rule of await broaderRulesFor(store, sender.domain)) {
+        if (rule.exceptionAddresses.includes(sender.email)) continue;
+        await store.domains.put({
+          ...rule,
+          exceptionAddresses: [...rule.exceptionAddresses, sender.email],
+        });
+      }
     }
   }
 
@@ -187,17 +212,42 @@ async function applyDomainDecision(
     : decision === "block"
       ? (input.actions ?? [])
       : [];
-  const members = await store.senders.query({ domain: domain.domain });
+  // A parent-domain rule covers every sender under the registrable domain, so its members
+  // cannot be found by exact-name match the way an exact-domain decision's are.
+  const members =
+    input.scope === "parentDomain"
+      ? (await store.senders.query({})).filter(
+          (sender) => registrableDomain(sender.domain) === domain.domain.toLowerCase(),
+        )
+      : await store.senders.query({ domain: domain.domain });
 
   if (!noOp) {
     await store.domains.put({
       ...domain,
       trustStatus: status,
       trustDecidedAt: now,
-      decisionScope: "domain",
+      decisionScope: input.scope,
       decisionContext: domainContext(domain, members, decidedVia),
       pendingActions,
     });
+
+    // A decision on an exact domain under a parent-domain rule carves that subdomain out of
+    // the parent, the same way an address decision carves itself out of a domain rule.
+    if (decision !== "defer" && input.scope === "domain") {
+      const registrable = registrableDomain(domain.domain);
+      if (registrable !== null && keyFor(registrable) !== keyFor(domain.domain)) {
+        const parent = await store.domains.get(keyFor(registrable));
+        if (
+          parent?.decisionScope === "parentDomain" &&
+          !parent.exceptionDomains.includes(domain.domain)
+        ) {
+          await store.domains.put({
+            ...parent,
+            exceptionDomains: [...parent.exceptionDomains, domain.domain],
+          });
+        }
+      }
+    }
   }
 
   const resolvedPromptIds: string[] = [];
@@ -227,9 +277,11 @@ export function applyDecision(
   store: Store,
   input: ApplyDecisionInput,
 ): Promise<ApplyDecisionResult> {
-  return input.scope === "domain"
-    ? applyDomainDecision(store, input)
-    : applyAddressDecision(store, input);
+  // Both domain scopes act on a `Domain` record; only the recorded scope and the members
+  // they cover differ, so `parentDomain` must not fall through to the address branch.
+  return input.scope === "address"
+    ? applyAddressDecision(store, input)
+    : applyDomainDecision(store, input);
 }
 
 /** The settled outcome of one decision in an `applyDecisions` batch. */
@@ -283,4 +335,10 @@ export async function applyDecisions(
   return outcomes;
 }
 
-const scopeRank = (scope: DecisionScope): number => (scope === "domain" ? 0 : 1);
+/**
+ * Apply order: **broadest first**, the mirror of the specificity ladder. Derived from
+ * `SCOPE_SPECIFICITY` rather than restated, so a new scope cannot be added with an
+ * accidental order — the map is exhaustive over `DecisionScope` and fails to compile
+ * without an entry.
+ */
+const scopeRank = (scope: DecisionScope): number => -SCOPE_SPECIFICITY[scope];

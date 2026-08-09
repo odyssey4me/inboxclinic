@@ -11,7 +11,8 @@
  * (`prompt.id === sender.id`) so re-running a scan upserts rather than duplicates.
  */
 
-import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
+import { effectiveSenderStatus, parentDomainRuleFor } from "../decisions/effectiveStatus";
+import { keyFor } from "../keys";
 import {
   emptyDecisionHistory,
   prioritisePrompts,
@@ -36,18 +37,18 @@ export interface GeneratePromptsOptions {
 export function generatePrompts(senders: Sender[], options: GeneratePromptsOptions): Prompt[] {
   const { now } = options;
   const history = options.history ?? emptyDecisionHistory();
-  const domainByName = new Map((options.domains ?? []).map((domain) => [domain.domain, domain]));
+  // Keyed the way the precedence helpers key domains, so a parent-domain rule is found by
+  // the sender's registrable domain rather than by an exact name match.
+  const domainsByKey = new Map(
+    (options.domains ?? []).map((domain) => [keyFor(domain.domain), domain]),
+  );
 
   const undecided = senders.filter((sender) => {
-    const domain = domainByName.get(sender.domain);
-    return (
-      resolveEffectiveDecision({
-        addressStatus: sender.trustStatus === "pending" ? null : sender.trustStatus,
-        addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
-        domainStatus: domain && domain.trustStatus !== "pending" ? domain.trustStatus : null,
-        domainScope: domain?.decisionScope ?? null,
-      }).status === "pending"
-    );
+    const domain = domainsByKey.get(keyFor(sender.domain));
+    // A sender covered by a parent-domain rule is already decided, and prompting for it would
+    // ask the user to re-answer a question they answered for the whole subtree (#123/#184).
+    const parentRule = parentDomainRuleFor(sender.domain, domainsByKey);
+    return effectiveSenderStatus(sender, domain, parentRule) === "pending";
   });
   const prioritised = prioritisePrompts(undecided.map(senderToSnapshot), history, now);
 
