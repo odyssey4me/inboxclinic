@@ -511,6 +511,7 @@ function newDomain(domain: string, senderCount: number, totalEmails: number, now
     senderCount,
     totalEmails,
     exceptionAddresses: [],
+    exceptionDomains: [],
     updatedAt: now,
     trustDecidedAt: null,
     decisionScope: null,

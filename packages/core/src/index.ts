@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 export { keyFor } from "./keys";
+// Registrable-domain (eTLD+1) grouping for parent-domain rules (#136/#183).
+export {
+  publicSuffix,
+  registrableDomain,
+  sameRegistrableDomain,
+} from "./domains/registrableDomain";
 export { trustTier, type TrustTier, type TrustTierName, type TrustTierColour } from "./trust/tiers";
 
 // Provider-client port (Gmail).

@@ -121,5 +121,14 @@ export function parseStoreDump(blob: Uint8Array): StoreDump {
     }
     dump[table] = rows;
   }
+  // A backup taken before `Domain.exceptionDomains` existed has no such field, and restore
+  // writes rows straight through — the Dexie upgrade only runs on a version change, so it
+  // never sees them. Default here, the one gate both backends share, so a restored record
+  // can't hand `undefined` to code typed against an array (#183).
+  for (const row of dump.domains) {
+    if (!Array.isArray((row as Record<string, unknown>).exceptionDomains)) {
+      (row as Record<string, unknown>).exceptionDomains = [];
+    }
+  }
   return dump as unknown as StoreDump;
 }

@@ -51,7 +51,7 @@ This design implements the following sections of [architecture.md](architecture.
 |-------|-------------|--------------------|---------|
 | `profile` | `googleEmail` | — | Single record: account, onboarding status, `lastHistoryId`, counts, `privacy.contributeToAggregate` (default `true`). |
 | `senders` | `id` (b64url email) | `domain`, `trustStatus`, `category`, `updatedAt` | Per-sender stats, signals, decision, bounded `trustHistory` (≤50), `decisionContext`. |
-| `domains` | `id` (b64url domain) | `trustStatus`, `updatedAt` | Per-domain aggregates, decision scope, `exceptionAddresses[]`. |
+| `domains` | `id` (b64url domain) | `trustStatus`, `updatedAt` | Per-domain aggregates, decision scope, `exceptionAddresses[]`, `exceptionDomains[]` (subdomains carved out of a parent-domain rule, #183). |
 | `prompts` | `id` | `priorityScore`, `batchGroupId`, `expiresAt`, `resolvedAt` | Pending trust prompts; 30-day TTL. |
 | `analyticsDaily` | `date` (YYYY-MM-DD) | — | Daily counters. |
 | `analyticsMonthly` | `month` (YYYY-MM) | — | Monthly counters, `inboxHealthScore`, `estimatedTimeSaved`, `achievements[]`. |
@@ -102,6 +102,13 @@ const keyFor = (s: string) =>
 - **Dexie version number** is bumped on any schema change; migrations are declared
   with `db.version(n).stores({...}).upgrade(...)`. Alpha permits destructive
   migrations (architecture constraints), but prefer a transform where cheap.
+  **Current version: 2** — v2 adds `Domain.exceptionDomains` (#183) and backfills `[]` on
+  existing rows. Indexes are unchanged; the field is read whole, never queried.
+- **A new field needs the restore path too, not just the migration.** `importAll` writes
+  rows straight through, and the Dexie upgrade only runs on a version change — so a backup
+  taken before the field existed never meets it. `parseStoreDump` (the one gate both the
+  Dexie and in-memory backends share) defaults the field, so a restored record can't hand
+  `undefined` to code typed against it.
 - **TTL sweep:** prompts past `expiresAt` are pruned on app start and after sync.
 
 ## Error Handling
@@ -130,5 +137,6 @@ const keyFor = (s: string) =>
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Schema v2 — `Domain.exceptionDomains[]` (#183):** carries the subdomains carved out of a parent-domain rule (design-trust-decisions.md Decision 9), alongside the existing `exceptionAddresses[]`. Non-indexed, so the migration is a data transform that backfills `[]`; `parseStoreDump` defaults it as well, since a pre-v2 backup bypasses the Dexie upgrade entirely. | Claude |
 | 2026-06-28 | Initial draft (client-only PWA). | Claude |
 | 2026-07-05 | Move the Drive backup/restore mechanism to design-backup-restore.md; keep only the store `exportAll`/`importAll`/`wipeAll` primitives here (pointer to the new doc). | Claude |

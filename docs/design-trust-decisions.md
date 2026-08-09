@@ -201,8 +201,10 @@ senders together. The keep/defer split removes today's dismiss ambiguity.
 ### Decision 9: Parent-domain (registrable-domain) rules — **ratified 2026-07-19 (#136); #181 spike done**
 
 > **Ratified** (maintainer, 2026-07-19), including enforcement: the #181 real-Gmail spike confirmed
-> a native bare-domain filter covers subdomains (point 5). Nothing is built yet — ready to split
-> into implementation issues.
+> a native bare-domain filter covers subdomains (point 5). Build 1/4 (#183) has landed — the
+> `tldts` grouping helpers, the `parentDomain` scope, and `Domain.exceptionDomains[]` — with no
+> behaviour change yet; precedence (#184), the filter compiler (#185) and the opt-in UX (#186)
+> follow.
 
 **Context:** One organisation often sends from many subdomains of a single registrable domain —
 `news.example.com`, `mail.example.com`, `t.example.com`, `email.mkt.example.com`. Today each is a
@@ -218,7 +220,12 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
    "the last two labels": `foo.co.uk`, `x.github.io`, `y.pages.dev` would group catastrophically
    wrong (every unrelated `*.github.io` tenant lumped together). Compute it with **`tldts`**
    (ratified: small, actively maintained, offline, tree-shakeable) — bundled and run
-   **client-side/offline** to preserve the no-backend invariant. `tldts` also returns the public
+   **client-side/offline** to preserve the no-backend invariant.
+   **`allowPrivateDomains: true` is required, not optional (#183).** `tldts` defaults to the
+   PSL's ICANN section alone, under which `x.github.io` reduces to `github.io` — the exact
+   catastrophic grouping this point exists to prevent, and one that would let a single tenant's
+   parent rule cover every other tenant of a hosting suffix. The PRIVATE section must be enabled
+   for the grouping to mean what this decision says it means. `tldts` also returns the public
    suffix, so the same dependency serves the future TLD scope (#180). **Maintenance:** the PSL is
    bundled at `tldts`'s release cadence, so a brand-new gTLD isn't recognised until the dep is
    bumped — Renovate keeps it current (a stale list only mis-groups a just-created suffix; low risk).
@@ -613,6 +620,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 9 build 1/4 landed (#183)** — `tldts` grouping helpers, `parentDomain` on the `DecisionScope` ladder, `Domain.exceptionDomains[]`; no behaviour change yet. Recorded the implementation constraint the decision assumed but didn't state: **`allowPrivateDomains: true`**, without which `x.github.io` groups as `github.io` and one tenant's rule would cover every other tenant — the very failure point 1 cites. | Claude |
 | 2026-07-19 | **Decision 9 point 5 (#182 spike):** a real-account spot-check (not documented Gmail behaviour) found `from:` matches **whole-token, left-anchored** — reaches true subdomains + any domain whose leading dot-bounded labels are the eTLD+1 (`apple.com.au`), but **not** partial-label prefix lookalikes (`applebees.com`). The surface isn't enumerable in advance; the warning lists the **finite observed** matched senders (`tldts`-grouped), and the `tldts` guard + live `negatedQuery` are the safety net regardless. | Claude |
 | 2026-07-19 | **Decision 9 refinements (#136, from the PR #179 review):** `negatedQuery` exceptions are **live-derived on every reconcile** from effective status (not a frozen decision-time list) — closes a real leak where a later independent trust decision on a matched sibling would stay un-enforced; `exceptionDomains[]` is a denormalized index. Updated the Interfaces contract (`DecisionScope` gains `parentDomain`; `resolveEffectiveDecision` gains `parentDomainStatus` + `parentDomain` source). Added the block-side match-surface spot-check (prefix-stemming, #182) and a PSL-staleness maintenance note. | Claude |
 | 2026-07-19 | **Decision 9 (#136, ratified):** parent-domain (registrable-domain / eTLD+1) rules covering a whole subdomain tree — new `parentDomain` scope, most-specific-wins precedence (address exception → exact subdomain → parent rule), PSL-based grouping (offline **`tldts`**), reuse the `Domain` record + `exceptionDomains[]`. Scope enum/precedence designed as a general specificity ladder so a broader TLD/public-suffix scope (#180) can slot in later. **Enforcement (#181 spike verified):** a native bare-domain `from:<eTLD+1>` filter covers all subdomains (current + future); trust side guarded client-side by `tldts`. **Block-side trailing-label breadth** (`from:apple.com` also matches sibling registrable domains like `apple.com.au`) is kept broad-by-design with **warnings + exceptions** (#182, which gates the filter compiler). | Claude |

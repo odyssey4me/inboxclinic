@@ -14,8 +14,18 @@
 /** A trust decision state for a sender or domain. */
 export type TrustStatus = "trusted" | "blocked" | "pending";
 
-/** Whether a decision applies to an address or a whole domain (domain overrides). */
-export type DecisionScope = "address" | "domain";
+/**
+ * How broadly a decision applies — a **specificity ladder**, most specific first:
+ * `address` → `domain` (an exact sender domain) → `parentDomain` (the registrable domain,
+ * covering every subdomain of it). A more specific decision overrides a broader one unless
+ * the broader rule records the narrower subject as an exception
+ * (design-trust-decisions.md Decision 2 and Decision 9).
+ *
+ * The ladder is deliberately open at the broad end so a public-suffix/TLD scope (#180) can
+ * slot in below `parentDomain` without reworking the model. Resolution of `parentDomain`
+ * arrives with #184; #183 only introduces the scope so records can carry it.
+ */
+export type DecisionScope = "address" | "domain" | "parentDomain";
 
 /** Where in the UI a decision was made (design-trust-decisions.md). */
 export type DecidedVia = "workflow" | "dashboard" | "settings";
@@ -150,6 +160,18 @@ export interface Domain {
   totalEmails: number;
   /** Address-level exceptions to a domain decision (design-trust-decisions.md). */
   exceptionAddresses: string[];
+  /**
+   * Subdomains carved out of a **parent-domain** rule — trust `*.example.com` but block
+   * `spam.example.com`, or the reverse (design-trust-decisions.md Decision 9). Like
+   * `exceptionAddresses`, this is a **denormalized index** of decisions recorded elsewhere,
+   * not the source of truth for a subdomain's status: enforcement re-derives the carve-out
+   * from each subject's current effective status on every reconcile, so a later independent
+   * decision is honoured without revisiting the parent rule.
+   *
+   * Populated from #184 onward; a record written before this field existed reads as `[]`
+   * (backfilled by the Dexie upgrade, and defaulted when a legacy backup is restored).
+   */
+  exceptionDomains: string[];
   updatedAt: number;
 
   // --- Decision record (M3) ------------------------------------------------

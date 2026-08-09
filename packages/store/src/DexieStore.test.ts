@@ -10,6 +10,7 @@ import {
   type Sender,
   type Setting,
 } from "@inboxclinic/core";
+import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDexieStore, DexieStore } from "./DexieStore";
@@ -117,6 +118,7 @@ describe("DexieStore senders/domains repos", () => {
       senderCount: 2,
       totalEmails: 5,
       exceptionAddresses: [],
+      exceptionDomains: [],
       updatedAt: 1,
       trustDecidedAt: null,
       decisionScope: null,
@@ -287,5 +289,41 @@ describe("createDexieStore", () => {
     await built.senders.put(senderFixture("factory@acme.com"));
 
     expect(await built.senders.get(keyFor("factory@acme.com"))).toBeDefined();
+  });
+});
+
+describe("schema upgrade v1 → v2 (#183)", () => {
+  it("backfills exceptionDomains on domains written before the field existed", async () => {
+    const name = `upgrade-db-${dbSeq}`;
+
+    // A database as v1 left it: a domain row with no `exceptionDomains` at all.
+    const v1 = new Dexie(name);
+    v1.version(1).stores({ domains: "id, trustStatus, updatedAt" });
+    await v1.table("domains").put({
+      id: keyFor("legacy.com"),
+      domain: "legacy.com",
+      trustStatus: "blocked",
+      senderCount: 1,
+      totalEmails: 3,
+      exceptionAddresses: ["vip@legacy.com"],
+      updatedAt: 1,
+      trustDecidedAt: null,
+      decisionScope: "domain",
+      decisionContext: null,
+      pendingActions: [],
+    });
+    v1.close();
+
+    // Reopening through the current store runs the v2 upgrade.
+    const upgraded = new DexieStore(name);
+    const domain = await upgraded.domains.get(keyFor("legacy.com"));
+    upgraded.close();
+
+    // The new field is a real empty array, not `undefined` behind an array-typed field…
+    expect(domain?.exceptionDomains).toEqual([]);
+    // …and the migration is a transform, so nothing else in the record is lost.
+    expect(domain?.exceptionAddresses).toEqual(["vip@legacy.com"]);
+    expect(domain?.trustStatus).toBe("blocked");
+    expect(domain?.totalEmails).toBe(3);
   });
 });
