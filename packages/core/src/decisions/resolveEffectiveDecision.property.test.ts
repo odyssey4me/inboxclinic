@@ -67,29 +67,34 @@ describe("resolveEffectiveDecision (properties)", () => {
     );
   });
 
-  it("a domain-scope decision overrides a non-exception address", () => {
+  it("a domain record overrides a non-exception address at either exact-domain scope (#222)", () => {
     fc.assert(
       fc.property(decisionInput, (input) => {
+        // A domain record's own rule overrides an address whether recorded at "domain" scope
+        // (an exact-domain decision) or "parentDomain" scope (the domain is its own registrable
+        // domain, so the subtree rule lives on this same record — #222).
         fc.pre(
           unclaimedByParent(input) &&
             input.domainStatus !== null &&
-            input.domainScope === "domain" &&
+            (input.domainScope === "domain" || input.domainScope === "parentDomain") &&
             !input.addressIsException,
         );
         const r = resolveEffectiveDecision(input);
         expect(r.status).toBe(input.domainStatus);
-        expect(r.source).toBe("domain");
+        expect(r.source).toBe(input.domainScope);
       }),
     );
   });
 
-  it("a non-domain scope never overrides a present address decision", () => {
+  it("an address- or null-scope domain record never overrides a present address decision", () => {
     fc.assert(
       fc.property(decisionInput, (input) => {
-        // Only a "domain"-scope decision overrides the address; an "address"/null scope must not.
+        // Only a "domain"/"parentDomain"-scope record overrides the address; an "address"/null
+        // scope must not.
         fc.pre(
           unclaimedByParent(input) &&
             input.domainScope !== "domain" &&
+            input.domainScope !== "parentDomain" &&
             input.addressStatus !== null,
         );
         const r = resolveEffectiveDecision(input);
@@ -118,8 +123,12 @@ describe("resolveEffectiveDecision (properties)", () => {
         const r = resolveEffectiveDecision(input);
         if (r.source === "address") expect(r.status).toBe(input.addressStatus);
         else if (r.source === "domain") expect(r.status).toBe(input.domainStatus);
-        else if (r.source === "parentDomain") expect(r.status).toBe(input.parentDomainStatus);
-        else expect(r.status).toBe("pending");
+        else if (r.source === "parentDomain") {
+          // "parentDomain" is reported for a genuine parent-domain record (parentDomainStatus)
+          // AND for a domain record carrying its own-subtree rule at "parentDomain" scope
+          // (domainStatus, when the domain is its own registrable domain — #222).
+          expect([input.domainStatus, input.parentDomainStatus]).toContain(r.status);
+        } else expect(r.status).toBe("pending");
       }),
     );
   });

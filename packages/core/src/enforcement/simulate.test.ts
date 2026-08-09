@@ -515,4 +515,21 @@ describe("simulateEnforcement — parent-domain rules (#218)", () => {
 
     expect(impact.messagesToDelete).toBe(1);
   });
+
+  it("keeps an apex sender's block filter uncreated when its own record's parentDomain rule trusts it (#222)", async () => {
+    const store = createInMemoryStore();
+    // example.com IS its own registrable domain, so the subtree trust lives on this record at
+    // "parentDomain" scope rather than "domain" — the real scope `prospectiveStatusOf` must read
+    // rather than assume, so the preview agrees with enforcement by construction.
+    await store.domains.put(
+      domainBuilder("example.com", { trustStatus: "trusted", decisionScope: "parentDomain" }),
+    );
+    // Blocked individually before the domain-wide trust, and never recorded as an exception.
+    await store.senders.put(senderBuilder("ceo@example.com", { trustStatus: "blocked" }));
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, []);
+
+    expect(impact.filtersToCreate).toBe(0);
+  });
 });

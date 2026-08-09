@@ -228,9 +228,11 @@ export async function simulateEnforcement(
       addressStatus: addressStatus === "pending" ? null : addressStatus,
       addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
       domainStatus: domainStat === "pending" ? null : domainStat,
-      // A domain only gets a status via a domain-scope decision (stored or previewed),
-      // so a non-pending prospective status is a domain-scope override.
-      domainScope: domainStat === "pending" ? null : "domain",
+      // The real prospective scope (stored or previewed) rather than an assumed `"domain"` —
+      // a domain that IS its own registrable domain can carry the rule at `"parentDomain"`
+      // scope instead, and resolveEffectiveDecision only overrides an already-decided address
+      // for the scope it actually sees (#222).
+      domainScope: domainStat === "pending" || domain === undefined ? null : prospectiveScope(domain),
       ...parentFields(sender),
     }).status;
   };
