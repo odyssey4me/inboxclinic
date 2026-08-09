@@ -66,6 +66,19 @@ class InboxClinicDexie extends Dexie {
             domain.exceptionDomains ??= [];
           }),
       );
+    // v3 adds `FilterSyncState.enumeratedDomains` — which broad↔enumerate form each blocked
+    // domain's filter currently takes (#208). Same shape as v2: no index change, backfill `[]`
+    // on the existing singleton row so nothing reads `undefined` off a typed array.
+    this.version(3)
+      .stores(SCHEMA)
+      .upgrade((tx) =>
+        tx
+          .table<FilterSyncState>("filterSyncState")
+          .toCollection()
+          .modify((state) => {
+            state.enumeratedDomains ??= [];
+          }),
+      );
   }
 }
 

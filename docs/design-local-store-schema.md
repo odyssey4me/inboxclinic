@@ -55,7 +55,7 @@ This design implements the following sections of [architecture.md](architecture.
 | `prompts` | `id` | `priorityScore`, `batchGroupId`, `expiresAt`, `resolvedAt` | Pending trust prompts; 30-day TTL. |
 | `analyticsDaily` | `date` (YYYY-MM-DD) | — | Daily counters. |
 | `analyticsMonthly` | `month` (YYYY-MM) | — | Monthly counters, `inboxHealthScore`, `estimatedTimeSaved`, `achievements[]`. |
-| `filterSyncState` | `key` (singleton) | — | Native-filter manifest + pending reconciliations + last sync time. |
+| `filterSyncState` | `key` (singleton) | — | Native-filter manifest + pending reconciliations + last sync time, `managedFilterIds[]` (ownership, #29), `enumeratedDomains[]` (which domains' blocks are currently in the enumerate form, so the compiler can damp form changes, #208). |
 | `settings` | `key` | — | User-controlled preferences & opt-ins (theme, `contributeToAggregate`; architecture §8). |
 
 Field-level shapes follow architecture.md §5. `decisionContext.collectiveScore` and
@@ -102,8 +102,9 @@ const keyFor = (s: string) =>
 - **Dexie version number** is bumped on any schema change; migrations are declared
   with `db.version(n).stores({...}).upgrade(...)`. Alpha permits destructive
   migrations (architecture constraints), but prefer a transform where cheap.
-  **Current version: 2** — v2 adds `Domain.exceptionDomains` (#183) and backfills `[]` on
-  existing rows. Indexes are unchanged; the field is read whole, never queried.
+  **Current version: 3** — v2 adds `Domain.exceptionDomains` (#183) and v3
+  `FilterSyncState.enumeratedDomains` (#208), each backfilling `[]` on existing rows. Indexes
+  are unchanged in both; the fields are read whole, never queried.
 - **A new field needs the restore path too, not just the migration.** `importAll` writes
   rows straight through, and the Dexie upgrade only runs on a version change — so a backup
   taken before the field existed never meets it. `parseStoreDump` (the one gate both the
@@ -137,6 +138,7 @@ const keyFor = (s: string) =>
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Schema v3 — `FilterSyncState.enumeratedDomains[]` (#208):** which blocked domains are currently compiled in the enumerate form, so `compileFilters` can apply a dead band instead of flipping a boundary domain broad↔enumerate on every exception change. Non-indexed, so v3 is a data transform backfilling `[]`; `parseStoreDump` defaults it too, since a pre-v3 backup bypasses the Dexie upgrade. Declared **required** rather than optional because every `filterSync.put` writes a whole record instead of spreading the previous one — an optional field would have been silently dropped by the sync/tidy/adopt paths. | Claude |
 | 2026-08-09 | **Schema v2 — `Domain.exceptionDomains[]` (#183):** carries the subdomains carved out of a parent-domain rule (design-trust-decisions.md Decision 9), alongside the existing `exceptionAddresses[]`. Non-indexed, so the migration is a data transform that backfills `[]`; `parseStoreDump` defaults it as well, since a pre-v2 backup bypasses the Dexie upgrade entirely. | Claude |
 | 2026-06-28 | Initial draft (client-only PWA). | Claude |
 | 2026-07-05 | Move the Drive backup/restore mechanism to design-backup-restore.md; keep only the store `exportAll`/`importAll`/`wipeAll` primitives here (pointer to the new doc). | Claude |
