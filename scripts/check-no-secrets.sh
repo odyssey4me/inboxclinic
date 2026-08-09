@@ -56,8 +56,12 @@ scan() {
   file_list | xargs -0 -r grep -InEi --binary-files=without-match -e "$1" -- || true
 }
 
-matches="$(scan "$joined")"
-matches+="$(scan "$secret_pattern" | grep -v "^${secret_exception}:" || true)"
+# Joined with an explicit newline: command substitution strips trailing ones, so appending
+# directly would run the last line of one block into the first line of the next.
+matches="$(
+  scan "$joined"
+  scan "$secret_pattern" | grep -v "^${secret_exception}:" || true
+)"
 
 if [[ -n "$matches" ]]; then
   echo "❌ Potential secret(s) detected — Inbox Clinic must ship none:"

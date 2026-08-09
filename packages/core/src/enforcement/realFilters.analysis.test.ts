@@ -23,7 +23,7 @@ import { describe, expect, it } from "vitest";
 import { reconcileFilters } from "./compileFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
 import { isBlockFilter, parseFilterSubjects } from "./filterShape";
-import { suggestFilterOptimisations } from "./optimiseFilters";
+import { filterKey, suggestFilterOptimisations } from "./optimiseFilters";
 import { createInMemoryStore, MockGmailClient } from "../testing";
 import type { FilterSpec, NativeFilter } from "../ports/GmailClient";
 
@@ -56,15 +56,6 @@ const load = async (): Promise<{ filters: NativeFilter[]; raw: RawFilter[] }> =>
 
 /** The fields our model reads. Everything else in `criteria` is invisible to it. */
 const MODELLED_CRITERIA = new Set(["from", "negatedQuery"]);
-
-/** The identity our tidy-up and reconcile paths actually compare on. */
-const modelKey = (f: NativeFilter): string =>
-  [
-    f.from.trim().toLowerCase(),
-    (f.excludeFrom ?? "").trim().toLowerCase(),
-    [...f.addLabelIds].sort().join(","),
-    [...f.removeLabelIds].sort().join(","),
-  ].join("|");
 
 /** A client + store presenting the real filters, with `managed` treated as app-created. */
 async function seeded(filters: NativeFilter[], managed: string[]) {
@@ -129,14 +120,14 @@ describe.skipIf(FIXTURE === undefined)("real account filters", () => {
     // offers to delete one as a "duplicate" of the other, reconcile thinks it owns a rule
     // that does something else, and adoption claims one on a resemblance that isn't real.
     const groups = new Map<string, NativeFilter[]>();
-    for (const f of filters) groups.set(modelKey(f), [...(groups.get(modelKey(f)) ?? []), f]);
+    for (const f of filters) groups.set(filterKey(f), [...(groups.get(filterKey(f)) ?? []), f]);
 
     const collisions: string[] = [];
     for (const [key, group] of groups) {
       if (group.length < 2) continue;
       const shapes = new Set(group.map((f) => JSON.stringify(rawById.get(f.id)?.criteria ?? {})));
       if (shapes.size > 1) {
-        collisions.push(`${group.length} filters share the model key "${key}" but differ:`);
+        collisions.push(`${group.length} filters share the dedup key "${key}" but differ:`);
         for (const shape of shapes) collisions.push(`    ${shape}`);
       }
     }

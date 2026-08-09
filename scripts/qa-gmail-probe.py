@@ -597,25 +597,38 @@ def cmd_limit(args: argparse.Namespace) -> None:
             data=body,
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         )
+
+        created_id: str | None = None
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                created = json.load(response)
-        except urllib.error.HTTPError as error:
-            last_error = error.read().decode("utf-8", "replace")[:200]
-            return False
-        except urllib.error.URLError as error:
-            fail(f"cannot reach the Gmail API: {error}")
-        # Delete immediately — a probe filter never outlives its own check.
-        delete = urllib.request.Request(
-            f"{GMAIL_API}/settings/filters/{created['id']}",
-            headers={"Authorization": f"Bearer {token}"},
-            method="DELETE",
-        )
-        try:
-            urllib.request.urlopen(delete, timeout=30).close()
-        except urllib.error.URLError:
-            note(f"WARNING: could not delete probe filter {created['id']} — remove it by hand")
-        return True
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    created_id = str(json.load(response)["id"])
+            except urllib.error.HTTPError as error:
+                last_error = error.read().decode("utf-8", "replace")[:200]
+                return False
+            except urllib.error.URLError as error:
+                fail(f"cannot reach the Gmail API: {error}")
+            return True
+        finally:
+            # A probe filter must not outlive its own check — including when the run is
+            # interrupted. Without this, Ctrl-C between create and delete strands a filter
+            # silently, and the binary search opens that window a dozen-plus times per run.
+            if created_id is not None:
+                delete = urllib.request.Request(
+                    f"{GMAIL_API}/settings/filters/{created_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    method="DELETE",
+                )
+                try:
+                    urllib.request.urlopen(delete, timeout=30).close()
+                except Exception:  # noqa: BLE001 - report ANY failure to clean up
+                    # Loud and specific: an orphan the user doesn't know about is the one
+                    # outcome this probe promises never to leave behind.
+                    print(
+                        f"WARNING: could not delete probe filter {created_id} — "
+                        f"remove it by hand (criteria from:*@{domain})",
+                        file=sys.stderr,
+                    )
 
     low = 100
     if not accepts(low):
