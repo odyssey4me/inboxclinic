@@ -771,11 +771,11 @@ def cmd_match(args: argparse.Namespace) -> None:
         # should carry to tidy up after itself. Hand over the exact searches instead: each
         # selects only this probe's work, so it is select-all then unstar, per subject.
         stamp = time.strftime("%Y/%m/%d", time.gmtime(armed_at))
+        domains = " OR ".join(f"*@{subject['domain']}" for subject in subjects)
         print()
-        note("The stars it added are still there. Paste each into Gmail search,")
+        note("The stars it added are still there. Paste this into Gmail search,")
         note("then select all and unstar:")
-        for subject in subjects:
-            note(f"  is:starred from:*@{subject['domain']} after:{stamp}")
+        note(f"  is:starred after:{stamp} from:({domains})")
         note("(dated from the arming day, so it can also catch mail you starred yourself")
         note(" from those domains since then — worth a glance before unstarring.)")
         return
