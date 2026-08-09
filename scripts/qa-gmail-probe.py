@@ -13,8 +13,9 @@
 # mocking the GmailClient port can therefore only encode as a belief:
 #
 #   discover  Samples the mailbox and reports domains that ACTUALLY have mail
-#             from both themselves and their subdomains, plus example addresses,
-#             so the probes below run against real subjects.     [read-only]
+#             from both themselves and their subdomains, busiest first, plus
+#             example addresses — so the probes below run against real subjects
+#             that will send again soon.                         [read-only]
 #   search    Does `from:*@domain` behave as a wildcard, and does it span
 #             SUBDOMAINS? Prints the sender domains a domain query really
 #             returns, and checks a `-from:(a OR b)` exclusion excludes.
@@ -63,6 +64,7 @@
 #   ./scripts/qa-gmail-probe.py search [--domain x.com] [--exclude a@x.com]
 #   ./scripts/qa-gmail-probe.py filters [--json] [--out FILE]
 #   ./scripts/qa-gmail-probe.py limit --i-know [--domain probe.invalid]
+#   ./scripts/qa-gmail-probe.py match arm|check|disarm [--domain x.com]
 #   ./scripts/qa-gmail-probe.py revoke
 # -----------------------------------------------------------------------------
 from __future__ import annotations
@@ -368,11 +370,11 @@ def api_get(token: str, path: str, params: dict[str, str] | None = None) -> dict
         fail(f"cannot reach the Gmail API: {error}")
 
 
-def sender_addresses(token: str, query: str, limit: int) -> list[str]:
-    """Sender addresses for a query — metadata only, never bodies or snippets."""
+def sender_samples(token: str, query: str, limit: int) -> list[tuple[str, int]]:
+    """(sender address, arrival epoch ms) for a query — metadata only, never bodies."""
     listing = api_get(token, "/messages", {"q": query, "maxResults": str(limit)})
     messages = listing.get("messages") or []
-    found: list[str] = []
+    found: list[tuple[str, int]] = []
     for message in messages:  # type: ignore[union-attr]
         meta = api_get(
             token,
@@ -380,6 +382,7 @@ def sender_addresses(token: str, query: str, limit: int) -> list[str]:
             {"format": "metadata", "metadataHeaders": "From"},
         )
         headers = (meta.get("payload") or {}).get("headers") or []  # type: ignore[union-attr]
+        received = int(str(meta.get("internalDate", "0")) or 0)
         for header in headers:
             if str(header.get("name", "")).lower() != "from":
                 continue
@@ -387,8 +390,13 @@ def sender_addresses(token: str, query: str, limit: int) -> list[str]:
             match = re.search(r"<([^>]+)>", value)
             address = (match.group(1) if match else value).strip().lower()
             if "@" in address:
-                found.append(address)
+                found.append((address, received))
     return found
+
+
+def sender_addresses(token: str, query: str, limit: int) -> list[str]:
+    """Sender addresses for a query — metadata only, never bodies or snippets."""
+    return [address for address, _ in sender_samples(token, query, limit)]
 
 
 def host_of(address: str) -> str:
@@ -398,28 +406,45 @@ def host_of(address: str) -> str:
 # --- probes ------------------------------------------------------------------
 
 
-def find_pairs(token: str, sample: int) -> tuple[list[tuple[str, list[str], str, int]], Counter]:
-    """Domains with mail from BOTH themselves and a subdomain, richest first.
+def find_pairs(
+    token: str, sample: int
+) -> tuple[list[tuple[str, list[str], str, int, int]], Counter]:
+    """Domains with mail from BOTH themselves and a subdomain, **most recently active first**.
 
-    Parent/child is decided by label-boundary suffix matching between hosts we
-    actually observed — no public-suffix list needed, and nothing hard-coded:
-    `notx.com` never counts as under `x.com`.
+    Parent/child is decided by label-boundary suffix matching between hosts we actually
+    observed — no public-suffix list needed, and nothing hard-coded: `notx.com` never counts
+    as under `x.com`.
+
+    Ranked by how OFTEN the subtree sends, not by how many subdomains it has or how recently
+    it wrote. The `match` probe can only conclude from mail arriving after it is armed, so the
+    useful subject is the one that will send repeatedly and soon: a busy domain answers in
+    days and keeps confirming, while a structurally richer one that writes once a quarter
+    leaves the experiment hanging.
     """
-    addresses = sorted(set(sender_addresses(token, "newer_than:180d", sample)))
+    samples = sender_samples(token, "newer_than:180d", sample)
     example: dict[str, str] = {}
-    counts: Counter = Counter()
-    for address in addresses:
+    addresses_per_host: Counter = Counter()
+    messages_per_host: Counter = Counter()
+    seen_addresses: set[str] = set()
+    for address, _received in samples:
         host = host_of(address)
-        counts[host] += 1
-        example.setdefault(host, address)
+        messages_per_host[host] += 1
+        if address not in seen_addresses:
+            seen_addresses.add(address)
+            addresses_per_host[host] += 1
+            example.setdefault(host, address)
 
-    pairs: list[tuple[str, list[str], str, int]] = []
-    for parent in sorted(counts):
-        subs = sorted(h for h in counts if h != parent and h.endswith(f".{parent}"))
+    pairs: list[tuple[str, list[str], str, int, int]] = []
+    for parent in sorted(addresses_per_host):
+        subs = sorted(
+            h for h in addresses_per_host if h != parent and h.endswith(f".{parent}")
+        )
         if subs:
-            pairs.append((parent, subs, example[subs[0]], counts[parent]))
-    pairs.sort(key=lambda item: len(item[1]), reverse=True)
-    return pairs, counts
+            # Volume across the whole subtree — evidence can arrive from apex or subdomain.
+            volume = messages_per_host[parent] + sum(messages_per_host[s] for s in subs)
+            pairs.append((parent, subs, example[subs[0]], addresses_per_host[parent], volume))
+    pairs.sort(key=lambda item: item[4], reverse=True)
+    return pairs, addresses_per_host
 
 
 def cmd_discover(args: argparse.Namespace) -> None:
@@ -427,14 +452,16 @@ def cmd_discover(args: argparse.Namespace) -> None:
     print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
     pairs, counts = find_pairs(token, args.sample)
 
-    print("-- domains with mail from BOTH themselves and a subdomain (ideal subjects)")
+    print("-- domains with mail from BOTH themselves and a subdomain (busiest first)")
     if not pairs:
         note("none in this sample — try a larger --sample")
-    for parent, subs, sub_example, apex in pairs:
-        note(f"{parent}  (apex senders: {apex})")
+    for parent, subs, sub_example, apex, volume in pairs:
+        note(f"{parent}  ({volume} messages in the sample, {apex} apex sender(s))")
         note(f"  subdomains seen: {', '.join(subs)}")
-        note(f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
-             f" --exclude {sub_example}")
+        note(
+            f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
+            f" --exclude {sub_example}"
+        )
 
     print("\n-- domains with the most distinct sender addresses (exclusion subjects)")
     for host, count in counts.most_common(5):
@@ -455,7 +482,7 @@ def cmd_search(args: argparse.Namespace) -> None:
                 f"no domain with observed subdomain senders in the last {args.sample} messages\n"
                 "       pass --domain explicitly, or raise --sample"
             )
-        domain, _subs, auto_exclude, _apex = pairs[0]
+        domain, _subs, auto_exclude, _apex, _volume = pairs[0]
         exclude = exclude or auto_exclude
         note(f"chose {domain} (excluding {exclude})\n")
 
@@ -734,10 +761,21 @@ def cmd_match(args: argparse.Namespace) -> None:
         return
 
     # arm
+    token = ensure_token(SCOPE_FILTERS)
     domain = args.domain
     if not domain:
-        fail("match arm needs --domain (one you actually receive mail from)")
-    token = ensure_token(SCOPE_FILTERS)
+        # Pick the busiest subtree rather than making the caller choose: this probe can only
+        # conclude from mail that arrives AFTER arming, so the subject that sends most often
+        # is the one that answers soonest and keeps confirming.
+        print("== no --domain given; choosing the busiest subject in the mailbox ==")
+        pairs, _ = find_pairs(token, args.sample)
+        if not pairs:
+            fail(
+                f"no domain with observed subdomain senders in the last {args.sample} messages\n"
+                "       pass --domain explicitly, or raise --sample"
+            )
+        domain, subs, _example, _apex, volume = pairs[0]
+        note(f"chose {domain} ({volume} messages sampled; subdomains: {', '.join(subs)})")
 
     # Pick the sender to exclude from the mailbox itself, so the experiment tests an address
     # that genuinely sends — an exclusion nothing matches proves nothing.
@@ -919,6 +957,7 @@ def main() -> None:
     match.add_argument("action", choices=["arm", "check", "disarm"])
     match.add_argument("--domain", help="a domain you actually receive mail from")
     match.add_argument("--exclude", help="address to except; discovered from the mailbox if omitted")
+    match.add_argument("--sample", type=int, default=200)
     match.set_defaults(func=cmd_match)
 
     args = parser.parse_args()
