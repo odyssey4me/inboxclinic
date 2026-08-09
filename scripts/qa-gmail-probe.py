@@ -93,10 +93,17 @@ REVOKE_URI = "https://oauth2.googleapis.com/revoke"
 
 TOKEN_CACHE = ".local/qa-token.json"
 CLIENT_FILE = ".local/oauth-client.json"
+MATCH_STATE = ".local/qa-match.json"
 
 # Probe filters are built against an unroutable domain (RFC 2606), so one can
 # never match, label, or trash a real message even in the instant it exists.
 PROBE_DOMAIN = "probe.invalid"
+
+# The `match` probe's action. STARRED is a system label, so it needs no label
+# creation (and so no extra scope), it is plainly visible in the UI, and it is
+# undone by unstarring — the only action that answers "did this filter match?"
+# without moving or hiding a single real message.
+MATCH_LABEL = "STARRED"
 
 
 def fail(message: str) -> "NoReturn":  # type: ignore[name-defined]
@@ -668,6 +675,178 @@ def cmd_limit(args: argparse.Namespace) -> None:
     note("Above it   => domains degrade to enumerate form earlier than they need to.")
 
 
+def cmd_match(args: argparse.Namespace) -> None:
+    """Arm / check / disarm the live-matching experiment.
+
+    The only two questions left about filter behaviour are about **arriving** mail, which no
+    amount of reading the account can answer: does a `*@domain` filter reach the domain's
+    SUBDOMAINS, and does its `negatedQuery` actually spare the excluded sender? One filter
+    settles both — so this arms it, waits for real mail, then reports what it caught.
+    """
+    if args.action == "check":
+        state = json.loads(open(MATCH_STATE, encoding="utf-8").read()) if _exists(MATCH_STATE) else None
+        if state is None:
+            fail("nothing armed — run: ./scripts/qa-gmail-probe.py match arm --domain <domain>")
+        token = ensure_token(SCOPE_READ)
+        _match_report(token, state)
+        return
+
+    if args.action == "disarm":
+        state = json.loads(open(MATCH_STATE, encoding="utf-8").read()) if _exists(MATCH_STATE) else None
+        if state is None:
+            note("nothing armed")
+            return
+        token = ensure_token(SCOPE_FILTERS)
+        _delete_filter(token, str(state["filterId"]))
+        os.remove(MATCH_STATE)
+        note(f"removed the probe filter; unstar anything it starred in {state['domain']}")
+        return
+
+    # arm
+    domain = args.domain
+    if not domain:
+        fail("match arm needs --domain (one you actually receive mail from)")
+    token = ensure_token(SCOPE_FILTERS)
+
+    # Pick the sender to exclude from the mailbox itself, so the experiment tests an address
+    # that genuinely sends — an exclusion nothing matches proves nothing.
+    exclude = args.exclude
+    if not exclude:
+        seen = Counter(host_of(a) for a in sender_addresses(token, f"from:*@{domain}", 60))
+        addresses = sorted(set(sender_addresses(token, f"from:*@{domain}", 60)))
+        apex = [a for a in addresses if host_of(a) == domain]
+        if not apex:
+            fail(f"no apex sender seen for {domain}; pass --exclude explicitly")
+        exclude = apex[0]
+        note(f"excluding {exclude} (seen sending from {domain}); subdomains present: "
+             f"{', '.join(h for h in seen if h != domain) or 'none'}")
+
+    body = json.dumps(
+        {
+            "criteria": {"from": f"*@{domain}", "negatedQuery": f"from:({exclude})"},
+            "action": {"addLabelIds": [MATCH_LABEL]},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        f"{GMAIL_API}/settings/filters",
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            created = json.load(response)
+    except urllib.error.HTTPError as error:
+        fail(f"could not create the probe filter: {error.read().decode('utf-8', 'replace')}")
+
+    state = {
+        "filterId": created["id"],
+        "domain": domain,
+        "exclude": exclude,
+        # Only mail arriving AFTER this point is evidence; anything older predates the filter.
+        "armedAt": int(time.time()),
+    }
+    with open(MATCH_STATE, "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+
+    print()
+    note(f"armed: from:*@{domain} except {exclude} → adds {MATCH_LABEL}")
+    note("It stars matching mail and nothing else — no message is moved, hidden or deleted.")
+    note("Wait for mail from that domain, then:")
+    note("  ./scripts/qa-gmail-probe.py match check")
+    note("  ./scripts/qa-gmail-probe.py match disarm     # when done (then unstar)")
+
+
+def _exists(path: str) -> bool:
+    try:
+        with open(path, encoding="utf-8"):
+            return True
+    except OSError:
+        return False
+
+
+def _delete_filter(token: str, filter_id: str) -> None:
+    request = urllib.request.Request(
+        f"{GMAIL_API}/settings/filters/{filter_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="DELETE",
+    )
+    try:
+        urllib.request.urlopen(request, timeout=30).close()
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            note(f"WARNING: could not delete filter {filter_id} — remove it by hand")
+    except urllib.error.URLError:
+        note(f"WARNING: could not delete filter {filter_id} — remove it by hand")
+
+
+def _match_report(token: str, state: dict[str, object]) -> None:
+    domain, exclude = str(state["domain"]), str(state["exclude"])
+    armed_at = int(state["armedAt"])  # type: ignore[arg-type]
+    print(f"== live filter matching for {domain} (armed {int(time.time()) - armed_at}s ago) ==")
+
+    # `after:` takes seconds; only mail that arrived since arming can be evidence.
+    listing = api_get(
+        token,
+        "/messages",
+        {"q": f"from:*@{domain} after:{armed_at}", "maxResults": "50"},
+    )
+    messages = listing.get("messages") or []
+    if not messages:
+        note("no mail from that domain yet — leave it armed and check again later")
+        return
+
+    apex_starred = apex_total = sub_starred = sub_total = 0
+    excluded_starred = excluded_total = 0
+    for message in messages:  # type: ignore[union-attr]
+        meta = api_get(
+            token,
+            f"/messages/{message['id']}",  # type: ignore[index]
+            {"format": "metadata", "metadataHeaders": "From"},
+        )
+        headers = (meta.get("payload") or {}).get("headers") or []  # type: ignore[union-attr]
+        raw = next((str(h.get("value", "")) for h in headers if str(h.get("name","")).lower() == "from"), "")
+        match = re.search(r"<([^>]+)>", raw)
+        address = (match.group(1) if match else raw).strip().lower()
+        starred = MATCH_LABEL in (meta.get("labelIds") or [])  # type: ignore[operator]
+
+        if address == exclude:
+            excluded_total += 1
+            excluded_starred += int(starred)
+        elif host_of(address) == domain:
+            apex_total += 1
+            apex_starred += int(starred)
+        else:
+            sub_total += 1
+            sub_starred += int(starred)
+
+    note(f"apex senders:      {apex_starred}/{apex_total} starred")
+    note(f"subdomain senders: {sub_starred}/{sub_total} starred")
+    note(f"excluded sender:   {excluded_starred}/{excluded_total} starred")
+    print()
+
+    # Each line is a fact about Gmail, reported only when there is mail to support it.
+    if sub_total == 0:
+        note("SUBDOMAINS: inconclusive — no subdomain mail has arrived yet.")
+    elif sub_starred == sub_total:
+        note("SUBDOMAINS: the filter DOES reach subdomains — a domain block enforces over the")
+        note("            whole subtree going forward, not just the exact domain.")
+    elif sub_starred == 0:
+        note("SUBDOMAINS: the filter does NOT reach subdomains, even though search does — so")
+        note("            the existing-mail sweep over-reaches while future subdomain mail is")
+        note("            not blocked at all. Those two must be reconciled.")
+    else:
+        note("SUBDOMAINS: mixed — record which senders matched; this is not a clean answer.")
+
+    if excluded_total == 0:
+        note("EXCLUSION:  inconclusive — the excluded sender hasn't sent since arming.")
+    elif excluded_starred == 0:
+        note("EXCLUSION:  negatedQuery DOES spare the excepted sender's arriving mail.")
+    else:
+        note("EXCLUSION:  negatedQuery did NOT spare it — a domain block would trash a sender")
+        note("            the user explicitly trusted. That is a correctness bug, not a caveat.")
+
+
 # --- cli ---------------------------------------------------------------------
 
 
@@ -704,6 +883,12 @@ def main() -> None:
     limit.add_argument("--i-know", action="store_true")
     limit.add_argument("--domain")
     limit.set_defaults(func=cmd_limit)
+
+    match = sub.add_parser("match", help="live filter matching: subdomains + exclusion (writes!)")
+    match.add_argument("action", choices=["arm", "check", "disarm"])
+    match.add_argument("--domain", help="a domain you actually receive mail from")
+    match.add_argument("--exclude", help="address to except; discovered from the mailbox if omitted")
+    match.set_defaults(func=cmd_match)
 
     args = parser.parse_args()
     args.func(args)
