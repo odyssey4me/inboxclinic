@@ -286,7 +286,7 @@ deliberately encodes our *belief* about those semantics — so a wrong belief is
 every automated tier, and stays invisible until it reaches a real inbox. The design docs can
 only cite one-off manual spot-checks, which are unrepeatable and go stale silently.
 
-**Decision:** Keep a **probe script** (`scripts/qa-gmail-probe.sh`) as a **fourth,
+**Decision:** Keep a **probe script** (`scripts/qa-gmail-probe.py`) as a **fourth,
 manual, non-gating tier**. It is deliberately *not* wired into CI: it needs a real account
 and real mail, so it can never be deterministic, and a red probe is a fact about Gmail
 rather than a fact about our code.
@@ -312,7 +312,9 @@ Criteria it is built to:
    **Desktop** OAuth client kept developer-local (`.local/oauth-client.json`). That client is
    not a deployment input and never reaches the app, whose own client stays public/PKCE
    (design-deployment.md). The flow needs a local HTTP listener to receive the redirect, which
-   is why that one helper is Python rather than Bash.
+   Bash cannot provide — so the probe is a single **Python** program rather than the Bash the
+   repo's other scripts use. CONTRIBUTING.md's Bash rule governs *shell* scripts; splitting
+   this across two languages to satisfy it would have bought nothing but a seam.
 
 3. **Metadata only.** Message reads use `format=metadata` with the `From` header — the same
    restriction the app itself observes (architecture.md §5), so running QA never inspects
@@ -520,7 +522,7 @@ it("applies a block decision and records a compiled filter", async () => {
 | Date | Change | Author |
 |------|--------|--------|
 | 2026-08-09 | **Decision 9 auth mechanism:** the Google CLI cannot mint a Gmail-only credential by any route — ADC login mandates `cloud-platform` even with `--client-id-file`, and `gcloud auth login` takes no scopes — so the probe runs the installed-app loopback flow (PKCE) itself against a developer-local Desktop OAuth client, caching only the access token (no refresh token, ~1h, 0600). Re-consent per session is the accepted cost of keeping the grant to Gmail scopes. | Claude |
-| 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.sh`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived credentials (access token only, self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
+| 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.py`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived credentials (access token only, self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |
 | 2026-07-18 | Add **Decision 8: property-based tests** (fast-check under Vitest, `*.property.test.ts`) for pure-core invariants — when to reach for them vs example tests, seed/reproducibility, generous bounds for probabilistic invariants; fuzzing of untrusted-input boundaries noted as related (#166). Landed compiler (cap/coverage/idempotence/stability), effective-status precedence, and `keyFor` collision properties (#165). | Claude |

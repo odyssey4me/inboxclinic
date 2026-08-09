@@ -103,7 +103,7 @@ HTML report lands in `playwright-report/`.
 Test structure, tiers, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
 Coverage gate: **≥80%** on `packages/core` and `packages/store` logic.
 
-**Manual QA against real Gmail — `./scripts/qa-gmail-probe.sh`.** A fourth, **non-gating**
+**Manual QA against real Gmail — `./scripts/qa-gmail-probe.py`.** A fourth, **non-gating**
 tier for provider behaviour Google doesn't document and no emulator reproduces: whether
 `from:*@domain` is a wildcard, whether it spans **subdomains**, whether `criteria.negatedQuery`
 round-trips byte-for-byte, and where the criteria length limit really falls. Mocking the
@@ -121,11 +121,11 @@ OAuth client of your own. In the Cloud project that already hosts the app's clie
 an access token (~1h, no refresh token), so nothing long-lived sits on disk.
 
 ```bash
-./scripts/qa-gmail-probe.sh login       # read-only consent via the Google CLI (~1h)
-./scripts/qa-gmail-probe.sh discover    # find real subjects in the mailbox
-./scripts/qa-gmail-probe.sh search      # wildcard + subdomain + exclusion semantics
-./scripts/qa-gmail-probe.sh filters     # stored negatedQuery shape (read-only)
-./scripts/qa-gmail-probe.sh revoke      # drop the credential when done
+./scripts/qa-gmail-probe.py login       # read-only consent in the browser (~1h)
+./scripts/qa-gmail-probe.py discover    # find real subjects in the mailbox
+./scripts/qa-gmail-probe.py search      # wildcard + subdomain + exclusion semantics
+./scripts/qa-gmail-probe.py filters     # stored negatedQuery shape (read-only)
+./scripts/qa-gmail-probe.py revoke      # drop the credential when done
 ```
 
 Paste findings into the relevant issue as evidence — they date-stamp what Gmail did, which is

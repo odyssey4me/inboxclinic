@@ -11,7 +11,7 @@
  *
  * Skipped unless a dump is supplied, so it costs nothing in CI:
  *
- *   ./scripts/qa-gmail-probe.sh filters --json --out .local/filters.json
+ *   ./scripts/qa-gmail-probe.py filters --json --out .local/filters.json
  *   INBOXCLINIC_FILTER_FIXTURE=$PWD/.local/filters.json npx vitest run realFilters
  *
  * The dump carries the account's own sender addresses — keep it in the gitignored
