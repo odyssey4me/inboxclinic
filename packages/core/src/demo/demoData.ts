@@ -82,6 +82,11 @@ const DEMO_SENDERS: DemoSenderSpec[] = [
   { name: "TravelNow", email: "offers@travelnow.com", total: 9, unread: 8, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "pass", withinDays: 20 }, // prettier-ignore
   { name: "Foodie Weekly", email: "hello@foodieweekly.com", total: 6, unread: 2, listUnsub: true, auth: "pass", withinDays: 24 }, // prettier-ignore
   { name: "MegaMart", email: "no-reply@megamart.com", total: 14, unread: 13, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 18 }, // prettier-ignore
+  // One organisation writing from several subdomains — the shape the whole-subtree rule
+  // exists for (design-trust-decisions.md Decision 9). Without it the offer never appears in
+  // demo mode, so neither the user exploring nor the E2E tier ever meets the feature.
+  { name: "MegaMart Deals", email: "deals@news.megamart.com", total: 9, unread: 8, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 12 }, // prettier-ignore
+  { name: "MegaMart Orders", email: "orders@shipping.megamart.com", total: 6, unread: 2, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 9 }, // prettier-ignore
 
   // -- Other (social / forums) ---------------------------------------------------
   { name: "LinkedIn", email: "notifications@linkedin.com", total: 10, unread: 6, category: "CATEGORY_SOCIAL", listUnsub: true, auth: "pass", withinDays: 20 }, // prettier-ignore

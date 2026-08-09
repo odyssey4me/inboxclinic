@@ -112,3 +112,87 @@ describe("TrustActions", () => {
     expect(screen.queryByRole("button", { name: /not sure \(defer\)/i })).not.toBeInTheDocument();
   });
 });
+
+describe("TrustActions — parent-domain scope (#186)", () => {
+  const subdomainSender = makeSender({
+    id: "news",
+    email: "hello@news.example.com",
+    domain: "news.example.com",
+  });
+
+  const coverage = {
+    registrable: "example.com",
+    subtree: [
+      { domain: "example.com", senderCount: 1 },
+      { domain: "news.example.com", senderCount: 2 },
+    ],
+    siblings: [{ domain: "example.com.au", senderCount: 1 }],
+    senderCount: 4,
+  };
+
+  function renderWith(scope: DecisionScope, withCoverage = true) {
+    const onScopeChange = vi.fn();
+    render(
+      <TrustActions
+        sender={subdomainSender}
+        scope={scope}
+        onScopeChange={onScopeChange}
+        canScopeDomain
+        parentCoverage={withCoverage ? coverage : undefined}
+        onDecide={vi.fn()}
+      />,
+    );
+    return { onScopeChange };
+  }
+
+  it("offers the subtree scope with the number of domains it covers", () => {
+    const { onScopeChange } = renderWith("address");
+
+    // One subdomain: `example.com` is in the subtree but is not a subdomain of itself.
+    const option = screen.getByLabelText(/All example\.com subdomains \(1\)/);
+    fireEvent.click(option);
+
+    expect(onScopeChange).toHaveBeenCalledWith("parentDomain");
+  });
+
+  it("offers nothing extra when there is no subtree rule to make", () => {
+    renderWith("address", false);
+    expect(screen.queryByLabelText(/All .* subdomains/)).not.toBeInTheDocument();
+  });
+
+  it("states the breadth before the decision, not after", () => {
+    renderWith("parentDomain");
+
+    // Every domain it reaches, named — a count alone would not let the user judge it.
+    expect(screen.getByText(/example\.com \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/news\.example\.com \(2\)/)).toBeInTheDocument();
+  });
+
+  it("calls out the domains it catches that are NOT part of the subtree", () => {
+    renderWith("parentDomain");
+
+    // The surprising half: a different registrable domain, often a different company, that
+    // Gmail's coarse match reaches anyway. Burying this is how a user blocks a stranger.
+    expect(screen.getByText(/NOT part of example\.com/)).toBeInTheDocument();
+    // Hedged to the confidence we actually hold: Decision 9 records this as a spot-check on
+    // one account, explicitly not documented Gmail behaviour, so the copy must not read as
+    // settled fact.
+    expect(screen.getByText(/From what we have observed/)).toBeInTheDocument();
+    expect(screen.getByText(/example\.com\.au \(1\)/)).toBeInTheDocument();
+  });
+
+  it("admits the match surface is not fully enumerable", () => {
+    renderWith("parentDomain");
+
+    // Observed senders are a floor, not the whole set — claiming otherwise would make the
+    // list read as exhaustive when a domain nobody has written from cannot appear in it.
+    // …and names WHICH unknown matters: new subdomains are the point of the rule, whereas a
+    // same-prefix domain owned by someone else is the part worth weighing.
+    expect(screen.getByText(/owned by someone else/)).toBeInTheDocument();
+  });
+
+  it("shows no breadth warning until the scope is actually selected", () => {
+    renderWith("domain");
+    expect(screen.queryByText(/NOT part of example\.com/)).not.toBeInTheDocument();
+  });
+});

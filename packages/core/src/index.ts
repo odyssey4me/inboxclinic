@@ -6,6 +6,11 @@ export {
   registrableDomain,
   sameRegistrableDomain,
 } from "./domains/registrableDomain";
+export {
+  parentDomainCoverage,
+  type CoveredDomain,
+  type ParentDomainCoverage,
+} from "./domains/parentDomainCoverage";
 export { trustTier, type TrustTier, type TrustTierName, type TrustTierColour } from "./trust/tiers";
 
 // Provider-client port (Gmail).

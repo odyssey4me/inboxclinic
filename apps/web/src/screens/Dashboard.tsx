@@ -892,6 +892,7 @@ export function Dashboard({
                 senders.filter((s) => effectiveStatus(s) === "pending"),
               )
         }
+        allSenders={senders}
         store={store}
         gmail={gmail}
         online={online}
@@ -902,6 +903,7 @@ export function Dashboard({
       <DomainDetail
         domain={selectedDomain}
         members={selectedDomain !== null ? membersOf(selectedDomain) : []}
+        allDomains={domains}
         store={store}
         gmail={gmail}
         online={online}
