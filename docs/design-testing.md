@@ -301,6 +301,15 @@ Criteria it is built to:
 2. **Least privilege, short-lived.** The credential is minted by the already-authenticated
    Google CLI, scoped per probe, lives about an hour, and is revocable in one command. No
    token is printed or stored in the repo (architecture.md §7).
+
+   The CLI's **built-in OAuth client cannot be used**: it refuses to mint a credential
+   without `cloud-platform`, so a mailbox probe would also carry broad Google Cloud access
+   to the account — the opposite of this criterion. Google's own guidance routes non-GCP
+   scopes through `--client-id-file` with a project-owned **Desktop** OAuth client, which is
+   what keeps the grant to Gmail scopes. That client file is developer-local
+   (`.local/`, gitignored); it is not a deployment input and never reaches the app, whose
+   own client stays public/PKCE (design-deployment.md). A `--allow-cloud-scope` escape
+   hatch exists for a one-off, and warns every time.
 3. **Metadata only.** Message reads use `format=metadata` with the `From` header — the same
    restriction the app itself observes (architecture.md §5), so running QA never inspects
    content the product would refuse to.
@@ -506,6 +515,7 @@ it("applies a block decision and records a compiled filter", async () => {
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 9 auth constraint:** record that the Google CLI's built-in OAuth client mandates `cloud-platform` and so cannot be used for a Gmail-only probe; least privilege requires `--client-id-file` with a project-owned Desktop client, kept developer-local. | Claude |
 | 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.sh`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived CLI-minted credentials (self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |

@@ -48,8 +48,22 @@
 # unless `--with-filters` is passed. The token is never printed, and never
 # written to the repo.
 #
+# The CLI's BUILT-IN OAuth client cannot be used for this: it mandates the
+# `cloud-platform` scope, so a Gmail probe would also carry broad Google Cloud
+# access to the account. The CLI's own documentation directs non-GCP scopes to
+# `--client-id-file` with your own OAuth client, which is what keeps this to
+# `gmail.readonly`. One-time setup, in the Cloud project that already hosts the
+# app's OAuth client:
+#
+#   Credentials -> Create credentials -> OAuth client ID -> Desktop app
+#   Download the JSON to .local/oauth-client.json (gitignored)
+#
+# `--allow-cloud-scope` falls back to the built-in client and its mandatory
+# `cloud-platform` grant. It exists for a quick one-off; it is not the intended
+# path, and the script says so each time.
+#
 # Usage:
-#   ./scripts/qa-gmail-probe.sh login [--with-filters]   # consent (interactive)
+#   ./scripts/qa-gmail-probe.sh login [--with-filters] [--client-id-file F]
 #   ./scripts/qa-gmail-probe.sh discover [--sample 200]
 #   ./scripts/qa-gmail-probe.sh search [--domain x.com] [--exclude a@x.com]
 #   ./scripts/qa-gmail-probe.sh filters [--json] [--out FILE]
@@ -62,12 +76,16 @@ SCOPE_READ="https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_FILTERS="https://www.googleapis.com/auth/gmail.settings.basic"
 API="https://gmail.googleapis.com/gmail/v1/users/me"
 TOKENINFO="https://oauth2.googleapis.com/tokeninfo"
+SCOPE_CLOUD="https://www.googleapis.com/auth/cloud-platform"
 
 DOMAIN=""
 EXCLUDE=""
 WITH_FILTERS=0
 CONFIRM_WRITE=0
 AS_JSON=0
+ALLOW_CLOUD=0
+CLIENT_ID_FILE=""
+DEFAULT_CLIENT_ID_FILE=".local/oauth-client.json"
 OUT_FILE=""
 MAX_RESULTS=50
 SAMPLE=200
@@ -141,15 +159,44 @@ ensure_credential() {
 
 cmd_login() {
   local scopes="openid,https://www.googleapis.com/auth/userinfo.email,${SCOPE_READ}"
+  local client_file=${CLIENT_ID_FILE:-${DEFAULT_CLIENT_ID_FILE}}
+
   if ((WITH_FILTERS)); then
     scopes="${scopes},${SCOPE_FILTERS}"
-    echo "Requesting READ scope + FILTER WRITE scope (${SCOPE_FILTERS})."
-    echo "Only the 'limit' probe needs write; 'search' and 'filters' do not."
+    echo "Requesting read scope + filter WRITE scope (${SCOPE_FILTERS})."
+    echo "Only the 'limit' probe needs write; the others do not."
   else
     echo "Requesting read-only scope (${SCOPE_READ})."
   fi
-  echo "This opens a browser for consent. The credential lasts about an hour."
-  gcloud auth application-default login --scopes="${scopes}"
+
+  if [[ -f ${client_file} ]]; then
+    echo "Using your OAuth client (${client_file}) — Gmail scopes only."
+    gcloud auth application-default login \
+      --client-id-file="${client_file}" --scopes="${scopes}"
+  elif ((ALLOW_CLOUD)); then
+    # The built-in client refuses to mint a credential without cloud-platform, so
+    # this path grants far more than a mailbox probe needs.
+    echo
+    echo "WARNING: falling back to the CLI's built-in OAuth client, which requires"
+    echo "         ${SCOPE_CLOUD}"
+    echo "         The credential will also carry broad Google Cloud access to this"
+    echo "         account. Revoke as soon as you are done."
+    echo
+    gcloud auth application-default login --scopes="${scopes},${SCOPE_CLOUD}"
+  else
+    die "no OAuth client file at ${client_file}.
+
+       The CLI's built-in client mandates ${SCOPE_CLOUD},
+       which would hand a mailbox probe broad Google Cloud access. To keep this to
+       Gmail scopes, create a Desktop OAuth client once — in the Cloud project that
+       already hosts the app's client:
+
+         Credentials -> Create credentials -> OAuth client ID -> Desktop app
+
+       Download the JSON to ${DEFAULT_CLIENT_ID_FILE} (gitignored), then re-run login.
+       Pass --client-id-file to use a different path, or --allow-cloud-scope to accept
+       the broader grant instead."
+  fi
   echo
   echo "Done. Revoke when finished:  ./scripts/qa-gmail-probe.sh revoke"
 }
@@ -490,6 +537,14 @@ while [[ $# -gt 0 ]]; do
     --out)
       OUT_FILE=$2
       shift 2
+      ;;
+    --client-id-file)
+      CLIENT_ID_FILE=$2
+      shift 2
+      ;;
+    --allow-cloud-scope)
+      ALLOW_CLOUD=1
+      shift
       ;;
     -h | --help) usage 0 ;;
     *) die "unknown option: $1" ;;
