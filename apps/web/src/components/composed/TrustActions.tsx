@@ -90,7 +90,8 @@ export function TrustActions({
               checked={scope === "parentDomain"}
               onChange={() => onScopeChange("parentDomain")}
             />
-            All {parentCoverage.registrable} subdomains ({parentCoverage.subtree.length})
+            All {parentCoverage.registrable} subdomains (
+            {parentCoverage.subtree.filter((d) => d.domain !== parentCoverage.registrable).length})
           </label>
         )}
       </fieldset>
@@ -113,8 +114,8 @@ export function TrustActions({
           {parentCoverage.siblings.length > 0 && (
             <>
               <p className="font-medium text-block">
-                It will also catch these, which are NOT part of {parentCoverage.registrable} and may
-                be unrelated:
+                From what we have observed of Gmail&rsquo;s matching, it will also catch these — NOT
+                part of {parentCoverage.registrable}, and possibly unrelated:
               </p>
               <ul className="list-disc pl-5 text-block">
                 {parentCoverage.siblings.map((d) => (
@@ -126,8 +127,10 @@ export function TrustActions({
             </>
           )}
           <p className="text-xs">
-            …and other domains starting {parentCoverage.registrable}. that have not written yet.
-            Decide a subdomain separately afterwards to carve it back out.
+            Anything new under {parentCoverage.registrable} is covered too, by design. The part
+            worth weighing is the other kind: a domain like {parentCoverage.registrable}.xx, owned
+            by someone else, that has not written yet and so cannot be listed here. Decide a domain
+            separately afterwards to carve it back out.
           </p>
         </div>
       )}

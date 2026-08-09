@@ -148,7 +148,8 @@ describe("TrustActions — parent-domain scope (#186)", () => {
   it("offers the subtree scope with the number of domains it covers", () => {
     const { onScopeChange } = renderWith("address");
 
-    const option = screen.getByLabelText(/All example\.com subdomains \(2\)/);
+    // One subdomain: `example.com` is in the subtree but is not a subdomain of itself.
+    const option = screen.getByLabelText(/All example\.com subdomains \(1\)/);
     fireEvent.click(option);
 
     expect(onScopeChange).toHaveBeenCalledWith("parentDomain");
@@ -173,6 +174,10 @@ describe("TrustActions — parent-domain scope (#186)", () => {
     // The surprising half: a different registrable domain, often a different company, that
     // Gmail's coarse match reaches anyway. Burying this is how a user blocks a stranger.
     expect(screen.getByText(/NOT part of example\.com/)).toBeInTheDocument();
+    // Hedged to the confidence we actually hold: Decision 9 records this as a spot-check on
+    // one account, explicitly not documented Gmail behaviour, so the copy must not read as
+    // settled fact.
+    expect(screen.getByText(/From what we have observed/)).toBeInTheDocument();
     expect(screen.getByText(/example\.com\.au \(1\)/)).toBeInTheDocument();
   });
 
@@ -181,7 +186,9 @@ describe("TrustActions — parent-domain scope (#186)", () => {
 
     // Observed senders are a floor, not the whole set — claiming otherwise would make the
     // list read as exhaustive when a domain nobody has written from cannot appear in it.
-    expect(screen.getByText(/have not written yet/)).toBeInTheDocument();
+    // …and names WHICH unknown matters: new subdomains are the point of the rule, whereas a
+    // same-prefix domain owned by someone else is the part worth weighing.
+    expect(screen.getByText(/owned by someone else/)).toBeInTheDocument();
   });
 
   it("shows no breadth warning until the scope is actually selected", () => {

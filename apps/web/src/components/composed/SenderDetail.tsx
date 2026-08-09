@@ -157,6 +157,10 @@ export function SenderDetail({
   };
 
   // The single subject from TrustActions (respects the address/domain scope toggle).
+  // `parentCoverage` is what makes the parentDomain scope selectable, and it only ever gains
+  // senders within a session — so a selected parentDomain scope always has coverage to key on.
+  // If senders ever become removable, this fallback would apply a subtree decision to one
+  // domain while still labelling it `parentDomain`; guard it there rather than trusting this.
   const singleTarget: Target = {
     subjectId:
       scope === "parentDomain"
