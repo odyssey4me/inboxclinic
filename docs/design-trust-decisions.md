@@ -225,7 +225,15 @@ applies to a sender iff the sender's registrable domain equals the rule's domain
    PSL's ICANN section alone, under which `x.github.io` reduces to `github.io` — the exact
    catastrophic grouping this point exists to prevent, and one that would let a single tenant's
    parent rule cover every other tenant of a hosting suffix. The PRIVATE section must be enabled
-   for the grouping to mean what this decision says it means. `tldts` also returns the public
+   for the grouping to mean what this decision says it means.
+   **Accepted cost of the PRIVATE section:** unlike ICANN TLDs, its entries are submitted and
+   withdrawn by companies at their own discretion, so a shared hosting suffix can enter or leave
+   the list between `tldts` bumps. A standing `parentDomain` rule can therefore be regrouped
+   (split into per-subdomain subjects, or merged) by a routine dependency update with no code
+   change here. Judged the lesser risk — the alternative is grouping every tenant of a hosting
+   suffix as one organisation, permanently — but #184/#185 should treat a rule's eTLD+1 as
+   *derived on read*, never as a frozen key, so a regrouping surfaces as a changed rule rather
+   than a dangling one. `tldts` also returns the public
    suffix, so the same dependency serves the future TLD scope (#180). **Maintenance:** the PSL is
    bundled at `tldts`'s release cadence, so a brand-new gTLD isn't recognised until the dep is
    bumped — Renovate keeps it current (a stale list only mis-groups a just-created suffix; low risk).
@@ -620,6 +628,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 9 PSL churn caveat (#183 review):** recorded that PRIVATE-section entries are company-submitted and can appear or disappear on a routine `tldts` bump, regrouping a standing `parentDomain` rule with no code change — accepted as the lesser risk, with the consequence that downstream builds must derive a rule's eTLD+1 on read rather than freeze it as a key. | Claude |
 | 2026-08-09 | **Decision 9 build 1/4 landed (#183)** — `tldts` grouping helpers, `parentDomain` on the `DecisionScope` ladder, `Domain.exceptionDomains[]`; no behaviour change yet. Recorded the implementation constraint the decision assumed but didn't state: **`allowPrivateDomains: true`**, without which `x.github.io` groups as `github.io` and one tenant's rule would cover every other tenant — the very failure point 1 cites. | Claude |
 | 2026-07-19 | **Decision 9 point 5 (#182 spike):** a real-account spot-check (not documented Gmail behaviour) found `from:` matches **whole-token, left-anchored** — reaches true subdomains + any domain whose leading dot-bounded labels are the eTLD+1 (`apple.com.au`), but **not** partial-label prefix lookalikes (`applebees.com`). The surface isn't enumerable in advance; the warning lists the **finite observed** matched senders (`tldts`-grouped), and the `tldts` guard + live `negatedQuery` are the safety net regardless. | Claude |
 | 2026-07-19 | **Decision 9 refinements (#136, from the PR #179 review):** `negatedQuery` exceptions are **live-derived on every reconcile** from effective status (not a frozen decision-time list) — closes a real leak where a later independent trust decision on a matched sibling would stay un-enforced; `exceptionDomains[]` is a denormalized index. Updated the Interfaces contract (`DecisionScope` gains `parentDomain`; `resolveEffectiveDecision` gains `parentDomainStatus` + `parentDomain` source). Added the block-side match-surface spot-check (prefix-stemming, #182) and a PSL-staleness maintenance note. | Claude |

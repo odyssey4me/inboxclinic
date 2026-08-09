@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
-import { resolveEffectiveDecision } from "./resolveEffectiveDecision";
+import { isMoreSpecific, resolveEffectiveDecision, SCOPE_SPECIFICITY } from "./resolveEffectiveDecision";
 
 describe("resolveEffectiveDecision", () => {
   it("lets a domain decision override an address decision", () => {
@@ -57,5 +57,27 @@ describe("resolveEffectiveDecision", () => {
         domainScope: null,
       }),
     ).toEqual({ status: "pending", source: "none" });
+  });
+});
+
+describe("scope specificity ladder (#183)", () => {
+  it("ranks address over domain over parentDomain", () => {
+    expect(SCOPE_SPECIFICITY.address).toBeLessThan(SCOPE_SPECIFICITY.domain);
+    expect(SCOPE_SPECIFICITY.domain).toBeLessThan(SCOPE_SPECIFICITY.parentDomain);
+  });
+
+  it("compares any two scopes by that rank", () => {
+    expect(isMoreSpecific("address", "parentDomain")).toBe(true);
+    expect(isMoreSpecific("domain", "parentDomain")).toBe(true);
+    expect(isMoreSpecific("parentDomain", "domain")).toBe(false);
+    // A scope is never more specific than itself — the comparison is strict.
+    expect(isMoreSpecific("domain", "domain")).toBe(false);
+  });
+
+  it("ranks every scope exactly once, so no two can tie", () => {
+    // `Record<DecisionScope, number>` already fails to compile if a scope is missing; this
+    // catches the other half — a new scope pasted in with a duplicate rank.
+    const ranks = Object.values(SCOPE_SPECIFICITY);
+    expect(new Set(ranks).size).toBe(ranks.length);
   });
 });

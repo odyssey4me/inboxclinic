@@ -136,7 +136,9 @@ export {
   type ApplyDecisionResult,
 } from "./decisions/applyDecision";
 export {
+  isMoreSpecific,
   resolveEffectiveDecision,
+  SCOPE_SPECIFICITY,
   type EffectiveDecision,
   type EffectiveDecisionInput,
 } from "./decisions/resolveEffectiveDecision";

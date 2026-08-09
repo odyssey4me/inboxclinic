@@ -111,12 +111,24 @@ describe("registrableDomain (properties)", () => {
     );
   });
 
-  it("normalises surrounding whitespace, and never throws on arbitrary input", () => {
+  it("ignores surrounding whitespace on a hostname, and never throws on arbitrary input", () => {
+    // Padding a KNOWN host and asserting the known answer — comparing two calls that both
+    // re-run the helper's own `.trim().toLowerCase()` would normalise each side to the same
+    // string before the assertion, and pass whatever the helper did.
     fc.assert(
-      fc.property(fc.string(), fc.stringMatching(/^[ \t\n]{0,4}$/), (raw, pad) => {
-        expect(registrableDomain(`${pad}${raw}${pad}`)).toBe(
-          registrableDomain(raw.trim().toLowerCase()),
-        );
+      fc.property(
+        registrable.chain((base) => fc.tuple(fc.constant(base), subdomainOf(base))),
+        fc.stringMatching(/^[ \t\n]{0,4}$/),
+        ([base, host], pad) => {
+          expect(registrableDomain(`${pad}${host}${pad}`)).toBe(base);
+        },
+      ),
+    );
+
+    // Separately: arbitrary input never throws, whatever it contains.
+    fc.assert(
+      fc.property(fc.string(), (raw) => {
+        expect(() => registrableDomain(raw)).not.toThrow();
       }),
     );
   });
