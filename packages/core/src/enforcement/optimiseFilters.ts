@@ -49,8 +49,14 @@ export interface OptimiseFiltersOptions {
   consolidateThreshold?: number;
 }
 
-/** Stable key for duplicate detection: normalised criteria (incl. exclusion) + label edits. */
-function filterKey(f: NativeFilter): string {
+/**
+ * Stable key for duplicate detection: normalised criteria (incl. exclusion) + label edits.
+ *
+ * Exported so the real-account replay spec checks THIS identity rather than a hand-copied
+ * one — a duplicate of it there would keep passing against a stale notion of equivalence if
+ * this ever changed (e.g. comparing exclusions as a set rather than a string).
+ */
+export function filterKey(f: NativeFilter): string {
   const norm = (xs: string[]): string => [...xs].sort().join(",");
   const exclude = (f.excludeFrom ?? "").trim().toLowerCase();
   return `${f.from.trim().toLowerCase()}|${exclude}|${norm(f.addLabelIds)}|${norm(f.removeLabelIds)}`;

@@ -23,7 +23,6 @@ cd "$(dirname "$0")/.."
 # prose "client secret").
 patterns=(
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'  # PEM private keys
-  'client_secret'                       # OAuth client secret (we ship none)
   'aws_secret_access_key'               # AWS keys
   'xox[baprs]-[A-Za-z0-9-]+'            # Slack tokens
   'ghp_[A-Za-z0-9]{36}'                 # GitHub personal access tokens (classic)
@@ -31,19 +30,37 @@ patterns=(
   'AIza[0-9A-Za-z_-]{35}'               # Google API keys
 )
 
+# `client_secret` is checked separately, because one file must NAME the field without
+# containing one: the QA probe (docs/design-testing.md Decision 9) reads a Desktop OAuth
+# client from the gitignored `.local/` and posts that field during its token exchange. The
+# exception is for this pattern in that one path only — every other pattern above still
+# applies to it, and any actual value would have to live in `.local/`, which git never sees.
+secret_pattern='client_secret'
+secret_exception='scripts/qa-gmail-probe.py'
+
 joined="$(
   IFS='|'
   echo "${patterns[*]}"
 )"
 
+# Scan what git would SHIP — tracked files plus new ones not yet added — rather than the
+# working tree. Ignored paths are developer-local by definition and can never be committed:
+# scanning them fails the gate on, for example, the QA probe's own OAuth client file in
+# `.local/`, which is precisely where such a file is supposed to live.
+file_list() {
+  git ls-files --cached --others --exclude-standard -z |
+    grep -zv -e '^package-lock\.json$' -e '^scripts/check-no-secrets\.sh$'
+}
+
+scan() {
+  file_list | xargs -0 -r grep -InEi --binary-files=without-match -e "$1" -- || true
+}
+
+# Joined with an explicit newline: command substitution strips trailing ones, so appending
+# directly would run the last line of one block into the first line of the next.
 matches="$(
-  grep -RInEi --binary-files=without-match \
-    --exclude-dir=.git \
-    --exclude-dir=node_modules \
-    --exclude-dir=dist \
-    --exclude=package-lock.json \
-    --exclude=check-no-secrets.sh \
-    -e "$joined" . || true
+  scan "$joined"
+  scan "$secret_pattern" | grep -v "^${secret_exception}:" || true
 )"
 
 if [[ -n "$matches" ]]; then

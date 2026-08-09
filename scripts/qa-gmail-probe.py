@@ -1,0 +1,713 @@
+#!/usr/bin/env python3
+# -----------------------------------------------------------------------------
+# Gmail behaviour probe (manual QA against a real account)
+# -----------------------------------------------------------------------------
+# The fourth, manual, non-gating test tier — see docs/design-testing.md
+# (Decision 9: Real-account probes for undocumented provider behaviour), which
+# owns this tool's design criteria: read-only wherever the question allows,
+# least-privilege short-lived credentials, metadata-only reads, never
+# destructive, subjects discovered rather than hard-coded, and evidence over
+# verdicts.
+#
+# It answers what Google does not document and no emulator reproduces, and what
+# mocking the GmailClient port can therefore only encode as a belief:
+#
+#   discover  Samples the mailbox and reports domains that ACTUALLY have mail
+#             from both themselves and their subdomains, plus example addresses,
+#             so the probes below run against real subjects.     [read-only]
+#   search    Does `from:*@domain` behave as a wildcard, and does it span
+#             SUBDOMAINS? Prints the sender domains a domain query really
+#             returns, and checks a `-from:(a OR b)` exclusion excludes.
+#                                                                [read-only]
+#   filters   Reads existing filters and checks every stored
+#             `criteria.negatedQuery` still parses as `from:(...)` — the shape
+#             `unwrapExcludeFrom` needs and the reconcile signature depends on.
+#             With --json, dumps them in the port's NativeFilter shape so the
+#             real rule set can be replayed through the compiler and the
+#             consolidation/adoption suggesters offline.         [read-only]
+#   limit     Where does Gmail actually reject an over-long filter?
+#             Binary-searches the criteria budget DEFAULT_MAX_CRITERIA_CHARS
+#             guesses at. Nothing existing answers this, so it creates and
+#             immediately deletes probe filters against an unroutable domain —
+#             the only probe needing write scope. It asks for that scope when
+#             run, so nothing has to be requested up front.
+#                                              [gmail.settings.basic, --i-know]
+#
+# The semantics under test, and why enforcement depends on them, are in
+# docs/design-gmail-integration.md (Decision 5).
+#
+# Auth: consent grants EXACTLY the scopes the probes you actually run need. The
+# read-only ones need nothing more; `limit` asks to widen when you run it, so
+# there is no scope flag to know about in advance. Obtained via
+# the standard installed-app loopback flow (PKCE) against a project-owned
+# Desktop OAuth client. The Google CLI cannot do this — `gcloud auth
+# application-default login` refuses to mint a credential without
+# `cloud-platform` even when given `--client-id-file`, and `gcloud auth login`
+# has no scope flag at all; either would hand a mailbox probe broad Google Cloud
+# access. Only the ACCESS token is cached (.local/qa-token.json, 0600,
+# gitignored) — never a refresh token — so the credential expires rather than
+# persisting, and re-consent per session is the accepted cost.
+#
+# One-time setup, in the Cloud project that already hosts the app's OAuth client:
+#   Credentials -> Create credentials -> OAuth client ID -> Desktop app
+#   Download the JSON to .local/oauth-client.json
+#
+# Replaying a dump through the real code:
+#   ./scripts/qa-gmail-probe.py filters --json --out .local/filters.json
+#   INBOXCLINIC_FILTER_FIXTURE=$PWD/.local/filters.json npx vitest run realFilters
+# (dumps carry your own sender addresses — .local/ is gitignored, keep them there)
+#
+# Usage:
+#   ./scripts/qa-gmail-probe.py login [--client-id-file F]   # optional; probes prompt
+#   ./scripts/qa-gmail-probe.py discover [--sample 200]
+#   ./scripts/qa-gmail-probe.py search [--domain x.com] [--exclude a@x.com]
+#   ./scripts/qa-gmail-probe.py filters [--json] [--out FILE]
+#   ./scripts/qa-gmail-probe.py limit --i-know [--domain probe.invalid]
+#   ./scripts/qa-gmail-probe.py revoke
+# -----------------------------------------------------------------------------
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import http.server
+import json
+import os
+import re
+import secrets
+import socket
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import Counter
+
+SCOPE_READ = "https://www.googleapis.com/auth/gmail.readonly"
+SCOPE_FILTERS = "https://www.googleapis.com/auth/gmail.settings.basic"
+GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
+AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
+TOKEN_URI = "https://oauth2.googleapis.com/token"
+REVOKE_URI = "https://oauth2.googleapis.com/revoke"
+
+TOKEN_CACHE = ".local/qa-token.json"
+CLIENT_FILE = ".local/oauth-client.json"
+
+# Probe filters are built against an unroutable domain (RFC 2606), so one can
+# never match, label, or trash a real message even in the instant it exists.
+PROBE_DOMAIN = "probe.invalid"
+
+
+def fail(message: str) -> "NoReturn":  # type: ignore[name-defined]
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def note(message: str) -> None:
+    print(f"  {message}")
+
+
+# --- auth --------------------------------------------------------------------
+
+
+def read_client(path: str) -> tuple[str, str]:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        fail(
+            f"no OAuth client file at {path}.\n\n"
+            "       Create one once, in the Cloud project that already hosts the app's client:\n"
+            "         Credentials -> Create credentials -> OAuth client ID -> Desktop app\n"
+            f"       Download the JSON to {CLIENT_FILE} (gitignored), then re-run login."
+        )
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read OAuth client file {path}: {error}")
+    section = data.get("installed")
+    if section is None:
+        fail(
+            f"{path} is not a Desktop ('installed') OAuth client — a Web client "
+            "cannot use the loopback redirect this flow needs"
+        )
+    return section["client_id"], section.get("client_secret", "")
+
+
+def post_form(url: str, fields: dict[str, str]) -> dict[str, object]:
+    request = urllib.request.Request(
+        url,
+        data=urllib.parse.urlencode(fields).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        fail(f"{url} returned {error.code}: {error.read().decode('utf-8', 'replace')}")
+    except urllib.error.URLError as error:
+        fail(f"cannot reach {url}: {error}")
+
+
+class _CallbackHandler(http.server.BaseHTTPRequestHandler):
+    """Captures the single redirect Google makes back to the loopback address."""
+
+    result: dict[str, str] = {}
+
+    def do_GET(self) -> None:  # noqa: N802 - http.server's required spelling
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        _CallbackHandler.result = {k: v[0] for k, v in query.items()}
+        body = (
+            b"<html><body style='font-family:system-ui;padding:2rem'>"
+            b"<h3>Authorisation received</h3><p>You can close this tab and return "
+            b"to the terminal.</p></body></html>"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:
+        """Silence the default stderr access log."""
+
+
+def cache_write(payload: dict[str, object]) -> None:
+    os.makedirs(os.path.dirname(TOKEN_CACHE) or ".", exist_ok=True)
+    # 0600: it holds a live bearer token until it expires.
+    handle = os.open(TOKEN_CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(handle, "w", encoding="utf-8") as file:
+        json.dump(payload, file)
+
+
+def cache_read() -> dict[str, object] | None:
+    try:
+        with open(TOKEN_CACHE, encoding="utf-8") as handle:
+            cache = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    # Within a minute of expiry counts as dead: a probe starting now would fail
+    # part-way through, which is worse than refusing to start.
+    if int(cache.get("expires_at", 0)) - int(time.time()) <= 60:
+        return None
+    return cache
+
+
+def cache_clear() -> None:
+    cache = None
+    try:
+        with open(TOKEN_CACHE, encoding="utf-8") as handle:
+            cache = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        pass
+    if cache and cache.get("access_token"):
+        try:
+            post_form(REVOKE_URI, {"token": str(cache["access_token"])})
+        except SystemExit:
+            pass  # already expired or revoked upstream; clearing the cache is the point
+    try:
+        os.remove(TOKEN_CACHE)
+    except FileNotFoundError:
+        pass
+
+
+def ensure_token(needed: str) -> str:
+    """Return a live token carrying `needed`, consenting on the spot if it doesn't.
+
+    The scope a probe needs is known when it runs, so asking for it then — rather than
+    making the caller predict it at login — keeps the credential to what the session has
+    actually used, with no flag to remember.
+    """
+    cache = cache_read()
+    if cache is not None and needed in str(cache.get("scope", "")).split():
+        left = int(cache["expires_at"]) - int(time.time())  # type: ignore[arg-type]
+        if left < 300:
+            note(f"note: this credential expires in {left}s; re-run if a probe fails part-way")
+        return str(cache["access_token"])
+
+    if cache is None:
+        cache_clear()  # a dead credential is cleared, not left to fail again
+        reason = "No usable credential."
+        scopes = [SCOPE_READ] if needed == SCOPE_READ else [SCOPE_READ, needed]
+    else:
+        # Widening: keep what the session already has and add what this probe needs, so a
+        # read-only credential isn't silently downgraded mid-run.
+        reason = f"This probe needs {needed}, which the current credential lacks."
+        scopes = sorted({*str(cache.get("scope", "")).split(), needed})
+
+    if not sys.stdin.isatty():
+        fail(f"{reason} Run: ./scripts/qa-gmail-probe.py login")
+    print(f"{reason}")
+    print("Consent to:")
+    for scope in scopes:
+        print(f"  {scope}")
+    if input("Open the browser to authorise? [y/N] ").strip().lower() not in {"y", "yes"}:
+        fail("declined — nothing was requested")
+    run_consent(scopes, CLIENT_FILE)
+    cache = cache_read()
+    if cache is None:
+        fail("consent completed but no usable token was cached")
+    return str(cache["access_token"])
+
+
+def cmd_login(args: argparse.Namespace) -> None:
+    run_consent([SCOPE_READ], args.client_id_file)
+
+
+def run_consent(scopes: list[str], client_id_file: str) -> None:
+    """The installed-app loopback flow (PKCE) for exactly `scopes`."""
+    client_id, client_secret = read_client(client_id_file)
+
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).decode().rstrip("=")
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
+    state = secrets.token_urlsafe(24)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
+    redirect_uri = f"http://localhost:{port}"
+
+    url = f"{AUTH_URI}?" + urllib.parse.urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": " ".join(scopes),
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+            # No refresh token: this credential is meant to expire.
+            "access_type": "online",
+            "prompt": "consent",
+        }
+    )
+
+    server = http.server.HTTPServer(("127.0.0.1", port), _CallbackHandler)
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+
+    print("Requesting only:")
+    for scope in scopes:
+        print(f"  {scope}")
+    print("\nOpen this URL to consent (it should open automatically):\n")
+    print(url + "\n")
+    if os.system(f'xdg-open "{url}" >/dev/null 2>&1') != 0:  # noqa: S605
+        print("(could not open a browser automatically — paste the URL above)")
+
+    thread.join(timeout=300)
+    server.server_close()
+    result = _CallbackHandler.result
+    if not result:
+        fail("timed out waiting for the browser redirect")
+    if result.get("state") != state:
+        fail("state mismatch on the redirect — aborting rather than trusting it")
+    if "error" in result:
+        fail(f"consent was declined or failed: {result['error']}")
+
+    token = post_form(
+        TOKEN_URI,
+        {
+            "code": result["code"],
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code_verifier": verifier,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        },
+    )
+    expires_in = int(token.get("expires_in", 0))  # type: ignore[arg-type]
+    cache_write(
+        {
+            "access_token": token["access_token"],
+            "expires_at": int(time.time()) + expires_in,
+            "scope": token.get("scope", " ".join(scopes)),
+        }
+    )
+    print(f"\nAuthorised for ~{expires_in // 60} minutes; token cached in {TOKEN_CACHE} (0600).")
+    print("No refresh token was requested, so it simply expires.")
+    print("Revoke sooner with:  ./scripts/qa-gmail-probe.py revoke")
+
+
+def cmd_revoke(_args: argparse.Namespace) -> None:
+    cache_clear()
+    print("Token revoked and cache removed. Also review https://myaccount.google.com/permissions")
+
+
+# --- api ---------------------------------------------------------------------
+
+
+def api_get(token: str, path: str, params: dict[str, str] | None = None) -> dict[str, object]:
+    url = f"{GMAIL_API}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")
+        if error.code == 403:
+            fail(f"refused with the current scope: {detail}")
+        fail(f"GET {path} returned {error.code}: {detail}")
+    except urllib.error.URLError as error:
+        fail(f"cannot reach the Gmail API: {error}")
+
+
+def sender_addresses(token: str, query: str, limit: int) -> list[str]:
+    """Sender addresses for a query — metadata only, never bodies or snippets."""
+    listing = api_get(token, "/messages", {"q": query, "maxResults": str(limit)})
+    messages = listing.get("messages") or []
+    found: list[str] = []
+    for message in messages:  # type: ignore[union-attr]
+        meta = api_get(
+            token,
+            f"/messages/{message['id']}",  # type: ignore[index]
+            {"format": "metadata", "metadataHeaders": "From"},
+        )
+        headers = (meta.get("payload") or {}).get("headers") or []  # type: ignore[union-attr]
+        for header in headers:
+            if str(header.get("name", "")).lower() != "from":
+                continue
+            value = str(header.get("value", ""))
+            match = re.search(r"<([^>]+)>", value)
+            address = (match.group(1) if match else value).strip().lower()
+            if "@" in address:
+                found.append(address)
+    return found
+
+
+def host_of(address: str) -> str:
+    return address.rsplit("@", 1)[-1]
+
+
+# --- probes ------------------------------------------------------------------
+
+
+def find_pairs(token: str, sample: int) -> tuple[list[tuple[str, list[str], str, int]], Counter]:
+    """Domains with mail from BOTH themselves and a subdomain, richest first.
+
+    Parent/child is decided by label-boundary suffix matching between hosts we
+    actually observed — no public-suffix list needed, and nothing hard-coded:
+    `notx.com` never counts as under `x.com`.
+    """
+    addresses = sorted(set(sender_addresses(token, "newer_than:180d", sample)))
+    example: dict[str, str] = {}
+    counts: Counter = Counter()
+    for address in addresses:
+        host = host_of(address)
+        counts[host] += 1
+        example.setdefault(host, address)
+
+    pairs: list[tuple[str, list[str], str, int]] = []
+    for parent in sorted(counts):
+        subs = sorted(h for h in counts if h != parent and h.endswith(f".{parent}"))
+        if subs:
+            pairs.append((parent, subs, example[subs[0]], counts[parent]))
+    pairs.sort(key=lambda item: len(item[1]), reverse=True)
+    return pairs, counts
+
+
+def cmd_discover(args: argparse.Namespace) -> None:
+    token = ensure_token(SCOPE_READ)
+    print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
+    pairs, counts = find_pairs(token, args.sample)
+
+    print("-- domains with mail from BOTH themselves and a subdomain (ideal subjects)")
+    if not pairs:
+        note("none in this sample — try a larger --sample")
+    for parent, subs, sub_example, apex in pairs:
+        note(f"{parent}  (apex senders: {apex})")
+        note(f"  subdomains seen: {', '.join(subs)}")
+        note(f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
+             f" --exclude {sub_example}")
+
+    print("\n-- domains with the most distinct sender addresses (exclusion subjects)")
+    for host, count in counts.most_common(5):
+        note(f"{host}  ({count} distinct address(es))")
+
+
+def cmd_search(args: argparse.Namespace) -> None:
+    token = ensure_token(SCOPE_READ)
+    domain, exclude = args.domain, args.exclude
+
+    # No subject given? Find one in the mailbox rather than making the caller
+    # guess, or worse, baking a domain into the tool.
+    if domain is None:
+        print("== no --domain given; discovering a subject from the mailbox ==")
+        pairs, _ = find_pairs(token, args.sample)
+        if not pairs:
+            fail(
+                f"no domain with observed subdomain senders in the last {args.sample} messages\n"
+                "       pass --domain explicitly, or raise --sample"
+            )
+        domain, _subs, auto_exclude, _apex = pairs[0]
+        exclude = exclude or auto_exclude
+        note(f"chose {domain} (excluding {exclude})\n")
+
+    print(f"== search semantics for {domain} ==\n")
+    print(f"-- from:*@{domain} — is `*@` a wildcard, and does it span subdomains?")
+    hits = Counter(host_of(a) for a in sender_addresses(token, f"from:*@{domain}", args.sample))
+    if not hits:
+        note("NO RESULTS — either no such mail, or `*@` is not treated as a wildcard.")
+        note("Check by hand before concluding: a literal `*` returns zero, like an empty mailbox.")
+    else:
+        for host, count in hits.most_common():
+            if host == domain:
+                note(f"{count}x {host}   (the domain itself)")
+            else:
+                note(f"{count}x {host}   << SUBDOMAIN/OTHER — matched by a query for {domain}")
+        if any(host != domain for host in hits):
+            print()
+            note("SUBDOMAIN lines mean a domain block sweeps senders the user never decided on.")
+
+    if exclude:
+        print(f"\n-- from:*@{domain} -from:({exclude}) — does the parenthesised exclusion apply?")
+        excluded_host = host_of(exclude)
+        after = Counter(
+            host_of(a)
+            for a in sender_addresses(token, f"from:*@{domain} -from:({exclude})", args.sample)
+        )
+        before_count, after_count = hits[excluded_host], after[excluded_host]
+        note(f"messages from {excluded_host}: {before_count} without the exclusion, "
+             f"{after_count} with it")
+        if before_count == 0:
+            note("INCONCLUSIVE — nothing to exclude; pick an address you do receive mail from.")
+        elif after_count == 0:
+            note("PASS — the exclusion removed them.")
+        else:
+            note("FAIL — the exclusion did NOT remove them.")
+
+
+def unwrap_exclude_from(negated: str) -> str | None:
+    """`from:(a OR b)` -> `a OR b`, mirroring the browser client's read-back."""
+    match = re.fullmatch(r"from:\((.*)\)", negated, re.DOTALL)
+    return match.group(1) if match else (negated or None)
+
+
+def cmd_filters(args: argparse.Namespace) -> None:
+    token = ensure_token(SCOPE_READ)
+    listing = api_get(token, "/settings/filters")
+    filters = listing.get("filter") or []
+
+    if args.json:
+        # The port's NativeFilter shape, so a dump replays through the real
+        # compiler and suggesters unchanged.
+        dump = []
+        for f in filters:  # type: ignore[union-attr]
+            criteria = f.get("criteria") or {}
+            action = f.get("action") or {}
+            entry: dict[str, object] = {
+                "id": f.get("id"),
+                "from": criteria.get("from", ""),
+                "addLabelIds": action.get("addLabelIds", []),
+                "removeLabelIds": action.get("removeLabelIds", []),
+            }
+            # `excludeFrom` is OPTIONAL on the port, and the browser client omits the
+            # key rather than setting it null. A dump that emits null is not a
+            # NativeFilter, and code written against the real shape rightly breaks on
+            # it — so omit it here too, or the replay tests a fiction.
+            exclude = unwrap_exclude_from(str(criteria.get("negatedQuery", "")))
+            if exclude is not None:
+                entry["excludeFrom"] = exclude
+            dump.append(entry)
+        # Ship the RAW filter beside our projection. The projection is lossy by
+        # design — the port models `from`/`negatedQuery` and nothing else — so a
+        # dump of only the projection hides exactly the gaps a replay is meant to
+        # expose: two filters differing solely in criteria we drop look identical,
+        # and the harness cannot tell. Keeping both lets it compare the two.
+        payload = {
+            "filters": dump,
+            "raw": [
+                {"id": f.get("id"), "criteria": f.get("criteria") or {}, "action": f.get("action") or {}}
+                for f in filters  # type: ignore[union-attr]
+            ],
+        }
+        text = json.dumps(payload, indent=2)
+        if args.out:
+            os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+            with open(args.out, "w", encoding="utf-8") as handle:
+                handle.write(text + "\n")
+            note(f"wrote {len(dump)} filter(s) to {args.out}")
+            note(f"replay: INBOXCLINIC_FILTER_FIXTURE=$PWD/{args.out} npx vitest run realFilters")
+        else:
+            print(text)
+        return
+
+    print("== stored filter criteria (read-only) ==")
+    with_negated = 0
+    for f in filters:  # type: ignore[union-attr]
+        criteria = f.get("criteria") or {}
+        negated = str(criteria.get("negatedQuery", ""))
+        note(str(f.get("id")))
+        note(f"  from:         {criteria.get('from', '-')}")
+        note(f"  negatedQuery: {negated or '-'}")
+        if negated:
+            with_negated += 1
+            # `unwrapExcludeFrom` parses exactly this shape; anything else means
+            # the reconcile signature can't reproduce `excludeFrom`, and filters
+            # churn on every sync.
+            if re.fullmatch(r"from:\(.*\)", negated, re.DOTALL):
+                note("  shape:        OK — matches ^from:\\((.*)\\)$")
+            else:
+                note("  shape:        MISMATCH — unwrapExcludeFrom would not recover excludeFrom")
+
+    print()
+    if with_negated == 0:
+        note("No filter carries a negatedQuery, so round-trip fidelity is untested here.")
+        note("Create one, then re-run — or use a filter the app itself made.")
+    else:
+        note(f"{with_negated} filter(s) with a negatedQuery inspected.")
+        note("Compare each against what was SENT: it must match byte-for-byte, including")
+        note("term order and the spacing around OR.")
+
+
+def cmd_limit(args: argparse.Namespace) -> None:
+    if not args.i_know:
+        fail(
+            "limit creates and deletes probe filters — pass --i-know to confirm.\n"
+            "       The other probes are read-only; this one cannot be."
+        )
+    token = ensure_token(SCOPE_FILTERS)
+    domain = args.domain or PROBE_DOMAIN
+    if not domain.endswith(".invalid"):
+        note(f"WARNING: {domain} can receive mail; probe filters will briefly exist against it.")
+
+    print(f"== criteria length limit on {domain} (DEFAULT_MAX_CRITERIA_CHARS assumes 1500) ==")
+    last_error = ""
+
+    def accepts(target: int) -> bool:
+        nonlocal last_error
+        sender_from = f"*@{domain}"
+        addresses: list[str] = []
+        index = 0
+        while len(sender_from) + 7 + len(" OR ".join(addresses)) < target and index < 4000:
+            addresses.append(f"p{index:04d}@{domain}")
+            index += 1
+        body = json.dumps(
+            {
+                "criteria": {
+                    "from": sender_from,
+                    "negatedQuery": f"from:({' OR '.join(addresses)})",
+                },
+                "action": {"addLabelIds": ["STARRED"]},
+            }
+        ).encode()
+        request = urllib.request.Request(
+            f"{GMAIL_API}/settings/filters",
+            data=body,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+
+        created_id: str | None = None
+        try:
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    created_id = str(json.load(response)["id"])
+            except urllib.error.HTTPError as error:
+                last_error = error.read().decode("utf-8", "replace")[:200]
+                return False
+            except urllib.error.URLError as error:
+                fail(f"cannot reach the Gmail API: {error}")
+            return True
+        finally:
+            # A probe filter must not outlive its own check — including when the run is
+            # interrupted. Without this, Ctrl-C between create and delete strands a filter
+            # silently, and the binary search opens that window a dozen-plus times per run.
+            if created_id is not None:
+                delete = urllib.request.Request(
+                    f"{GMAIL_API}/settings/filters/{created_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    method="DELETE",
+                )
+                try:
+                    urllib.request.urlopen(delete, timeout=30).close()
+                except Exception:  # noqa: BLE001 - report ANY failure to clean up
+                    # Loud and specific: an orphan the user doesn't know about is the one
+                    # outcome this probe promises never to leave behind.
+                    print(
+                        f"WARNING: could not delete probe filter {created_id} — "
+                        f"remove it by hand (criteria from:*@{domain})",
+                        file=sys.stderr,
+                    )
+
+    low = 100
+    if not accepts(low):
+        fail(f"even {low} chars was rejected: {last_error}")
+
+    # Find a rejection before bisecting: a fixed ceiling that Gmail happens to accept
+    # reports the ceiling as "the limit", which is a wrong answer wearing a number.
+    high = 0
+    probe = low
+    while probe <= 60_000:
+        probe *= 2
+        if accepts(probe):
+            low = probe
+            note(f"accepted at ~{probe} chars; probing higher")
+        else:
+            high = probe
+            break
+    if high == 0:
+        note(f"accepted every size up to ~{low} chars without a rejection.")
+        note("Either the limit is higher still, or criteria length is not bounded the way")
+        note("DEFAULT_MAX_CRITERIA_CHARS assumes. Raise the ceiling in this probe to dig further.")
+        return
+
+    last_ok, first_fail = low, high
+    while first_fail - last_ok > 25:
+        mid = (last_ok + first_fail) // 2
+        if accepts(mid):
+            last_ok = mid
+        else:
+            first_fail = mid
+
+    note(f"largest accepted criteria: ~{last_ok} chars")
+    note(f"smallest rejected:         ~{first_fail} chars ({last_error})")
+    print()
+    note(f"DEFAULT_MAX_CRITERIA_CHARS assumes 1500.")
+    note("Below that => the budget is too generous and over-long filters still get rejected.")
+    note("Above it   => domains degrade to enumerate form earlier than they need to.")
+
+
+# --- cli ---------------------------------------------------------------------
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Gmail behaviour probe — see docs/design-testing.md Decision 9.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    login = sub.add_parser("login", help="consent up front (read-only; probes widen on demand)")
+    login.add_argument("--client-id-file", default=CLIENT_FILE)
+    login.set_defaults(func=cmd_login)
+
+    sub.add_parser("revoke", help="revoke the token and delete its cache").set_defaults(
+        func=cmd_revoke
+    )
+
+    discover = sub.add_parser("discover", help="find real probe subjects in the mailbox")
+    discover.add_argument("--sample", type=int, default=200)
+    discover.set_defaults(func=cmd_discover)
+
+    search = sub.add_parser("search", help="wildcard / subdomain / exclusion semantics")
+    search.add_argument("--domain", help="omit to discover one from the mailbox")
+    search.add_argument("--exclude")
+    search.add_argument("--sample", type=int, default=200)
+    search.set_defaults(func=cmd_search)
+
+    filters = sub.add_parser("filters", help="stored negatedQuery shape; --json to dump")
+    filters.add_argument("--json", action="store_true")
+    filters.add_argument("--out")
+    filters.set_defaults(func=cmd_filters)
+
+    limit = sub.add_parser("limit", help="find the real criteria length limit (writes!)")
+    limit.add_argument("--i-know", action="store_true")
+    limit.add_argument("--domain")
+    limit.set_defaults(func=cmd_limit)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

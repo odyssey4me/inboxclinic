@@ -58,3 +58,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Local, mailbox-derived QA artifacts (real filter dumps carry sender addresses)
+.local/

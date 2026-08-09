@@ -103,6 +103,35 @@ HTML report lands in `playwright-report/`.
 Test structure, tiers, mocking, and fixtures: [docs/design-testing.md](docs/design-testing.md).
 Coverage gate: **≥80%** on `packages/core` and `packages/store` logic.
 
+**Manual QA against real Gmail — `./scripts/qa-gmail-probe.py`.** A fourth, **non-gating**
+tier for provider behaviour Google doesn't document and no emulator reproduces: whether
+`from:*@domain` is a wildcard, whether it spans **subdomains**, whether `criteria.negatedQuery`
+round-trips byte-for-byte, and where the criteria length limit really falls. Mocking the
+`GmailClient` port encodes our *belief* about these, so a wrong belief passes every automated
+tier — this is how that belief gets checked. Design criteria (read-only wherever the question
+allows, least-privilege short-lived credentials, metadata-only reads, never destructive) live
+in [docs/design-testing.md](docs/design-testing.md) Decision 9.
+
+**One-time setup.** Consent must grant *only* Gmail scopes, and no `gcloud` route can do that
+(ADC login mandates `cloud-platform` even with `--client-id-file`; `gcloud auth login` takes no
+scopes). The probe therefore runs the installed-app loopback flow itself against a **Desktop**
+OAuth client of your own. In the Cloud project that already hosts the app's client:
+*Credentials → Create credentials → OAuth client ID → Desktop app*, then save the JSON to
+`.local/oauth-client.json` (gitignored). Each session re-consents in the browser and caches only
+an access token (~1h, no refresh token), so nothing long-lived sits on disk.
+
+```bash
+./scripts/qa-gmail-probe.py login       # read-only consent in the browser (~1h)
+                                        # (optional — probes prompt for what they need)
+./scripts/qa-gmail-probe.py discover    # find real subjects in the mailbox
+./scripts/qa-gmail-probe.py search      # wildcard + subdomain + exclusion semantics
+./scripts/qa-gmail-probe.py filters     # stored negatedQuery shape (read-only)
+./scripts/qa-gmail-probe.py revoke      # drop the credential when done
+```
+
+Paste findings into the relevant issue as evidence — they date-stamp what Gmail did, which is
+the only ground truth available for these questions.
+
 ### Dependency updates
 
 **Renovate** opens update PRs; CI gates every merge. Coupled ecosystems (vite, eslint, types)
