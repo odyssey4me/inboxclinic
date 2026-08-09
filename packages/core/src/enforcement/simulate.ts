@@ -215,28 +215,37 @@ export async function simulateEnforcement(
     );
   };
 
+  /**
+   * A sender's effective status under the previewed decisions — the whole ladder, resolved
+   * once. Extracted because every consumer that re-derived it inline drifted: each had to
+   * remember the parent half, and each place that forgot silently disagreed with Apply.
+   */
+  const prospectiveStatusOf = (sender: Sender): TrustStatus => {
+    const domain = domainByName.get(sender.domain.toLowerCase());
+    const addressStatus = senderStatus.get(sender.id) ?? sender.trustStatus;
+    const domainStat = domain ? (domainStatus.get(domain.id) ?? domain.trustStatus) : "pending";
+    return resolveEffectiveDecision({
+      addressStatus: addressStatus === "pending" ? null : addressStatus,
+      addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
+      domainStatus: domainStat === "pending" ? null : domainStat,
+      // A domain only gets a status via a domain-scope decision (stored or previewed),
+      // so a non-pending prospective status is a domain-scope override.
+      domainScope: domainStat === "pending" ? null : "domain",
+      ...parentFields(sender),
+    }).status;
+  };
+
+  /** The senders a parent-domain decision covers — the whole subtree, by registrable domain. */
+  const subtreeMembers = (domain: Domain): Sender[] =>
+    senders.filter((s) => registrableDomain(s.domain) === domain.domain.toLowerCase());
+
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;
   let filtersToDelete = 0;
   try {
     // Effective blocked set: a sender whose (prospective) domain trusts it is not blocked,
     // so the preview matches what enforce would actually do (#144).
-    const blockedSenders = senders.filter((s) => {
-      const domain = domainByName.get(s.domain.toLowerCase());
-      const addressStatus = senderStatus.get(s.id) ?? s.trustStatus;
-      const domainStat = domain ? (domainStatus.get(domain.id) ?? domain.trustStatus) : "pending";
-      return (
-        resolveEffectiveDecision({
-          addressStatus: addressStatus === "pending" ? null : addressStatus,
-          addressIsException: domain?.exceptionAddresses.includes(s.email) ?? false,
-          domainStatus: domainStat === "pending" ? null : domainStat,
-          // A domain only gets a status via a domain-scope decision (stored or previewed),
-          // so a non-pending prospective status is a domain-scope override.
-          domainScope: domainStat === "pending" ? null : "domain",
-          ...parentFields(s),
-        }).status === "blocked"
-      );
-    });
+    const blockedSenders = senders.filter((s) => prospectiveStatusOf(s) === "blocked");
     const blockedDomains = domains
       .filter((d) => domainStatus.get(d.id) === "blocked")
       .map((d) => {
@@ -272,10 +281,14 @@ export async function simulateEnforcement(
   const rescueSenderIds = new Set<string>();
   for (const decision of decisions) {
     if (decision.decision === "block") {
+      // Any non-address scope decides a DOMAIN record, and enforce sweeps it as `*@domain`
+      // whatever its scope — `effectiveBlockedDomains` selects on trustStatus, not scope. A
+      // `=== "domain"` test here left a parent block resolving to an empty subject, so the
+      // preview reported no swept mail for a decision that sweeps plenty.
       const sender = decision.scope === "address" ? senderById.get(decision.subjectId) : undefined;
-      const domain = decision.scope === "domain" ? domainById.get(decision.subjectId) : undefined;
+      const domain = decision.scope !== "address" ? domainById.get(decision.subjectId) : undefined;
       const from =
-        decision.scope === "domain" ? `*@${domain?.domain ?? ""}` : (sender?.email ?? "");
+        decision.scope !== "address" ? `*@${domain?.domain ?? ""}` : (sender?.email ?? "");
       if (from === "" || from === "*@") continue;
       const plan = planActions({
         decision: "block",
@@ -306,8 +319,17 @@ export async function simulateEnforcement(
       } else {
         const domain = domainById.get(decision.subjectId);
         if (domain !== undefined) {
-          for (const sender of sendersByDomain.get(domain.domain.toLowerCase()) ?? []) {
-            if (prospectivelyTrustedMember(sender, domain)) rescueSenderIds.add(sender.id);
+          if (decision.scope === "parentDomain") {
+            // Subtree members resolve through the full ladder: their own exact-domain record
+            // may say anything, and the parent rule this batch creates is what covers them.
+            // An exact-name member lookup would find none of them.
+            for (const sender of subtreeMembers(domain)) {
+              if (prospectiveStatusOf(sender) === "trusted") rescueSenderIds.add(sender.id);
+            }
+          } else {
+            for (const sender of sendersByDomain.get(domain.domain.toLowerCase()) ?? []) {
+              if (prospectivelyTrustedMember(sender, domain)) rescueSenderIds.add(sender.id);
+            }
           }
         }
       }
