@@ -64,6 +64,74 @@ describe("resolveEffectiveDecision", () => {
   });
 });
 
+describe("parent-domain precedence (#184)", () => {
+  const base = {
+    addressStatus: null,
+    addressIsException: false,
+    domainStatus: null,
+    domainScope: null,
+  } as const;
+
+  it("applies a parent-domain rule to a sender with no narrower decision", () => {
+    expect(resolveEffectiveDecision({ ...base, parentDomainStatus: "blocked" })).toEqual({
+      status: "blocked",
+      source: "parentDomain",
+    });
+  });
+
+  it("overrides an exact-domain decision that is not carved out of the parent", () => {
+    // The parent rule is the broader statement, so it moves subdomains already decided —
+    // otherwise deciding a whole subtree would do nothing for the parts the user knew about.
+    expect(
+      resolveEffectiveDecision({
+        ...base,
+        domainStatus: "trusted",
+        domainScope: "domain",
+        parentDomainStatus: "blocked",
+      }),
+    ).toEqual({ status: "blocked", source: "parentDomain" });
+  });
+
+  it("steps aside for a subdomain recorded as an exception to it", () => {
+    expect(
+      resolveEffectiveDecision({
+        ...base,
+        domainStatus: "trusted",
+        domainScope: "domain",
+        parentDomainStatus: "blocked",
+        parentDomainIsException: true,
+      }),
+    ).toEqual({ status: "trusted", source: "domain" });
+  });
+
+  it("steps aside for an address recorded as an exception to it", () => {
+    expect(
+      resolveEffectiveDecision({
+        ...base,
+        addressStatus: "trusted",
+        parentDomainStatus: "blocked",
+        parentDomainIsException: true,
+      }),
+    ).toEqual({ status: "trusted", source: "address" });
+  });
+
+  it("outranks an address decision that is not carved out of it", () => {
+    expect(
+      resolveEffectiveDecision({
+        ...base,
+        addressStatus: "trusted",
+        parentDomainStatus: "blocked",
+      }),
+    ).toEqual({ status: "blocked", source: "parentDomain" });
+  });
+
+  it("is skipped entirely when the subtree has no parent rule", () => {
+    expect(
+      resolveEffectiveDecision({ ...base, addressStatus: "blocked", parentDomainStatus: null }),
+    ).toEqual({ status: "blocked", source: "address" });
+  });
+});
+
 describe("scope specificity ladder (#183)", () => {
   it("ranks address over domain over parentDomain", () => {
     expect(SCOPE_SPECIFICITY.address).toBeLessThan(SCOPE_SPECIFICITY.domain);

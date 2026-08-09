@@ -124,6 +124,11 @@ export async function runScan(
     domain.decisionContext = prev.decisionContext;
     domain.pendingActions = prev.pendingActions;
     domain.exceptionAddresses = prev.exceptionAddresses;
+    // Carried forward for the same reason as `exceptionAddresses`: a fresh scan seeds
+    // `exceptionDomains: []`, so omitting it here would let a routine rescan silently erase
+    // every subdomain carved out of a parent rule — after which enforcement resumes blocking
+    // subdomains the user explicitly decided to keep.
+    domain.exceptionDomains = prev.exceptionDomains;
   }
 
   await store.senders.bulkPut(senders);

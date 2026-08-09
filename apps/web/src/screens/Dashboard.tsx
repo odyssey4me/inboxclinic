@@ -4,7 +4,9 @@ import {
   computeTrustScore,
   enforce,
   learnPriorDecisions,
-  resolveEffectiveDecision,
+  effectiveSenderStatus,
+  keyFor,
+  parentDomainRuleFor,
   senderToSnapshot,
   type Domain,
   type GmailClient,
@@ -222,27 +224,28 @@ export function Dashboard({
       new Map(domains.map((d) => [d.id, averageDomainScore(membersByDomain.get(d.domain) ?? [])])),
     [domains, membersByDomain],
   );
-  const domainByName = useMemo(() => new Map(domains.map((d) => [d.domain, d])), [domains]);
+  // Keyed as the precedence helpers key domains, so a parent-domain rule is found by the
+  // sender's registrable domain rather than an exact name match.
+  const domainsByKey = useMemo(() => new Map(domains.map((d) => [keyFor(d.domain), d])), [domains]);
 
-  // A domain-scope decision covers its members (design-trust-decisions.md Decision 2) without
-  // rewriting their sender records, so resolve each sender's *effective* status for the sender
-  // surface — otherwise a domain-trusted sender would still read "pending" here.
+  // A domain-scope decision covers its members (design-trust-decisions.md Decision 2), and a
+  // parent-domain rule covers a whole subtree (Decision 9), without rewriting their sender
+  // records — so resolve each sender's *effective* status for the sender surface, or a
+  // sender covered by either would still read "pending" here.
   const effectiveStatusById = useMemo(() => {
     const map = new Map<string, TrustStatus>();
     for (const s of senders) {
-      const d = domainByName.get(s.domain);
       map.set(
         s.id,
-        resolveEffectiveDecision({
-          addressStatus: s.trustStatus === "pending" ? null : s.trustStatus,
-          addressIsException: d?.exceptionAddresses.includes(s.email) ?? false,
-          domainStatus: d && d.trustStatus !== "pending" ? d.trustStatus : null,
-          domainScope: d?.decisionScope ?? null,
-        }).status,
+        effectiveSenderStatus(
+          s,
+          domainsByKey.get(keyFor(s.domain)),
+          parentDomainRuleFor(s.domain, domainsByKey),
+        ),
       );
     }
     return map;
-  }, [senders, domainByName]);
+  }, [senders, domainsByKey]);
   const effectiveStatus = (sender: Sender): TrustStatus =>
     effectiveStatusById.get(sender.id) ?? sender.trustStatus;
 

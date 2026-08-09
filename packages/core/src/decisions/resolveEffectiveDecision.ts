@@ -37,22 +37,60 @@ export interface EffectiveDecisionInput {
   addressIsException: boolean;
   domainStatus: TrustStatus | null;
   domainScope: DecisionScope | null;
+  /** The registrable domain's rule, when one exists (Decision 9). */
+  parentDomainStatus?: TrustStatus | null;
+  /**
+   * True when this sender — by address, or by its exact domain — is recorded as an exception
+   * to the parent-domain rule, so that rule steps aside for the narrower decision.
+   */
+  parentDomainIsException?: boolean;
 }
 
 export interface EffectiveDecision {
   status: TrustStatus;
-  source: "address" | "domain" | "none";
+  source: "address" | "domain" | "parentDomain" | "none";
 }
 
-/** Pure. Resolve the effective status for a sender given address + domain decisions. */
+/**
+ * Pure. Resolve the effective status for a sender across the specificity ladder.
+ *
+ * The rule reads backwards from "most specific wins", and deliberately so: a **broader rule
+ * overrides a narrower decision unless the narrower subject is recorded as an exception to
+ * it**. That is what makes a domain decision meaningful at all — deciding a whole domain has
+ * to move senders already decided individually, or it would do nothing for exactly the
+ * senders the user knows about. Recording an exception is how the user says "not this one",
+ * and it is written whenever a narrower decision is made under a broader rule
+ * (`applyDecision`), so the two stay in step.
+ *
+ * Applied across three levels, broadest first: a parent-domain rule (the registrable domain)
+ * gives way to an excepted subdomain or address; an exact-domain decision gives way to an
+ * excepted address; otherwise the narrowest decision present wins. A level with no decision
+ * is simply skipped, so an undecided middle never blocks a broader rule from applying.
+ *
+ * See design-trust-decisions.md Decision 2 (domain over address) and Decision 9 (parent
+ * domain, most-specific-wins).
+ */
 export function resolveEffectiveDecision(input: EffectiveDecisionInput): EffectiveDecision {
-  const { addressStatus, addressIsException, domainStatus, domainScope } = input;
+  const {
+    addressStatus,
+    addressIsException,
+    domainStatus,
+    domainScope,
+    parentDomainStatus = null,
+    parentDomainIsException = false,
+  } = input;
 
-  // A domain-scope decision overrides the address, except for explicit exceptions.
+  // Broadest first: each rule applies unless the narrower subject is carved out of it.
+  if (parentDomainStatus !== null && !parentDomainIsException) {
+    return { status: parentDomainStatus, source: "parentDomain" };
+  }
   if (domainStatus !== null && domainScope === "domain" && !addressIsException) {
     return { status: domainStatus, source: "domain" };
   }
+
+  // No broader rule claims this sender, so the narrowest decision it has stands.
   if (addressStatus !== null) return { status: addressStatus, source: "address" };
   if (domainStatus !== null) return { status: domainStatus, source: "domain" };
+  if (parentDomainStatus !== null) return { status: parentDomainStatus, source: "parentDomain" };
   return { status: "pending", source: "none" };
 }
