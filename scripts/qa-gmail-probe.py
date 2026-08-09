@@ -420,31 +420,54 @@ def find_pairs(
     useful subject is the one that will send repeatedly and soon: a busy domain answers in
     days and keeps confirming, while a structurally richer one that writes once a quarter
     leaves the experiment hanging.
+
+    Structure comes from the sample; **volume is then measured directly**, one query per
+    candidate. Counting within the sample would rank on "share of the last N messages", which
+    scores a steady sender zero merely for sitting outside the window — a proxy where a real
+    number is one call away.
     """
     samples = sender_samples(token, "newer_than:180d", sample)
     example: dict[str, str] = {}
     addresses_per_host: Counter = Counter()
-    messages_per_host: Counter = Counter()
-    seen_addresses: set[str] = set()
     for address, _received in samples:
         host = host_of(address)
-        messages_per_host[host] += 1
-        if address not in seen_addresses:
-            seen_addresses.add(address)
-            addresses_per_host[host] += 1
-            example.setdefault(host, address)
+        if address in example:
+            continue
+        addresses_per_host[host] += 1
+        example.setdefault(host, address)
 
     pairs: list[tuple[str, list[str], str, int, int]] = []
     for parent in sorted(addresses_per_host):
-        subs = sorted(
-            h for h in addresses_per_host if h != parent and h.endswith(f".{parent}")
-        )
+        subs = sorted(h for h in addresses_per_host if h != parent and h.endswith(f".{parent}"))
         if subs:
-            # Volume across the whole subtree — evidence can arrive from apex or subdomain.
-            volume = messages_per_host[parent] + sum(messages_per_host[s] for s in subs)
+            # `from:*@parent` spans the subtree (that is the behaviour under test), so one
+            # query measures apex and subdomains together — which is the volume that matters.
+            volume = recent_volume(token, parent)
             pairs.append((parent, subs, example[subs[0]], addresses_per_host[parent], volume))
     pairs.sort(key=lambda item: item[4], reverse=True)
     return pairs, addresses_per_host
+
+
+# Ceiling on the per-domain volume count. A real count up to here; at the cap the true
+# figure is only known to be "at least this", which is honest enough to rank on.
+VOLUME_CAP = 200
+
+
+def recent_volume(token: str, domain: str, days: int = 30) -> int:
+    """Messages from a domain's subtree in the last `days` — counted, capped at VOLUME_CAP.
+
+    Counts returned ids rather than reading `resultSizeEstimate`, which is documented as an
+    estimate and measurably is one: on a real account it returned 201 for three unrelated
+    domains at 30 and 14 days, then 201 for two of them and 0 for the third at 7 days. A
+    number that cannot order three domains, and contradicts itself between windows, is worse
+    than no number — ranking on it would be ranking on noise while looking precise.
+    """
+    listing = api_get(
+        token,
+        "/messages",
+        {"q": f"from:*@{domain} newer_than:{days}d", "maxResults": str(VOLUME_CAP)},
+    )
+    return len(listing.get("messages") or [])  # type: ignore[arg-type]
 
 
 def cmd_discover(args: argparse.Namespace) -> None:
@@ -456,7 +479,7 @@ def cmd_discover(args: argparse.Namespace) -> None:
     if not pairs:
         note("none in this sample — try a larger --sample")
     for parent, subs, sub_example, apex, volume in pairs:
-        note(f"{parent}  ({volume} messages in the sample, {apex} apex sender(s))")
+        note(f"{parent}  ({volume} messages in the last 30d, {apex} apex sender(s))")
         note(f"  subdomains seen: {', '.join(subs)}")
         note(
             f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
@@ -795,7 +818,7 @@ def cmd_match(args: argparse.Namespace) -> None:
     else:
         # Busiest first: a subject that sends often answers soonest and keeps confirming.
         print(f"== choosing the {args.top} busiest subjects in the mailbox ==")
-        pairs, _ = find_pairs(token, args.sample)
+        pairs, addresses_per_host = find_pairs(token, args.sample)
         if not pairs:
             fail(
                 f"no domain with observed subdomain senders in the last {args.sample} messages\n"
@@ -806,8 +829,27 @@ def cmd_match(args: argparse.Namespace) -> None:
             if exclude is None:
                 note(f"skipping {domain} — no apex sender to except, so nothing to prove")
                 continue
-            note(f"{domain} ({volume} messages sampled; subdomains: {', '.join(subs)})")
+            note(f"{domain} ({volume} msgs/30d; subdomains: {', '.join(subs)})")
             subjects.append({"domain": domain, "exclude": exclude})
+
+        # The two questions have DIFFERENT eligibility. Only a domain with subdomain senders
+        # can answer the subdomain question, so the subjects above are chosen for it — but
+        # the exclusion question needs no subdomains at all, just two senders at one domain.
+        # Left as-is, that half waits on whether the apex senders above happen to write, and
+        # apex addresses at these domains are often the quiet ones. Add the busiest
+        # multi-sender domain outright so it can answer on its own schedule.
+        chosen = {subject["domain"] for subject in subjects}
+        candidates = sorted(
+            (host for host, count in addresses_per_host.items() if count >= 2 and host not in chosen),
+            key=lambda host: recent_volume(token, host),
+            reverse=True,
+        )
+        for host in candidates[:1]:
+            exclude = _pick_exclusion(token, host)
+            if exclude is None:
+                continue
+            note(f"{host} — added for the exclusion question alone (no subdomains needed)")
+            subjects.append({"domain": host, "exclude": exclude})
 
     if not subjects:
         fail("no usable subject found")
