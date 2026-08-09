@@ -36,7 +36,11 @@ export async function suggestFilterAdoptions(
   const blockedDomains = await effectiveBlockedDomains(store);
   const compiled = compileFilters(
     blockedSenders,
-    blockedDomains.map((d) => ({ domain: d.domain.domain, excludeAddresses: d.excludeAddresses })),
+    blockedDomains.map((d) => ({
+      domain: d.domain.domain,
+      excludeAddresses: d.excludeAddresses,
+      blockedMemberAddresses: d.blockedMemberAddresses,
+    })),
     options,
   );
 
@@ -72,7 +76,11 @@ export async function applyFilterAdoptions(
   const blockedDomains = await effectiveBlockedDomains(store);
   const compiled = compileFilters(
     blockedSenders,
-    blockedDomains.map((d) => ({ domain: d.domain.domain, excludeAddresses: d.excludeAddresses })),
+    blockedDomains.map((d) => ({
+      domain: d.domain.domain,
+      excludeAddresses: d.excludeAddresses,
+      blockedMemberAddresses: d.blockedMemberAddresses,
+    })),
     options,
   );
   const desiredFroms = new Set(compiled.filters.map((filter) => filter.from.toLowerCase()));

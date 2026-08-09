@@ -181,22 +181,36 @@ provide durable, server-side enforcement with no backend of ours.
 > matched senders (`tldts`-grouped) — and the `tldts` guard/live `negatedQuery` are the safety net
 > regardless of the exact surface, so the confidence level here isn't load-bearing. See #182.
 >
-> **Exception-overflow handling (~1500-char criteria limit) — proposed (#182).** A parent block's
-> exclusions all live in one `negatedQuery`, which shares the filter's ~1500-char criteria budget.
-> Keep it bounded, deterministically (part of the reconcile signature, so it stays idempotent):
+> **Exception-overflow handling (~1500-char criteria limit) — parent blocks proposed (#182);
+> exact-domain blocks implemented (#191).** *Any* domain-scope block's exclusions live in one
+> `negatedQuery`, which shares the filter's ~1500-char criteria budget — the exact-domain blocks
+> shipped today (point 7) as much as the parent blocks of Decision 9. Over the budget, Gmail
+> **rejects the filter outright**, and the rejection is indistinguishable from a transient
+> failure, so the same doomed rule is retried on every sync while the domain stays unblocked
+> (#191). Keep it bounded, deterministically (part of the reconcile signature, so it stays
+> idempotent):
 > 1. **Collapse to the broadest exclusion** — when a whole subdomain/sibling is excepted, exclude it
 >    as `*@sub.example.com` (one short token) rather than enumerating its addresses.
 > 2. **If the derived `negatedQuery` still exceeds the budget, degrade *that rule* to the enumerate
->    form:** emit `*@<eTLD+1>` for the **bare apex** **plus** one `*@<subdomain>` per still-blocked
->    observed subdomain, instead of the single broad `from:<eTLD+1>` + `negatedQuery` (an excepted
->    subdomain then simply gets no filter). The apex filter is explicit so apex mail is never dropped.
->    Precise, but it **loses the future-new-subdomain guarantee for that rule** — surface the caveat
->    ("covers subdomains seen so far") on it. Rare — only when one parent rule accumulates enough
->    exceptions to overflow; the common case stays the single broad filter.
+>    form.** For a **parent** rule: emit `*@<eTLD+1>` for the **bare apex** **plus** one
+>    `*@<subdomain>` per still-blocked observed subdomain, instead of the single broad
+>    `from:<eTLD+1>` + `negatedQuery` (an excepted subdomain then simply gets no filter). The apex
+>    filter is explicit so apex mail is never dropped. For an **exact-domain** rule there is no
+>    sub-structure to keep: emit one `from:<address>` filter per still-blocked observed sender and
+>    **no** `*@domain` filter at all — a plain domain filter would trash exactly the addresses the
+>    carve-out was protecting. Precise, but it **loses the future-new-sender/subdomain guarantee for
+>    that rule** — surface the caveat ("covers what has been seen so far") on it. Rare — only when
+>    one rule accumulates enough exceptions to overflow; the common case stays the single broad
+>    filter. If no observed member list is available to enumerate from, emit **nothing** for that
+>    rule and report it as unblocked — better an honest gap the user is told about than a filter
+>    that can never be created.
 > 3. **Hysteresis** so a rule near the boundary doesn't flip broad↔enumerate (tearing down/rebuilding
 >    1↔N filters) on a single added/removed exception: degrade at the limit, and only re-promote to
 >    the broad form once the derived `negatedQuery` is comfortably back under budget (margin, not the
->    exact threshold).
+>    exact threshold). **Not yet implemented** — the compiler is pure and doesn't know which form a
+>    rule currently takes, so hysteresis needs the reconcile side to feed that back in; #191 shipped
+>    the single deterministic threshold first, since flapping costs filter churn while an
+>    unbounded query costs the block entirely.
 > 4. **Soft cap:** the enumerate form's `*@subdomain` filters count against the ~450 soft cap like any
 >    other; a pathological rule (many blocked subdomains) is bounded by the **existing soft-cap
 >    behaviour** (`capReached`/`skippedAtCap` surfaced), not a special case — it's just the rule that
@@ -490,6 +504,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 5 exception-overflow generalised + implemented for exact-domain blocks (#191):** the ~1500-char criteria budget binds *any* domain-scope carve-out, not just the parent blocks of #182 — today's shipped `*@domain` + `negatedQuery` path could already build a rule Gmail rejects, retried forever while the domain stayed unblocked. Spelled out the exact-domain enumerate form (one `from:<address>` per still-blocked observed sender, **no** `*@domain` filter, since a plain one would trash the excepted addresses), the "emit nothing and report it" fallback when no member list is available, and marked hysteresis (point 3) as not yet implemented — it needs the reconcile side to feed back which form a rule currently takes. | Claude |
 | 2026-08-09 | **Decision 9 ownership bookkeeping (#202):** state that the provenance rule runs in both directions — applying a consolidation records the replacement `*@domain` filter's id in `managedFilterIds` and drops the removed ids in the same write, so the app's own broadest rule is never untracked from birth (uncleanable by reconcile, and offered back via Decision 10 adoption). Note that consolidation reusing `DEFAULT_DOMAIN_BLOCK_THRESHOLD` is what keeps the tidy-up from being churned back by the next reconcile. | Claude |
 | 2026-08-09 | **Interfaces + Examples de-drifted (#193):** the illustrative `GmailClient` block described a port that no longer existed (`authorize`/`scanInbox`/`syncSince`/`listSenders`/`applyActions`/`reconcileFilters`, plus a `FilterSpec` of `{ fromQuery, … }`), and the three examples called the same absent methods. Replaced the block with a link to the authoritative source (`packages/core/src/ports/GmailClient.ts`) plus a capability/tier table that carries what the code can't — scope tier and originating decision; rewrote the examples against the real API; and stated explicitly that `compileFilters`/`reconcileFilters` are pure functions in `enforcement/compileFilters.ts`, not port methods. | Claude |
 | 2026-08-08 | **Decision 9 ownership gate (#190):** spell out that "through the normal reconcile path" carries Decision 5 point 6's provenance rule — `suggestFilterOptimisations` only ever offers a filter for removal if its id is in `managedFilterIds`, so the #29 guarantee (a hand-built "Trash + skip inbox" filter is never deleted) holds on the optimisation path too. Untracked filters still count as *coverage* but not towards `DEFAULT_DOMAIN_BLOCK_THRESHOLD`. | Claude |

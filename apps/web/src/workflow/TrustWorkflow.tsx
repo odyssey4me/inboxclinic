@@ -638,6 +638,16 @@ export function EnforcementSummary({ result }: { result: EnforceResult }) {
           Filter limit reached — {result.skippedAtCap} block(s) not yet filtered.
         </p>
       )}
+      {result.exceptionOverflows.map((overflow) => (
+        <p
+          key={overflow.domain}
+          className={overflow.strategy === "dropped" ? "text-block" : "text-defer"}
+        >
+          {overflow.strategy === "enumerate"
+            ? `${overflow.domain} has too many exceptions (${overflow.exceptionCount}) for one Gmail rule — it is now blocked sender by sender, so senders it hasn't seen yet won't be covered.`
+            : `${overflow.domain} has too many exceptions (${overflow.exceptionCount}) for one Gmail rule and is not blocked. Trust fewer of its addresses, or block them individually.`}
+        </p>
+      ))}
       {failed > 0 && (
         <div className="text-block">
           <p>{failed} action(s) failed; will retry on sync.</p>

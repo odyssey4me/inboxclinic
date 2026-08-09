@@ -31,11 +31,38 @@ export const DEFAULT_DOMAIN_BLOCK_THRESHOLD = 3;
 export const DEFAULT_MAX_DOMAINS_PER_FILTER = 10;
 /** Stop creating filters near Gmail's 500 limit (design default). */
 export const DEFAULT_FILTER_SOFT_CAP = 450;
+/**
+ * Character budget for one filter's criteria (`from` + `negatedQuery`). Gmail's practical
+ * limit is ~1500 characters; a filter over it is rejected outright, so the compiler keeps the
+ * exception carve-out inside the budget rather than emitting a rule that can never be created
+ * (design-gmail-integration.md Decision 5, exception-overflow handling; #182/#191).
+ */
+export const DEFAULT_MAX_CRITERIA_CHARS = 1500;
 
 export interface CompileFiltersOptions {
   domainBlockThreshold?: number;
   maxDomainsPerFilter?: number;
   softCap?: number;
+  /** Character budget for one filter's criteria (`from` + `negatedQuery`). */
+  maxCriteriaChars?: number;
+}
+
+/**
+ * How a domain block whose exception carve-out overflowed the criteria budget was compiled
+ * instead (#191). Both forms lose the "covers senders not seen yet" guarantee for that domain,
+ * so the caller surfaces the caveat rather than the user discovering it from behaviour.
+ */
+export interface ExceptionOverflow {
+  domain: string;
+  /**
+   * `enumerate` — one `from:<address>` filter per still-blocked observed sender, replacing the
+   * single `*@domain` + `negatedQuery`. `dropped` — no filter at all, because no observed
+   * member list was supplied to enumerate from; the domain is NOT blocked and the caller must
+   * say so.
+   */
+  strategy: "enumerate" | "dropped";
+  /** How many exception addresses the carve-out carried when it overflowed. */
+  exceptionCount: number;
 }
 
 export interface CompiledFilters {
@@ -45,12 +72,21 @@ export interface CompiledFilters {
   capReached: boolean;
   /** How many would-be filters were dropped because the cap was reached. */
   skippedAtCap: number;
+  /** Domain blocks whose exception list overflowed one filter's criteria budget (#191). */
+  exceptionOverflows: ExceptionOverflow[];
 }
 
 /** A blocked domain plus the exception addresses to carve out of its `*@domain` block. */
 export interface BlockedDomainInput {
   domain: string;
   excludeAddresses?: string[];
+  /**
+   * The domain's observed senders whose effective status is still blocked. Only read when the
+   * exception carve-out overflows the criteria budget, to compile the enumerate form (#191).
+   * Omit it and an overflowing domain compiles to no filter at all rather than to a filter
+   * Gmail would reject.
+   */
+  blockedMemberAddresses?: string[];
 }
 
 /**
@@ -125,6 +161,7 @@ export function compileFilters(
   const threshold = options.domainBlockThreshold ?? DEFAULT_DOMAIN_BLOCK_THRESHOLD;
   const maxPerFilter = options.maxDomainsPerFilter ?? DEFAULT_MAX_DOMAINS_PER_FILTER;
   const softCap = options.softCap ?? DEFAULT_FILTER_SOFT_CAP;
+  const maxCriteriaChars = options.maxCriteriaChars ?? DEFAULT_MAX_CRITERIA_CHARS;
 
   // Group address-blocked senders by domain (deduplicated, lowercased).
   const sendersByDomain = new Map<string, Set<string>>();
@@ -138,13 +175,41 @@ export function compileFilters(
   // Explicit domain blocks carrying trusted-exception carve-outs (only explicit blocks have
   // exceptions; a domain aggregated from 3+ blocked senders has no domain decision). Each maps
   // to one `negatedQuery` exclusion — sorted for a stable filter signature.
+  // A carve-out that doesn't fit one filter's criteria budget degrades that domain to the
+  // enumerate form instead: Gmail rejects an over-long filter outright, and the rejection is
+  // indistinguishable from a transient failure, so the same doomed rule would be retried on
+  // every sync while the domain stayed unblocked (#191).
   const excludeByDomain = new Map<string, string>();
+  const enumeratedDomains = new Map<string, string[]>();
+  const exceptionOverflows: ExceptionOverflow[] = [];
   for (const bd of blockedDomains) {
+    const domain = bd.domain.toLowerCase();
     const addresses = (bd.excludeAddresses ?? [])
       .map((a) => a.toLowerCase())
       .filter((a) => a.length > 0)
       .sort();
-    if (addresses.length > 0) excludeByDomain.set(bd.domain.toLowerCase(), addresses.join(" OR "));
+    if (addresses.length === 0) continue;
+    const negatedQuery = addresses.join(" OR ");
+    if (`*@${domain}`.length + negatedQuery.length <= maxCriteriaChars) {
+      excludeByDomain.set(domain, negatedQuery);
+      continue;
+    }
+    // Over budget: one `from:<address>` filter per still-blocked observed sender, and no
+    // `*@domain` filter (which would re-block the very addresses being excepted). Precise, but
+    // it only covers senders seen so far — the caller surfaces that caveat.
+    const members = [
+      ...(bd.blockedMemberAddresses ?? []).map((a) => a.toLowerCase()).filter((a) => a.length > 0),
+      // Senders of this domain blocked at address scope are covered by the domain filter that
+      // is no longer being emitted, so they must be enumerated too.
+      ...(sendersByDomain.get(domain) ?? []),
+    ];
+    const stillBlocked = [...new Set(members)].filter((a) => !addresses.includes(a)).sort();
+    if (stillBlocked.length > 0) enumeratedDomains.set(domain, stillBlocked);
+    exceptionOverflows.push({
+      domain,
+      strategy: stillBlocked.length > 0 ? "enumerate" : "dropped",
+      exceptionCount: addresses.length,
+    });
   }
 
   // Domains that warrant a domain-level filter: explicitly blocked, or 3+ blocked.
@@ -164,7 +229,12 @@ export function compileFilters(
 
   // Domain-level filters: plain domains OR-combine up to `maxPerFilter`; a domain with a
   // trusted-exception carve-out gets its OWN filter (an OR-group can't share one exclusion).
-  const plainDomains = [...aggregatedDomains].filter((d) => !excludeByDomain.has(d)).sort();
+  // An overflowed domain gets NO domain filter — a plain `*@domain` would trash exactly the
+  // addresses its carve-out was protecting.
+  const overflowed = new Set(exceptionOverflows.map((o) => o.domain));
+  const plainDomains = [...aggregatedDomains]
+    .filter((d) => !excludeByDomain.has(d) && !overflowed.has(d))
+    .sort();
   const domainFilters: FilterSpec[] = [];
   for (const group of chunkDomainsStably(plainDomains, maxPerFilter)) {
     domainFilters.push(blockFilter(group.map((d) => `*@${d}`).join(" OR ")));
@@ -172,16 +242,20 @@ export function compileFilters(
   for (const domain of [...excludeByDomain.keys()].sort()) {
     domainFilters.push(blockFilter(`*@${domain}`, excludeByDomain.get(domain)));
   }
+  for (const domain of [...enumeratedDomains.keys()].sort()) {
+    for (const email of enumeratedDomains.get(domain) ?? []) domainFilters.push(blockFilter(email));
+  }
 
   // Prefer domain aggregation (more coverage per filter) when the cap bites.
   const desired = [...domainFilters, ...senderFilters];
   if (desired.length <= softCap) {
-    return { filters: desired, capReached: false, skippedAtCap: 0 };
+    return { filters: desired, capReached: false, skippedAtCap: 0, exceptionOverflows };
   }
   return {
     filters: desired.slice(0, softCap),
     capReached: true,
     skippedAtCap: desired.length - softCap,
+    exceptionOverflows,
   };
 }
 

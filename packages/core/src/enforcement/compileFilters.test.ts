@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 
-import { compileFilters, reconcileFilters, DEFAULT_FILTER_SOFT_CAP } from "./compileFilters";
+import {
+  compileFilters,
+  reconcileFilters,
+  DEFAULT_FILTER_SOFT_CAP,
+  DEFAULT_MAX_CRITERIA_CHARS,
+} from "./compileFilters";
 import type { FilterSpec, NativeFilter } from "../ports/GmailClient";
 
 const sender = (email: string): { email: string; domain: string } => ({
@@ -151,6 +156,94 @@ describe("compileFilters", () => {
 
   it("uses the documented soft-cap default", () => {
     expect(DEFAULT_FILTER_SOFT_CAP).toBe(450);
+  });
+
+  it("uses the documented criteria-length default", () => {
+    expect(DEFAULT_MAX_CRITERIA_CHARS).toBe(1500);
+  });
+
+  describe("exception overflow (#191)", () => {
+    // Real overflow takes ~100 exceptions against the 1500-char budget; these tests shrink
+    // the budget instead, so the intent stays legible without a wall of addresses.
+    const manyExceptions = Array.from({ length: 6 }, (_, i) => `vip${i}@shop.com`);
+
+    it("keeps the single carve-out filter while the criteria fit", () => {
+      const { filters, exceptionOverflows } = compileFilters(
+        [],
+        [{ domain: "shop.com", excludeAddresses: manyExceptions }],
+      );
+      expect(exceptionOverflows).toEqual([]);
+      expect(filters).toHaveLength(1);
+      expect(filters[0]?.excludeFrom).toBe(manyExceptions.join(" OR "));
+    });
+
+    it("degrades to one filter per still-blocked member when the carve-out won't fit", () => {
+      const { filters, exceptionOverflows } = compileFilters(
+        [],
+        [
+          {
+            domain: "shop.com",
+            excludeAddresses: manyExceptions,
+            blockedMemberAddresses: ["promo@shop.com", "deals@shop.com", "vip0@shop.com"],
+          },
+        ],
+        { maxCriteriaChars: 40 },
+      );
+
+      // No `*@shop.com` rule — a plain one would trash exactly the addresses being excepted.
+      expect(filters.map((f) => f.from)).toEqual(["deals@shop.com", "promo@shop.com"]);
+      expect(filters.every((f) => f.excludeFrom === undefined)).toBe(true);
+      expect(exceptionOverflows).toEqual([
+        { domain: "shop.com", strategy: "enumerate", exceptionCount: 6 },
+      ]);
+    });
+
+    it("enumerates a domain's address-blocked senders too, not just its members", () => {
+      const { filters } = compileFilters(
+        [sender("solo@shop.com")],
+        [
+          {
+            domain: "shop.com",
+            excludeAddresses: manyExceptions,
+            blockedMemberAddresses: ["promo@shop.com"],
+          },
+        ],
+        { maxCriteriaChars: 40 },
+      );
+      // Both are enumerated exactly once — the domain rule that used to cover the
+      // address-blocked sender no longer exists.
+      expect(filters.map((f) => f.from)).toEqual(["promo@shop.com", "solo@shop.com"]);
+    });
+
+    it("reports a dropped block when there is no member list to enumerate from", () => {
+      const { filters, exceptionOverflows } = compileFilters(
+        [],
+        [{ domain: "shop.com", excludeAddresses: manyExceptions }],
+        { maxCriteriaChars: 40 },
+      );
+      // Better no filter than one Gmail rejects on every sync forever — but the caller is
+      // told the domain is NOT blocked rather than left to infer it.
+      expect(filters).toEqual([]);
+      expect(exceptionOverflows).toEqual([
+        { domain: "shop.com", strategy: "dropped", exceptionCount: 6 },
+      ]);
+    });
+
+    it("leaves other domains' filters untouched when one overflows", () => {
+      const { filters } = compileFilters(
+        [],
+        [
+          { domain: "a.com" },
+          {
+            domain: "shop.com",
+            excludeAddresses: manyExceptions,
+            blockedMemberAddresses: ["promo@shop.com"],
+          },
+        ],
+        { maxCriteriaChars: 40 },
+      );
+      expect(filters.map((f) => f.from).sort()).toEqual(["*@a.com", "promo@shop.com"]);
+    });
   });
 });
 

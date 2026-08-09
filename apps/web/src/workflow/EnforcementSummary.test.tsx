@@ -17,6 +17,7 @@ function baseResult(overrides: Partial<EnforceResult> = {}): EnforceResult {
     totalFilters: 0,
     capReached: false,
     skippedAtCap: 0,
+    exceptionOverflows: [],
     failures: [],
     ...overrides,
   };

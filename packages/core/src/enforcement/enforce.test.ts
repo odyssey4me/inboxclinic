@@ -462,4 +462,38 @@ describe("enforce", () => {
       },
     ]);
   });
+
+  it("blocks a domain sender-by-sender rather than emitting a filter Gmail would reject (#191)", async () => {
+    const store = createInMemoryStore();
+    // A blocked domain whose trusted exceptions have grown past what one filter can carry.
+    const exceptions = Array.from({ length: 100 }, (_, i) => `vip${i}@shop.com`);
+    await store.domains.put(
+      domainBuilder("shop.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: exceptions,
+      }),
+    );
+    for (const email of exceptions) {
+      await store.senders.put(senderBuilder(email, { trustStatus: "trusted" }));
+    }
+    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient();
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // The one still-blocked member is filtered individually; no `*@shop.com` rule is attempted,
+    // so nothing fails and nothing is retried forever.
+    expect(gmail.createdFilters.map((f) => f.from)).toEqual(["promo@shop.com"]);
+    expect(result.failures).toEqual([]);
+    // ...and the narrowing is reported, not silent.
+    expect(result.exceptionOverflows).toEqual([
+      { domain: "shop.com", strategy: "enumerate", exceptionCount: 100 },
+    ]);
+
+    // Idempotent: a second run recompiles the same set and changes nothing.
+    const again = await enforce(gmail, store, { now: NOW + 1000 });
+    expect(again.filtersCreated).toBe(0);
+    expect(again.filtersDeleted).toBe(0);
+  });
 });
