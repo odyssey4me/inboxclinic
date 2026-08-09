@@ -35,13 +35,36 @@ declare const process: { env: Record<string, string | undefined> };
 
 const FIXTURE = process.env.INBOXCLINIC_FILTER_FIXTURE;
 
+/**
+ * A Gmail filter as the API returned it, beside our projection of it. The port models
+ * `from` and `negatedQuery` and drops everything else Gmail supports (`to`, `subject`,
+ * `query`, …) — so the raw form is what makes that loss visible to these tests.
+ */
+interface RawFilter {
+  id: string;
+  criteria: Record<string, unknown>;
+  action: Record<string, unknown>;
+}
+
 /** Load the dump. An absolute path; JSON is imported rather than read off disk. */
-const load = async (): Promise<NativeFilter[]> => {
+const load = async (): Promise<{ filters: NativeFilter[]; raw: RawFilter[] }> => {
   const mod = (await import(/* @vite-ignore */ FIXTURE as string)) as {
-    default: NativeFilter[];
+    default: { filters: NativeFilter[]; raw: RawFilter[] };
   };
   return mod.default;
 };
+
+/** The fields our model reads. Everything else in `criteria` is invisible to it. */
+const MODELLED_CRITERIA = new Set(["from", "negatedQuery"]);
+
+/** The identity our tidy-up and reconcile paths actually compare on. */
+const modelKey = (f: NativeFilter): string =>
+  [
+    f.from.trim().toLowerCase(),
+    (f.excludeFrom ?? "").trim().toLowerCase(),
+    [...f.addLabelIds].sort().join(","),
+    [...f.removeLabelIds].sort().join(","),
+  ].join("|");
 
 /** A client + store presenting the real filters, with `managed` treated as app-created. */
 async function seeded(filters: NativeFilter[], managed: string[]) {
@@ -67,7 +90,7 @@ const asSpec = (filter: NativeFilter): FilterSpec => ({
 
 describe.skipIf(FIXTURE === undefined)("real account filters", () => {
   it("reports what the shape parser makes of them", async () => {
-    const filters = await load();
+    const { filters } = await load();
     const blockShaped = filters.filter(isBlockFilter);
     const parsed = blockShaped.map((f) => ({
       from: f.from,
@@ -85,8 +108,45 @@ describe.skipIf(FIXTURE === undefined)("real account filters", () => {
     expect(filters.length).toBeGreaterThan(0);
   });
 
+  it("does not treat filters as identical when they differ in criteria it cannot see", async () => {
+    const { filters, raw } = await load();
+    const rawById = new Map(raw.map((r) => [r.id, r]));
+
+    const dropped = new Set<string>();
+    for (const r of raw) {
+      for (const field of Object.keys(r.criteria)) {
+        if (!MODELLED_CRITERIA.has(field)) dropped.add(field);
+      }
+    }
+    console.log(
+      dropped.size === 0
+        ? "no criteria fields outside the model in this account"
+        : `criteria fields the model drops: ${[...dropped].sort().join(", ")}`,
+    );
+
+    // Group by the identity duplicate-detection, reconcile signatures and adoption all
+    // compare on. Two filters sharing it MUST be the same rule — otherwise the tidy-up
+    // offers to delete one as a "duplicate" of the other, reconcile thinks it owns a rule
+    // that does something else, and adoption claims one on a resemblance that isn't real.
+    const groups = new Map<string, NativeFilter[]>();
+    for (const f of filters) groups.set(modelKey(f), [...(groups.get(modelKey(f)) ?? []), f]);
+
+    const collisions: string[] = [];
+    for (const [key, group] of groups) {
+      if (group.length < 2) continue;
+      const shapes = new Set(group.map((f) => JSON.stringify(rawById.get(f.id)?.criteria ?? {})));
+      if (shapes.size > 1) {
+        collisions.push(`${group.length} filters share the model key "${key}" but differ:`);
+        for (const shape of shapes) collisions.push(`    ${shape}`);
+      }
+    }
+    for (const line of collisions) console.log(line);
+
+    expect(collisions).toEqual([]);
+  });
+
   it("never offers an untracked filter for deletion, whatever the account contains", async () => {
-    const filters = await load();
+    const { filters } = await load();
     // Nothing is managed — the state a real account is in before the app ever runs.
     const { gmail, store } = await seeded(filters, []);
 
@@ -97,7 +157,7 @@ describe.skipIf(FIXTURE === undefined)("real account filters", () => {
   });
 
   it("proposes a coherent tidy-up when the account's rules are treated as app-created", async () => {
-    const filters = await load();
+    const { filters } = await load();
     // Pretend the app built them, which is what the consolidation logic is written for —
     // the only way real-world rule shapes exercise it at all.
     const { gmail, store } = await seeded(
@@ -123,7 +183,7 @@ describe.skipIf(FIXTURE === undefined)("real account filters", () => {
   });
 
   it("is idempotent against the account's own rules — reconcile proposes no churn", async () => {
-    const filters = await load();
+    const { filters } = await load();
 
     // Desired set == what's already there, all managed: a correct reconcile is a no-op.
     // Any create/delete here is the signature failing to round-trip real criteria — the

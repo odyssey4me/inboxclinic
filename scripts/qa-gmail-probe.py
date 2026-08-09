@@ -461,19 +461,37 @@ def cmd_filters(args: argparse.Namespace) -> None:
     if args.json:
         # The port's NativeFilter shape, so a dump replays through the real
         # compiler and suggesters unchanged.
-        dump = [
-            {
+        dump = []
+        for f in filters:  # type: ignore[union-attr]
+            criteria = f.get("criteria") or {}
+            action = f.get("action") or {}
+            entry: dict[str, object] = {
                 "id": f.get("id"),
-                "from": (f.get("criteria") or {}).get("from", ""),
-                "excludeFrom": unwrap_exclude_from(
-                    str((f.get("criteria") or {}).get("negatedQuery", ""))
-                ),
-                "addLabelIds": (f.get("action") or {}).get("addLabelIds", []),
-                "removeLabelIds": (f.get("action") or {}).get("removeLabelIds", []),
+                "from": criteria.get("from", ""),
+                "addLabelIds": action.get("addLabelIds", []),
+                "removeLabelIds": action.get("removeLabelIds", []),
             }
-            for f in filters  # type: ignore[union-attr]
-        ]
-        text = json.dumps(dump, indent=2)
+            # `excludeFrom` is OPTIONAL on the port, and the browser client omits the
+            # key rather than setting it null. A dump that emits null is not a
+            # NativeFilter, and code written against the real shape rightly breaks on
+            # it — so omit it here too, or the replay tests a fiction.
+            exclude = unwrap_exclude_from(str(criteria.get("negatedQuery", "")))
+            if exclude is not None:
+                entry["excludeFrom"] = exclude
+            dump.append(entry)
+        # Ship the RAW filter beside our projection. The projection is lossy by
+        # design — the port models `from`/`negatedQuery` and nothing else — so a
+        # dump of only the projection hides exactly the gaps a replay is meant to
+        # expose: two filters differing solely in criteria we drop look identical,
+        # and the harness cannot tell. Keeping both lets it compare the two.
+        payload = {
+            "filters": dump,
+            "raw": [
+                {"id": f.get("id"), "criteria": f.get("criteria") or {}, "action": f.get("action") or {}}
+                for f in filters  # type: ignore[union-attr]
+            ],
+        }
+        text = json.dumps(payload, indent=2)
         if args.out:
             os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
             with open(args.out, "w", encoding="utf-8") as handle:
