@@ -144,8 +144,8 @@ function chunkDomainsStably(sortedDomains: readonly string[], maxPerFilter: numb
  */
 const NEGATED_QUERY_WRAPPER_CHARS = "from:()".length;
 
+/** Only called for a non-empty exclusion — an empty list skips the budget check entirely. */
 function criteriaLength(from: string, negatedQuery: string): number {
-  if (negatedQuery === "") return from.length;
   return from.length + NEGATED_QUERY_WRAPPER_CHARS + negatedQuery.length;
 }
 
