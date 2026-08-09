@@ -78,7 +78,7 @@ describe("DomainDetail — governed by a parent rule (#186)", () => {
     expect(screen.getByRole("button", { name: "Block this one" })).toBeInTheDocument();
   });
 
-  it("says so when the domain is already carved out, and offers nothing further", () => {
+  it("says so when the domain is already carved out, and offers a way back", () => {
     const subdomain = domainFixture("news.example.com", {
       trustStatus: "trusted",
       decisionScope: "domain",
@@ -86,6 +86,11 @@ describe("DomainDetail — governed by a parent rule (#186)", () => {
     renderPanel(subdomain, [parentRule({ exceptionDomains: ["news.example.com"] }), subdomain]);
 
     expect(screen.getByText(/Carved out of the rule on example\.com/)).toBeInTheDocument();
+    // Not "block this one": deciding to agree would leave the domain individually decided,
+    // so a later change to the rule would not reach it. Rejoining withdraws the decision.
+    expect(
+      screen.getByRole("button", { name: /Follow the rule on example\.com again/ }),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Keep this one" })).not.toBeInTheDocument();
   });
 

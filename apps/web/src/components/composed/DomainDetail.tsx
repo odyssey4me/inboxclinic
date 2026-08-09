@@ -5,6 +5,7 @@ import {
   enforce,
   senderToSnapshot,
   simulateEnforcement,
+  withdrawDecision,
   keyFor,
   parentDomainRuleFor,
   type BlockAction,
@@ -129,6 +130,21 @@ export function DomainDetail({
     }
   };
 
+  const rejoinParentRule = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await withdrawDecision(store, { subjectId, scope: "domain" });
+      // The effective status can move either way, so reconcile rather than assume.
+      await enforce(gmail, store);
+      onChanged();
+      onClose();
+    } catch (caught) {
+      setError(`Could not apply: ${errorMessage(caught)}`);
+      setBusy(false);
+    }
+  };
+
   const onBlock = async (): Promise<void> => {
     // Blocking a domain filters all new mail (create_filter); existing mail is opt-in.
     const actions: BlockAction[] = ["create_filter", ...existing];
@@ -187,10 +203,18 @@ export function DomainDetail({
                 </Button>
               </>
             ) : (
-              <p>
-                Carved out of the rule on {parentRule.domain}: this domain keeps its own decision,
-                and the rule no longer applies to it.
-              </p>
+              <>
+                <p>
+                  Carved out of the rule on {parentRule.domain}: this domain keeps its own decision,
+                  and the rule no longer applies to it.
+                </p>
+                {/* Rejoining is not the same as deciding to agree: that would leave this
+                    domain individually decided, so a later change to the rule would not
+                    reach it. Withdrawing removes the decision and the carve-out together. */}
+                <Button variant="ghost" disabled={busy} onClick={rejoinParentRule}>
+                  Follow the rule on {parentRule.domain} again
+                </Button>
+              </>
             )}
           </div>
         )}
