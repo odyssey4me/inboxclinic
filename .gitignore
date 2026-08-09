@@ -61,3 +61,7 @@ logs/
 
 # Local, mailbox-derived QA artifacts (real filter dumps carry sender addresses)
 .local/
+
+# Python bytecode (the QA probe is a script, not a package)
+__pycache__/
+*.py[cod]
