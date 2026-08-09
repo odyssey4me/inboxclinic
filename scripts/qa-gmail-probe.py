@@ -207,9 +207,17 @@ def cache_clear() -> None:
     except (OSError, json.JSONDecodeError):
         pass
     if cache and cache.get("access_token"):
+        # Revoke quietly, without the shared helper's report-and-exit: a token that has
+        # simply expired is NOT revocable, and an hour-old credential hitting its designed
+        # end should not be announced as an API failure ahead of the real message.
+        request = urllib.request.Request(
+            REVOKE_URI,
+            data=urllib.parse.urlencode({"token": str(cache["access_token"])}).encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
         try:
-            post_form(REVOKE_URI, {"token": str(cache["access_token"])})
-        except SystemExit:
+            urllib.request.urlopen(request, timeout=15).close()
+        except (urllib.error.HTTPError, urllib.error.URLError):
             pass  # already expired or revoked upstream; clearing the cache is the point
     try:
         os.remove(TOKEN_CACHE)
