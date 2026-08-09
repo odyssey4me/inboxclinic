@@ -148,7 +148,14 @@ export async function reconcileNativeFilters(
     // managed set tracks what's actually there instead of growing unbounded.
     const existingIds = new Set(existing.map((f) => f.id));
     managedFilterIds = new Set([...managedFilterIds].filter((id) => existingIds.has(id)));
-    const { toCreate, toDelete } = reconcileFilters(compiled.filters, existing, managedFilterIds);
+    const { toCreate, toDelete, disowned } = reconcileFilters(
+      compiled.filters,
+      existing,
+      managedFilterIds,
+    );
+    // Ownership released, not enforced (#232): the filter stays in Gmail untouched — the
+    // user's hand-edit is theirs now — but its id stops being persisted as managed.
+    for (const id of disowned) managedFilterIds.delete(id);
     for (const spec of toCreate) {
       try {
         const created = await client.createFilter(spec);

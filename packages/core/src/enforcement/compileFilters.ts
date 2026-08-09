@@ -277,6 +277,18 @@ export interface FilterReconcilePlan {
   toCreate: FilterSpec[];
   toDelete: string[];
   /**
+   * Managed ids whose filter is still present in `existing` but now carries criteria
+   * this port does not model — the user hand-edited an app-created filter in Gmail's
+   * UI (e.g. adding `subject:`). It drops out of `comparable`, so no future reconcile
+   * can reason about it; the caller must stop persisting the id as managed, or it sits
+   * in `managedFilterIds` forever claiming ownership of something no code path acts on.
+   * Ownership is released, not enforced: the filter is left alone — **never** in
+   * `toDelete` — since the user's edit is theirs now and deleting it would destroy a
+   * rule they wrote by hand (#232). Distinct from an id whose filter is simply gone,
+   * which the existing "does it still exist?" prune already handles.
+   */
+  disowned: string[];
+  /**
    * Untracked existing filters whose criteria + action already match a desired
    * filter. Neither created (that would duplicate it) nor deleted or auto-adopted
    * (ownership is never inferred from shape, #29) — surfaced for confirm-first
@@ -305,7 +317,9 @@ function signature(filter: FilterSpec): string {
  * *untracked* existing filter's criteria + action is not created either — that would
  * duplicate it — but it is also not auto-adopted; it is surfaced in `adoptable` so the
  * app can offer confirm-first adoption instead of silently guessing ownership in
- * either direction (#80).
+ * either direction (#80). A managed filter that gains unmodelled criteria (the user
+ * hand-edited it in Gmail) is surfaced in `disowned` instead — it is neither deleted
+ * nor kept in the managed set the caller persists (#232).
  */
 export function reconcileFilters(
   desired: ReadonlyArray<FilterSpec>,
@@ -322,6 +336,13 @@ export function reconcileFilters(
   // report the sender as fully blocked when it isn't (#212). We never create such a filter,
   // so this holds regardless of what `managedFilterIds` claims.
   const comparable = existing.filter((f) => !carriesUnmodelledCriteria(f));
+
+  // A managed filter that gained unmodelled criteria outside the app (#232): it's still
+  // there, just no longer one `comparable` can reason about, so ownership is released
+  // rather than left dangling forever in `managedFilterIds`.
+  const disowned = existing
+    .filter((f) => managedFilterIds.has(f.id) && carriesUnmodelledCriteria(f))
+    .map((f) => f.id);
 
   const managed = comparable.filter((f) => managedFilterIds.has(f.id));
   const managedSigs = new Set(managed.map(signature));
@@ -343,5 +364,5 @@ export function reconcileFilters(
   }
   const toDelete = managed.filter((f) => !desiredBySig.has(signature(f))).map((f) => f.id);
 
-  return { toCreate, toDelete, adoptable };
+  return { toCreate, toDelete, disowned, adoptable };
 }

@@ -399,4 +399,55 @@ describe("reconcileFilters", () => {
     const plan = reconcileFilters(desired, [foreign], new Set());
     expect(plan.adoptable).toEqual([]);
   });
+
+  it("disowns a managed filter that gains unmodelled criteria, without deleting it (#232)", () => {
+    // The app created this as a plain block on a@x.com; the user then hand-edited it in
+    // Gmail's UI to also match on subject. It's no longer comparable, so it drops out of
+    // every matching decision — but it must also stop being claimed as managed, or its id
+    // sits in managedFilterIds forever with no code path able to act on it.
+    const handEdited: NativeFilter = {
+      id: "f-0",
+      from: "a@x.com",
+      addLabelIds: ["TRASH"],
+      removeLabelIds: ["INBOX"],
+      unmodelledCriteria: ["subject"],
+    };
+    const plan = reconcileFilters(desired, [handEdited], new Set(["f-0"]));
+
+    expect(plan.disowned).toEqual(["f-0"]);
+    expect(plan.toDelete).toEqual([]);
+    // The desired filter it used to satisfy is wanted again — it's no longer covered.
+    expect(plan.toCreate.map((f) => f.from)).toContain(desired[0]?.from);
+  });
+
+  it("does not reintroduce a disowned id on a second reconcile (idempotent)", () => {
+    const handEdited: NativeFilter = {
+      id: "f-0",
+      from: "a@x.com",
+      addLabelIds: ["TRASH"],
+      removeLabelIds: ["INBOX"],
+      unmodelledCriteria: ["subject"],
+    };
+    // Second pass runs with the id already dropped from managedFilterIds, as the caller
+    // would persist after applying the first plan's `disowned`.
+    const plan = reconcileFilters(desired, [handEdited], new Set());
+
+    expect(plan.disowned).toEqual([]);
+    expect(plan.toDelete).toEqual([]);
+  });
+
+  it("keeps a still-comparable managed filter's id — no regression on the normal path", () => {
+    const existing = asNative(desired);
+    const plan = reconcileFilters(desired, existing, allManaged(existing));
+    expect(plan.disowned).toEqual([]);
+  });
+
+  it("does not report a managed id whose filter no longer exists as disowned", () => {
+    // The existing "does it still exist?" prune (in reconcileNativeFilters) handles this
+    // case by dropping the id from managedFilterIds before calling reconcileFilters — so
+    // by the time reconcileFilters runs, a gone filter's id is simply absent from both
+    // `existing` and `managedFilterIds`, never surfaced here as disowned.
+    const plan = reconcileFilters(desired, [], new Set(["gone"]));
+    expect(plan.disowned).toEqual([]);
+  });
 });

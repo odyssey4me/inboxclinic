@@ -138,7 +138,12 @@ them continuously (architecture.md §6):
    Treating one as understood risks deleting a rule the user built, and reporting a sender as
    blocked when only part of its mail is (#212). The provider adapter reports which criteria
    it had to drop, so the projection's incompleteness is visible to the code rather than
-   assumed away.
+   assumed away. This also covers a filter that becomes foreign *after* the app created it —
+   the user hand-edits an app-managed filter in Gmail's UI, adding an unmodelled criterion. It
+   drops out of every matching decision from that point on, same as any other foreign filter,
+   but its id is still sitting in `managedFilterIds`; reconcile reports it as **disowned** so
+   the caller stops persisting the id as managed. The filter itself is left untouched — the
+   user's edit is theirs now, and deleting it would destroy a rule they wrote by hand (#232).
 7. **Ownership tracking, not action-shape matching:** a filter is only ever deleted
    during reconciliation if its Gmail-assigned id is in `filterSyncState.managedFilterIds`
    (populated when this app creates a filter). Action shape alone ("Trash + skip inbox")
@@ -516,6 +521,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 5 point 6 — release ownership of a hand-edited managed filter (#232):** `reconcileFilters` narrows to filters it can reason about, dropping any carrying unmodelled criteria — but a filter the app created and the user then hand-edited in Gmail's UI stayed in `managedFilterIds` forever, since the "does it still exist?" prune can't remove an id whose filter is still there, just no longer comparable. `FilterReconcilePlan` gains `disowned: string[]` — managed ids whose filter is present but no longer comparable — which the caller drops from persisted `managedFilterIds`. The filter itself is never deleted; ownership is released, not enforced. | Claude |
 | 2026-08-09 | **Decision 5 point 6 — only reason about filters we fully model (#212):** a real account turned up filters matching on `to`/`subject`/`query`, which `FilterSpec` drops. Two such filters signed identically and the tidy-up offered to delete one as a duplicate; a `from:X AND subject:Y` rule also signs like a plain block on X, so adoption would claim it and reconcile could later delete it. Such filters are now foreign by construction — never adopted, deleted, deduplicated, counted as coverage, or read as a prior decision — and the adapter reports which criteria it dropped. Renumbers the former points 6–7 to 7–8. | Claude |
 | 2026-08-09 | **Decision 5 exception-overflow generalised + implemented for exact-domain blocks (#191):** the ~1500-char criteria budget binds *any* domain-scope carve-out, not just the parent blocks of #182 — today's shipped `*@domain` + `negatedQuery` path could already build a rule Gmail rejects, retried forever while the domain stayed unblocked. Spelled out the exact-domain enumerate form (one `from:<address>` per still-blocked observed sender, **no** `*@domain` filter, since a plain one would trash the excepted addresses), the "emit nothing and report it" fallback when no member list is available, and marked hysteresis (point 3) as not yet implemented — it needs the reconcile side to feed back which form a rule currently takes. | Claude |
 | 2026-08-09 | **Decision 9 ownership bookkeeping (#202):** state that the provenance rule runs in both directions — applying a consolidation records the replacement `*@domain` filter's id in `managedFilterIds` and drops the removed ids in the same write, so the app's own broadest rule is never untracked from birth (uncleanable by reconcile, and offered back via Decision 10 adoption). Note that consolidation reusing `DEFAULT_DOMAIN_BLOCK_THRESHOLD` is what keeps the tidy-up from being churned back by the next reconcile. | Claude |
