@@ -94,10 +94,7 @@ export function resolveEffectiveDecision(input: EffectiveDecisionInput): Effecti
     (domainScope === "domain" || domainScope === "parentDomain") &&
     !addressIsException
   ) {
-    return {
-      status: domainStatus,
-      source: domainScope === "parentDomain" ? "parentDomain" : "domain",
-    };
+    return { status: domainStatus, source: domainScope };
   }
 
   // No broader rule claims this sender, so the narrowest decision it has stands.
