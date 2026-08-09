@@ -52,6 +52,20 @@ class InboxClinicDexie extends Dexie {
   constructor(name: string) {
     super(name);
     this.version(1).stores(SCHEMA);
+    // v2 adds `Domain.exceptionDomains` for parent-domain rules (#183). No index changes —
+    // the field is read whole, never queried — so this is a data transform only: backfill
+    // `[]` on existing rows rather than leave code reading `undefined` off a typed array
+    // (design-local-store-schema.md prefers a transform over a destructive migration).
+    this.version(2)
+      .stores(SCHEMA)
+      .upgrade((tx) =>
+        tx
+          .table<Domain>("domains")
+          .toCollection()
+          .modify((domain) => {
+            domain.exceptionDomains ??= [];
+          }),
+      );
   }
 }
 

@@ -13,6 +13,13 @@
  * input, so the goal is crash/corruption safety, not schema enforcement: every known table, if
  * present, must be an array of objects. Per-field validation is out of scope (a structurally
  * valid but stale-schema row is the migration layer's concern, not this gate's).
+ *
+ * **One carve-out, deliberately narrow:** a field whose absence would leak `undefined` past a
+ * non-optional type is defaulted here, because restore is the one path the Dexie migration
+ * never sees — it writes rows straight through, and an upgrade only runs on a version change.
+ * `Domain.exceptionDomains` (#183) is the first such field. Note the double cast on the return
+ * means the compiler will NOT remind you: adding a required field to a stored type means adding
+ * its default here too, or a restored record silently violates its own type.
  */
 
 import type {
@@ -120,6 +127,15 @@ export function parseStoreDump(blob: Uint8Array): StoreDump {
       );
     }
     dump[table] = rows;
+  }
+  // A backup taken before `Domain.exceptionDomains` existed has no such field, and restore
+  // writes rows straight through — the Dexie upgrade only runs on a version change, so it
+  // never sees them. Default here, the one gate both backends share, so a restored record
+  // can't hand `undefined` to code typed against an array (#183).
+  for (const row of dump.domains) {
+    if (!Array.isArray((row as Record<string, unknown>).exceptionDomains)) {
+      (row as Record<string, unknown>).exceptionDomains = [];
+    }
   }
   return dump as unknown as StoreDump;
 }

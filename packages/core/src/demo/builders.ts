@@ -107,6 +107,7 @@ export function domainBuilder(domain: string, overrides: Partial<Domain> = {}): 
     senderCount: 1,
     totalEmails: 1,
     exceptionAddresses: [],
+    exceptionDomains: [],
     updatedAt: 0,
     trustDecidedAt: null,
     decisionScope: null,

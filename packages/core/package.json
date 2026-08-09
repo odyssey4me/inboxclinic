@@ -22,5 +22,8 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "tldts": "7.4.10"
   }
 }

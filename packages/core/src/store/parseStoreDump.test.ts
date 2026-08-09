@@ -89,4 +89,48 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
       expect(await store.exportAll()).toEqual(before);
     }
   });
+
+  it("defaults exceptionDomains on a domain row from a pre-#183 backup", async () => {
+    // A backup taken before the field existed. Restore writes rows straight through, and the
+    // Dexie upgrade only runs on a version change, so this gate is where it gets defaulted —
+    // otherwise a restored record hands `undefined` to code typed against an array.
+    const legacy = JSON.stringify({
+      domains: [
+        {
+          id: "legacy",
+          domain: "shop.com",
+          trustStatus: "blocked",
+          senderCount: 1,
+          totalEmails: 1,
+          exceptionAddresses: ["vip@shop.com"],
+          updatedAt: 0,
+          trustDecidedAt: null,
+          decisionScope: "domain",
+          decisionContext: null,
+          pendingActions: [],
+        },
+      ],
+    });
+
+    const dump = parseStoreDump(encode(legacy));
+
+    expect(dump.domains[0]?.exceptionDomains).toEqual([]);
+    // The rest of the record is untouched.
+    expect(dump.domains[0]?.exceptionAddresses).toEqual(["vip@shop.com"]);
+  });
+
+  it("keeps a stored exceptionDomains list, and replaces a non-array one", async () => {
+    const dump = parseStoreDump(
+      encode(
+        JSON.stringify({
+          domains: [
+            { id: "a", exceptionDomains: ["spam.shop.com"] },
+            { id: "b", exceptionDomains: "not-an-array" },
+          ],
+        }),
+      ),
+    );
+    expect(dump.domains[0]?.exceptionDomains).toEqual(["spam.shop.com"]);
+    expect(dump.domains[1]?.exceptionDomains).toEqual([]);
+  });
 });

@@ -49,6 +49,7 @@ function domainFix(domain: string, overrides: Partial<Domain> = {}): Domain {
     senderCount: 1,
     totalEmails: 5,
     exceptionAddresses: [],
+    exceptionDomains: [],
     updatedAt: NOW,
     trustDecidedAt: null,
     decisionScope: null,

@@ -279,6 +279,7 @@ export function extractSenders(metas: MessageMeta[], now: number = Date.now()): 
     senderCount: d.senderCount,
     totalEmails: d.totalEmails,
     exceptionAddresses: [],
+    exceptionDomains: [],
     updatedAt: now,
     trustDecidedAt: null,
     decisionScope: null,
