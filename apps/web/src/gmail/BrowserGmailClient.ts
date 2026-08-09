@@ -87,9 +87,14 @@ interface GmailHistoryListResponse {
 
 interface GmailFilterResource {
   id: string;
-  criteria?: { from?: string; negatedQuery?: string };
+  // Indexed, not a closed shape: Gmail supports criteria this port does not model, and
+  // knowing WHICH are present is what stops us mistaking one rule for another (#212).
+  criteria?: { from?: string; negatedQuery?: string } & Record<string, unknown>;
   action?: { addLabelIds?: string[]; removeLabelIds?: string[] };
 }
+
+/** The `criteria` fields `FilterSpec` represents; anything else makes a filter foreign. */
+const MODELLED_CRITERIA = new Set(["from", "negatedQuery"]);
 
 interface GmailFilterListResponse {
   filter?: GmailFilterResource[];
@@ -102,15 +107,34 @@ function unwrapExcludeFrom(negatedQuery: string | undefined): string | undefined
   return match ? match[1] : negatedQuery;
 }
 
-/** Map a Gmail filter resource into the port's `NativeFilter` shape. */
-function toNativeFilter(resource: GmailFilterResource): NativeFilter {
+/**
+ * Whether a criteria field actually constrains matching. A field present but empty, `false`,
+ * or null narrows nothing — Gmail's JSON normally omits defaults, but an echoed one must not
+ * make a filter look foreign, because then every managed filter would disown itself and
+ * reconcile would recreate the entire managed set on every sync.
+ */
+function constrainsMatching(value: unknown): boolean {
+  if (value === undefined || value === null || value === false || value === "") return false;
+  return !(Array.isArray(value) && value.length === 0);
+}
+
+/** Map a Gmail filter resource into the port's `NativeFilter` shape. Exported for testing. */
+export function toNativeFilter(resource: GmailFilterResource): NativeFilter {
   const excludeFrom = unwrapExcludeFrom(resource.criteria?.negatedQuery);
+  // Report the criteria we drop, rather than silently projecting them away: a filter also
+  // matching on `subject`/`to`/`query` signs identically to a plain block, so downstream
+  // code needs to know its own view is partial before it treats the two as one rule (#212).
+  const unmodelledCriteria = Object.entries(resource.criteria ?? {})
+    .filter(([field, value]) => !MODELLED_CRITERIA.has(field) && constrainsMatching(value))
+    .map(([field]) => field)
+    .sort();
   return {
     id: resource.id,
     from: resource.criteria?.from ?? "",
     // Read the exclusion back so reconcile is idempotent — a filter with exceptions must
     // compare equal to its desired spec, not look "missing exclusion" every run (#145).
     ...(excludeFrom !== undefined ? { excludeFrom } : {}),
+    ...(unmodelledCriteria.length > 0 ? { unmodelledCriteria } : {}),
     addLabelIds: resource.action?.addLabelIds ?? [],
     removeLabelIds: resource.action?.removeLabelIds ?? [],
   };

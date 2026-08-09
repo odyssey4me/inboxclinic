@@ -74,6 +74,26 @@ describe("learnPriorDecisions", () => {
     expect((await store.senders.get(keyFor("blast@ads.com")))?.deletedUnreadCount).toBe(2);
   });
 
+  it("does not read a partially-matching filter as a prior block (#212)", async () => {
+    const store = createInMemoryStore();
+    const gmail = new MockGmailClient();
+    gmail.seedFilters([
+      // Trashes only the mail from this sender whose subject matches — the user has not
+      // decided to block the sender, and suggesting so would overstate their own rule.
+      {
+        id: "partial",
+        from: "newsletter@x.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+        unmodelledCriteria: ["subject"],
+      },
+    ]);
+
+    const out = await learnPriorDecisions(gmail, store, { now: NOW });
+
+    expect(out.filter((s) => s.reason === "filter")).toEqual([]);
+  });
+
   it("persists coveredByBlockFilter from existing block filters (address + domain)", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();

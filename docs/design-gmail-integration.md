@@ -127,7 +127,19 @@ them continuously (architecture.md §6):
 5. **Best-effort + idempotent:** the local decision is the source of truth; filters are
    reconciled on a periodic client-side sync, retried on failure, and never duplicated.
    Sync state lives in the local `filterSyncState` store.
-6. **Ownership tracking, not action-shape matching:** a filter is only ever deleted
+6. **Only reason about filters we fully model.** `FilterSpec` represents `from` and
+   `excludeFrom`; Gmail also matches on `to`, `subject`, `query` and more. A filter carrying
+   any of those is **foreign by construction** — the app only ever creates filters from a
+   `FilterSpec`, so it cannot be ours whatever `managedFilterIds` says — and its signature is
+   not its meaning: `from:x@y.com AND subject:foo` signs identically to a plain block on
+   `x@y.com` while doing something far narrower. Such a filter is therefore never adopted,
+   never deleted, never a duplicate of a rule that merely looks like it, never counted as
+   coverage that makes another rule redundant, and never read as evidence of a prior decision.
+   Treating one as understood risks deleting a rule the user built, and reporting a sender as
+   blocked when only part of its mail is (#212). The provider adapter reports which criteria
+   it had to drop, so the projection's incompleteness is visible to the code rather than
+   assumed away.
+7. **Ownership tracking, not action-shape matching:** a filter is only ever deleted
    during reconciliation if its Gmail-assigned id is in `filterSyncState.managedFilterIds`
    (populated when this app creates a filter). Action shape alone ("Trash + skip inbox")
    is not proof of provenance — it's also a common hand-built Gmail filter — so a filter
@@ -135,7 +147,7 @@ them continuously (architecture.md §6):
    desired filter's criteria and action (#29). Symmetrically, `reconcileFilters` also
    never *creates* a duplicate for a desired filter that an untracked filter already
    covers — it surfaces that match instead, for confirm-first adoption (Decision 10, #80).
-7. **Compiles the *effective* block set, with address-exception carve-outs.** The compiler
+8. **Compiles the *effective* block set, with address-exception carve-outs.** The compiler
    resolves each sender's effective status via `resolveEffectiveDecision` (a domain decision
    overrides an address one unless the address is an exception, design-trust-decisions.md
    Decision 2) rather than reading raw `trustStatus`. A sender trusted at the domain level
@@ -168,7 +180,7 @@ provide durable, server-side enforcement with no backend of ours.
 > sender (like address exceptions #144/#145) — *not* a frozen decision-time list — so a later
 > independent decision on a matched sibling is enforced automatically. Derivation is cheap (it reads
 > the locally-observed sender set already in hand, no extra Gmail query) and, like the address
-> exclusion in point 7, the `negatedQuery` is **part of the reconcile signature** — so "live-derived"
+> exclusion in point 8, the `negatedQuery` is **part of the reconcile signature** — so "live-derived"
 > rewrites the filter only when the derived exclusion set actually changes, not on every reconcile
 > tick. **Constraints for #182:**
 > Gmail caps a filter at **~1500 chars**, so a long exception list can't all live in one
@@ -301,7 +313,7 @@ over-broad matches. Suggestions apply **only after explicit confirmation**, thro
 filter-reconcile path (Decision 5); nothing changes silently.
 
 **Ownership gate (#190).** "Through the normal reconcile path" includes its provenance rule
-(Decision 5 point 6, #29): only a filter whose id is in `managedFilterIds` is ever *offered* for
+(Decision 5 point 7, #29): only a filter whose id is in `managedFilterIds` is ever *offered* for
 removal. The block action shape is also what a hand-built Gmail filter looks like, so an
 untracked filter is left alone however textbook a duplicate it is — it may still *count* as
 coverage (a hand-built `*@domain` rule does make an address rule redundant) and it still
@@ -312,7 +324,7 @@ filters is never traded for one broad rule they didn't ask for.
 **Ownership bookkeeping (#202).** The reconcile path's provenance rule runs in both directions:
 applying a consolidation records the replacement `*@domain` filter's id in `managedFilterIds`
 and drops the ids it removed, in one write. A replacement left untracked would be *this app's own*
-broadest rule with no owner — never cleanable by reconcile (Decision 5 point 6), invisible to
+broadest rule with no owner — never cleanable by reconcile (Decision 5 point 7), invisible to
 this tool's later passes, and matching a desired filter with no managed id, so Decision 10 would
 offer to "adopt" a filter the app created moments earlier. Because consolidation reuses
 `DEFAULT_DOMAIN_BLOCK_THRESHOLD`, the tidied set is also what the next reconcile compiles from
@@ -504,6 +516,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-09 | **Decision 5 point 6 — only reason about filters we fully model (#212):** a real account turned up filters matching on `to`/`subject`/`query`, which `FilterSpec` drops. Two such filters signed identically and the tidy-up offered to delete one as a duplicate; a `from:X AND subject:Y` rule also signs like a plain block on X, so adoption would claim it and reconcile could later delete it. Such filters are now foreign by construction — never adopted, deleted, deduplicated, counted as coverage, or read as a prior decision — and the adapter reports which criteria it dropped. Renumbers the former points 6–7 to 7–8. | Claude |
 | 2026-08-09 | **Decision 5 exception-overflow generalised + implemented for exact-domain blocks (#191):** the ~1500-char criteria budget binds *any* domain-scope carve-out, not just the parent blocks of #182 — today's shipped `*@domain` + `negatedQuery` path could already build a rule Gmail rejects, retried forever while the domain stayed unblocked. Spelled out the exact-domain enumerate form (one `from:<address>` per still-blocked observed sender, **no** `*@domain` filter, since a plain one would trash the excepted addresses), the "emit nothing and report it" fallback when no member list is available, and marked hysteresis (point 3) as not yet implemented — it needs the reconcile side to feed back which form a rule currently takes. | Claude |
 | 2026-08-09 | **Decision 9 ownership bookkeeping (#202):** state that the provenance rule runs in both directions — applying a consolidation records the replacement `*@domain` filter's id in `managedFilterIds` and drops the removed ids in the same write, so the app's own broadest rule is never untracked from birth (uncleanable by reconcile, and offered back via Decision 10 adoption). Note that consolidation reusing `DEFAULT_DOMAIN_BLOCK_THRESHOLD` is what keeps the tidy-up from being churned back by the next reconcile. | Claude |
 | 2026-08-09 | **Interfaces + Examples de-drifted (#193):** the illustrative `GmailClient` block described a port that no longer existed (`authorize`/`scanInbox`/`syncSince`/`listSenders`/`applyActions`/`reconcileFilters`, plus a `FilterSpec` of `{ fromQuery, … }`), and the three examples called the same absent methods. Replaced the block with a link to the authoritative source (`packages/core/src/ports/GmailClient.ts`) plus a capability/tier table that carries what the code can't — scope tier and originating decision; rewrote the examples against the real API; and stated explicitly that `compileFilters`/`reconcileFilters` are pure functions in `enforcement/compileFilters.ts`, not port methods. | Claude |

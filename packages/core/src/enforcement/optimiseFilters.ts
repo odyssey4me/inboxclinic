@@ -28,7 +28,7 @@ import {
   DEFAULT_DOMAIN_BLOCK_THRESHOLD,
 } from "./compileFilters";
 import { FILTER_SYNC_KEY } from "./enforce";
-import { isBlockFilter, parseFilterSubjects } from "./filterShape";
+import { carriesUnmodelledCriteria, isBlockFilter, parseFilterSubjects } from "./filterShape";
 import type { FilterSpec, GmailClient, NativeFilter } from "../ports/GmailClient";
 import type { Store } from "../store";
 
@@ -90,7 +90,14 @@ export async function suggestFilterOptimisations(
   options: OptimiseFiltersOptions = {},
 ): Promise<FilterOptimisation[]> {
   const threshold = options.consolidateThreshold ?? DEFAULT_DOMAIN_BLOCK_THRESHOLD;
-  const filters = (await client.listFilters()).filter(isBlockFilter);
+  // Filters matching on criteria we don't model are dropped outright — not offered for
+  // removal, and not counted as coverage either. A rule like `*@shop.com AND subject:sale`
+  // does NOT make an address rule redundant, and two rules alike in `from` alone are not
+  // duplicates of each other (#212). Judging what we cannot see is the error, in both
+  // directions.
+  const filters = (await client.listFilters())
+    .filter(isBlockFilter)
+    .filter((f) => !carriesUnmodelledCriteria(f));
 
   const filterSync = await store.filterSync.get();
   const managedFilterIds = new Set(filterSync?.managedFilterIds ?? []);

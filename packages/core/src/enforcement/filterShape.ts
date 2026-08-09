@@ -4,6 +4,21 @@
 import type { NativeFilter } from "../ports/GmailClient";
 import type { DecisionScope } from "../store";
 
+/**
+ * Whether a filter matches on criteria this port does not model (`to`, `subject`, `query`, …).
+ *
+ * Such a filter is **foreign by construction**: the app only ever creates filters from a
+ * `FilterSpec`, so anything carrying more is something the user built. Every path that
+ * reasons about a filter's identity or meaning must exclude it — it is never a duplicate of
+ * a rule that merely looks like it, never adoptable, never deletable, and never evidence of
+ * a prior decision, because we cannot see what it actually does (#212).
+ */
+export function carriesUnmodelledCriteria(
+  filter: Pick<NativeFilter, "unmodelledCriteria">,
+): boolean {
+  return (filter.unmodelledCriteria?.length ?? 0) > 0;
+}
+
 /** A filter that removes mail from the inbox (trash / spam / archive) is a "block". */
 export function isBlockFilter(
   filter: Pick<NativeFilter, "addLabelIds" | "removeLabelIds">,

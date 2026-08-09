@@ -353,6 +353,42 @@ describe("reconcileFilters", () => {
     expect(plan.adoptable).toEqual([]);
   });
 
+  it("never adopts a filter that also matches on criteria we cannot see (#212)", () => {
+    // Signs identically to the desired block, but Gmail is also matching a subject — so it
+    // blocks a fraction of that sender's mail, not the sender. Adopting it would record a
+    // rule we don't understand as ours, and report the sender as fully blocked.
+    const target = desired[0] as FilterSpec;
+    const narrower: NativeFilter = {
+      id: "narrower",
+      from: target.from,
+      addLabelIds: target.addLabelIds,
+      removeLabelIds: target.removeLabelIds,
+      unmodelledCriteria: ["subject"],
+    };
+
+    const plan = reconcileFilters(desired, [narrower], new Set());
+
+    expect(plan.adoptable).toEqual([]);
+    // …and the desired filter is still wanted: the lookalike does not stand in for it.
+    expect(plan.toCreate.map((f) => f.from)).toContain(desired[0]?.from);
+  });
+
+  it("never deletes a filter carrying criteria we cannot see, even if tracked (#212)", () => {
+    // The app only ever creates filters from a FilterSpec, so this cannot be one of ours —
+    // whatever managedFilterIds says (an earlier adoption, say). Provenance by construction.
+    const foreign: NativeFilter = {
+      id: "foreign",
+      from: "someone@x.com",
+      addLabelIds: ["TRASH"],
+      removeLabelIds: ["INBOX"],
+      unmodelledCriteria: ["query"],
+    };
+
+    const plan = reconcileFilters([], [foreign], new Set(["foreign"]));
+
+    expect(plan.toDelete).toEqual([]);
+  });
+
   it("does not surface a foreign filter with no matching desired criteria as adoptable", () => {
     const foreign: NativeFilter = {
       id: "foreign",
