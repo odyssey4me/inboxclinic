@@ -84,8 +84,17 @@ export function resolveEffectiveDecision(input: EffectiveDecisionInput): Effecti
   if (parentDomainStatus !== null && !parentDomainIsException) {
     return { status: parentDomainStatus, source: "parentDomain" };
   }
-  if (domainStatus !== null && domainScope === "domain" && !addressIsException) {
-    return { status: domainStatus, source: "domain" };
+  // A domain record can carry its rule at `"domain"` scope (an exact-domain decision) or, when
+  // the domain IS its own registrable domain, at `"parentDomain"` scope (the rule for its own
+  // subtree lives on this same record — `parentDomainRuleFor` finds no separate parent to
+  // resolve above). Either way it is this sender's exact-domain rule, so both scopes override
+  // an un-excepted address the same way; only the reported `source` differs.
+  if (
+    domainStatus !== null &&
+    (domainScope === "domain" || domainScope === "parentDomain") &&
+    !addressIsException
+  ) {
+    return { status: domainStatus, source: domainScope };
   }
 
   // No broader rule claims this sender, so the narrowest decision it has stands.

@@ -130,6 +130,33 @@ describe("parent-domain precedence (#184)", () => {
       resolveEffectiveDecision({ ...base, addressStatus: "blocked", parentDomainStatus: null }),
     ).toEqual({ status: "blocked", source: "address" });
   });
+
+  it("overrides an already-decided APEX sender via its own record's parentDomain scope (#222)", () => {
+    // example.com is its own registrable domain, so the subtree rule lives on its own record —
+    // `parentDomainRuleFor` finds no separate parent, and `domainScope` reads "parentDomain"
+    // rather than "domain" for this exact sender. That must still override the earlier address
+    // decision, the same way an exact-domain rule would.
+    expect(
+      resolveEffectiveDecision({
+        ...base,
+        addressStatus: "trusted",
+        domainStatus: "blocked",
+        domainScope: "parentDomain",
+      }),
+    ).toEqual({ status: "blocked", source: "parentDomain" });
+  });
+
+  it("steps aside for an apex sender recorded as an exception to its own subtree rule", () => {
+    expect(
+      resolveEffectiveDecision({
+        ...base,
+        addressStatus: "trusted",
+        addressIsException: true,
+        domainStatus: "blocked",
+        domainScope: "parentDomain",
+      }),
+    ).toEqual({ status: "trusted", source: "address" });
+  });
 });
 
 describe("scope specificity ladder (#183)", () => {

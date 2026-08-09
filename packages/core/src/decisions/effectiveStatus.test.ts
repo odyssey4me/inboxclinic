@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createInMemoryStore, domainBuilder, senderBuilder } from "../testing";
 import type { Domain } from "../store/types";
 import {
+  effectiveBlockedDomains,
   effectiveBlockedSenders,
   effectiveSenderStatus,
   effectiveTrustedSenders,
@@ -35,6 +36,27 @@ describe("effectiveSenderStatus", () => {
     const s = senderBuilder("a@x.com", { trustStatus: "blocked" });
     const d = domainBuilder("x.com", { trustStatus: "trusted", decisionScope: "address" });
     expect(effectiveSenderStatus(s, d)).toBe("blocked");
+  });
+
+  it("lets an apex domain's own parentDomain-scope rule override an already-decided sender (#222)", () => {
+    // example.com blocked at parentDomain scope covers its own subtree, including itself —
+    // trusting ceo@example.com individually beforehand must not survive the later block.
+    const s = senderBuilder("ceo@example.com", { trustStatus: "trusted" });
+    const d = domainBuilder("example.com", {
+      trustStatus: "blocked",
+      decisionScope: "parentDomain",
+    });
+    expect(effectiveSenderStatus(s, d)).toBe("blocked");
+  });
+
+  it("steps aside for an apex sender recorded as an exception to its own subtree rule", () => {
+    const s = senderBuilder("ceo@example.com", { trustStatus: "trusted" });
+    const d = domainBuilder("example.com", {
+      trustStatus: "blocked",
+      decisionScope: "parentDomain",
+      exceptionAddresses: ["ceo@example.com"],
+    });
+    expect(effectiveSenderStatus(s, d)).toBe("trusted");
   });
 });
 
@@ -130,5 +152,19 @@ describe("parent-domain rules (#184)", () => {
     await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
 
     expect(await effectiveBlockedSenders(store)).toEqual([]);
+  });
+
+  it("outranks an already-decided APEX sender's own decision via effectiveBlockedDomains (#222)", async () => {
+    const store = createInMemoryStore();
+    // example.com IS its own registrable domain, so its subtree rule lives on this same
+    // record — parentDomainRuleFor finds no separate parent record to resolve above it.
+    await store.domains.put(parentRule());
+    // Trusted individually before the domain-wide block, and never recorded as an exception.
+    await store.senders.put(senderBuilder("ceo@example.com", { trustStatus: "trusted" }));
+
+    const targets = await effectiveBlockedDomains(store);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]?.excludeAddresses).toEqual([]);
+    expect(targets[0]?.blockedMemberAddresses).toEqual(["ceo@example.com"]);
   });
 });
