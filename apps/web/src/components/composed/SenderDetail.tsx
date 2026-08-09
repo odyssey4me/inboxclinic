@@ -4,6 +4,7 @@ import {
   defaultBlockActions,
   enforce,
   keyFor,
+  parentDomainCoverage,
   simulateEnforcement,
   type BlockAction,
   type Decision,
@@ -26,6 +27,11 @@ export interface SenderDetailProps {
   sender: Sender | null;
   /** Same-domain senders that also carry a prior-block signal and are still pending (#96). */
   flaggedSiblings?: Sender[];
+  /**
+   * Every observed sender, used to work out what a whole-subtree rule would cover and to
+   * state that breadth before the decision (design-trust-decisions.md Decision 9).
+   */
+  allSenders?: Sender[];
   store: Store;
   gmail: GmailClient;
   online: boolean;
@@ -55,6 +61,7 @@ function errorMessage(error: unknown): string {
 export function SenderDetail({
   sender,
   flaggedSiblings = [],
+  allSenders = [],
   store,
   gmail,
   online,
@@ -80,6 +87,19 @@ export function SenderDetail({
   }, [sender?.id]);
 
   if (sender === null) return null;
+
+  // Offer the subtree scope only where it means something more than the domain scope already
+  // does: the sender must sit BELOW its registrable domain, and other domains under that name
+  // must have been seen. On `example.com` itself, "all example.com subdomains" would be the
+  // same decision with a broader-sounding label, which is how a user ends up making a wider
+  // choice than they realised.
+  const coverage = parentDomainCoverage(sender.domain, allSenders);
+  const parentCoverage =
+    coverage !== null &&
+    coverage.registrable !== sender.domain.toLowerCase() &&
+    coverage.subtree.length > 1
+      ? coverage
+      : undefined;
 
   // The scope-toggle (single-sender domain) path always supplies concrete actions from
   // TrustActions; the fallback only fires for the address-scoped flagged batch.
@@ -138,7 +158,12 @@ export function SenderDetail({
 
   // The single subject from TrustActions (respects the address/domain scope toggle).
   const singleTarget: Target = {
-    subjectId: scope === "domain" ? keyFor(sender.domain) : sender.id,
+    subjectId:
+      scope === "parentDomain"
+        ? keyFor(parentCoverage?.registrable ?? sender.domain)
+        : scope === "domain"
+          ? keyFor(sender.domain)
+          : sender.id,
     scope,
     sender,
   };
@@ -167,6 +192,7 @@ export function SenderDetail({
             scope={scope}
             onScopeChange={setScope}
             canScopeDomain
+            parentCoverage={parentCoverage}
             onDecide={onDecide}
           />
 

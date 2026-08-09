@@ -15,9 +15,10 @@ const NOW = Date.UTC(2026, 6, 5); // 2026-07-05, fixed for determinism
 describe("demo environment", () => {
   it("builds an inbox whose message count matches the curated specs", () => {
     const inbox = demoInbox(NOW);
-    // 19 inbox senders (3 of which also have Trash-binned unread mail, #128) + 3
-    // Spam/Trash-only senders (15 msgs) for the learning-scan demo.
-    expect(inbox.length).toBe(157);
+    // 21 inbox senders (3 of which also have Trash-binned unread mail, #128) + 3
+    // Spam/Trash-only senders (15 msgs) for the learning-scan demo. Two of the 21 are
+    // MegaMart subdomains, so the whole-subtree offer has something to appear for.
+    expect(inbox.length).toBe(172);
     // Every message is deterministic and dated at or before `now`.
     expect(inbox.every((m) => m.internalDate <= NOW)).toBe(true);
     expect(new Set(inbox.map((m) => m.id)).size).toBe(inbox.length);
@@ -27,7 +28,7 @@ describe("demo environment", () => {
     const { store, gmail } = await createDemoEnvironment({ now: NOW });
 
     const senders = await store.senders.query({});
-    expect(senders.length).toBe(19);
+    expect(senders.length).toBe(21);
     expect(gmail.getAccountEmail && (await gmail.getAccountEmail())).toBe(DEMO_ACCOUNT_EMAIL);
 
     // All four M1 categories are represented.
@@ -93,7 +94,7 @@ describe("demo environment", () => {
     const gmail = new InMemoryGmailClient([], DEMO_ACCOUNT_EMAIL);
     const store = createInMemoryStore();
     await seedDemoStore(store, gmail, { now: NOW });
-    expect((await store.senders.query({})).length).toBe(19);
+    expect((await store.senders.query({})).length).toBe(21);
   });
 
   it("learns a deletedUnreadCount signal for pending bargainhub.example siblings (#128)", async () => {

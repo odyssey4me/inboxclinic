@@ -892,6 +892,7 @@ export function Dashboard({
                 senders.filter((s) => effectiveStatus(s) === "pending"),
               )
         }
+        allSenders={senders}
         store={store}
         gmail={gmail}
         online={online}

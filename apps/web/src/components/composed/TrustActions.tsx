@@ -4,6 +4,7 @@ import {
   type BlockAction,
   type Decision,
   type DecisionScope,
+  type ParentDomainCoverage,
   type Sender,
 } from "@inboxclinic/core";
 import { useEffect, useState } from "react";
@@ -22,6 +23,13 @@ export interface TrustActionsProps {
   scope: DecisionScope;
   onScopeChange: (scope: DecisionScope) => void;
   canScopeDomain: boolean;
+  /**
+   * What a whole-subtree rule would cover, when one is worth offering (the sender is on a
+   * subdomain, and other domains under the same registrable domain have been seen). Absent
+   * means no third option: offering "all of example.com" while looking at example.com itself
+   * would be the same decision wearing a broader-sounding name.
+   */
+  parentCoverage?: ParentDomainCoverage | undefined;
   onDecide: (decision: Decision, actions: BlockAction[]) => void;
 }
 
@@ -31,6 +39,7 @@ export function TrustActions({
   scope,
   onScopeChange,
   canScopeDomain,
+  parentCoverage,
   onDecide,
 }: TrustActionsProps) {
   const [blockOpen, setBlockOpen] = useState(false);
@@ -73,7 +82,55 @@ export function TrustActions({
           />
           Whole domain ({sender.domain})
         </label>
+        {parentCoverage !== undefined && (
+          <label className="flex items-center gap-1 text-sm">
+            <input
+              type="radio"
+              name="scope"
+              checked={scope === "parentDomain"}
+              onChange={() => onScopeChange("parentDomain")}
+            />
+            All {parentCoverage.registrable} subdomains ({parentCoverage.subtree.length})
+          </label>
+        )}
       </fieldset>
+
+      {/* Breadth is stated BEFORE the decision, not explained after it: this scope reaches
+          further than its name suggests, and the surprising part is the siblings. */}
+      {scope === "parentDomain" && parentCoverage !== undefined && (
+        <div className="space-y-1 rounded-md bg-accent-soft px-3 py-3 text-sm text-accent-ink">
+          <p className="font-medium">
+            This covers every sender at {parentCoverage.registrable} and below —{" "}
+            {parentCoverage.senderCount} seen so far:
+          </p>
+          <ul className="list-disc pl-5">
+            {parentCoverage.subtree.map((d) => (
+              <li key={d.domain}>
+                {d.domain} ({d.senderCount})
+              </li>
+            ))}
+          </ul>
+          {parentCoverage.siblings.length > 0 && (
+            <>
+              <p className="font-medium text-block">
+                It will also catch these, which are NOT part of {parentCoverage.registrable} and may
+                be unrelated:
+              </p>
+              <ul className="list-disc pl-5 text-block">
+                {parentCoverage.siblings.map((d) => (
+                  <li key={d.domain}>
+                    {d.domain} ({d.senderCount})
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p className="text-xs">
+            …and other domains starting {parentCoverage.registrable}. that have not written yet.
+            Decide a subdomain separately afterwards to carve it back out.
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="trust" onClick={() => onDecide("trust", [])}>
