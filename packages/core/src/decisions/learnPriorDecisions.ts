@@ -21,7 +21,11 @@
  * after the inbox scan creates its record.
  */
 
-import { isBlockFilter, parseFilterSubjects } from "../enforcement/filterShape";
+import {
+  carriesUnmodelledCriteria,
+  isBlockFilter,
+  parseFilterSubjects,
+} from "../enforcement/filterShape";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import { extractSenders } from "../senders/extract";
@@ -104,6 +108,9 @@ export async function learnPriorDecisions(
   try {
     for (const filter of await client.listFilters()) {
       if (!isBlockFilter(filter)) continue;
+      // `from:X AND subject:Y` blocks only part of X's mail, so reading it as "X is
+      // blocked" overstates a decision the user never made (#212).
+      if (carriesUnmodelledCriteria(filter)) continue;
       for (const subject of parseFilterSubjects(filter.from)) {
         if (subject.scope === "domain") filterDomains.add(subject.value);
         else filterAddressIds.add(keyFor(subject.value));

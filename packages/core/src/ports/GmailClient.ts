@@ -96,9 +96,23 @@ export interface FilterSpec {
   removeLabelIds: string[];
 }
 
-/** An existing native filter as returned by Gmail — a `FilterSpec` plus its id. */
+/**
+ * An existing native filter as returned by Gmail — a `FilterSpec` plus its id.
+ *
+ * `FilterSpec` models `from` and `excludeFrom`; Gmail filters can also match on `to`,
+ * `subject`, `query`, attachments and more. `unmodelledCriteria` names any such field the
+ * account's filter actually carries, because **the projection is lossy and code must not
+ * pretend otherwise**: two filters identical in what we model can do entirely different
+ * things, and treating them as the same rule risks deleting one as a "duplicate" of the
+ * other, or adopting one on a resemblance that isn't real (#212).
+ *
+ * It doubles as provenance: this app only ever creates filters from a `FilterSpec`, so a
+ * filter carrying anything else **cannot be one of ours**, whatever `managedFilterIds` says.
+ */
 export interface NativeFilter extends FilterSpec {
   id: string;
+  /** Criteria fields Gmail carries that this port does not model. Empty/absent when none. */
+  unmodelledCriteria?: string[];
 }
 
 /** A bounded label edit applied to existing messages (`users.messages.batchModify`). */

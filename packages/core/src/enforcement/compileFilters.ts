@@ -18,6 +18,7 @@
  *    and surface a flag; domain aggregation is preferred so the cap covers more senders.
  */
 
+import { carriesUnmodelledCriteria } from "./filterShape";
 import type { Sender } from "../store/types";
 import type { FilterSpec, NativeFilter } from "../ports/GmailClient";
 
@@ -314,11 +315,19 @@ export function reconcileFilters(
   const desiredBySig = new Map<string, FilterSpec>();
   for (const spec of desired) desiredBySig.set(signature(spec), spec);
 
-  const managed = existing.filter((f) => managedFilterIds.has(f.id));
+  // A filter matching on criteria we don't model is excluded from every comparison below.
+  // Its signature is not its meaning — `from:x@y.com AND subject:foo` signs identically to a
+  // plain block on `x@y.com` while doing something far narrower — so treating the two as the
+  // same rule would adopt it, then delete it once the desired set moved on, and meanwhile
+  // report the sender as fully blocked when it isn't (#212). We never create such a filter,
+  // so this holds regardless of what `managedFilterIds` claims.
+  const comparable = existing.filter((f) => !carriesUnmodelledCriteria(f));
+
+  const managed = comparable.filter((f) => managedFilterIds.has(f.id));
   const managedSigs = new Set(managed.map(signature));
 
   const unmanagedBySig = new Map<string, NativeFilter>();
-  for (const f of existing) {
+  for (const f of comparable) {
     if (managedFilterIds.has(f.id)) continue;
     const sig = signature(f);
     if (!unmanagedBySig.has(sig)) unmanagedBySig.set(sig, f);

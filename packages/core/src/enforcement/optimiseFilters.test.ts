@@ -227,6 +227,50 @@ describe("suggestFilterOptimisations", () => {
     expect(gmail.deletedFilterIds.sort()).toEqual(["f1", "f2", "f3"]);
   });
 
+  it("does not call two filters duplicates when they differ in criteria we can't see (#212)", async () => {
+    const gmail = new MockGmailClient();
+    // Identical in everything this port models — and unrelated in what it doesn't: one
+    // matches a recipient, the other a mailing list. Both merely trash their matches.
+    gmail.seedFilters([
+      {
+        id: "f1",
+        from: "",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: [],
+        unmodelledCriteria: ["to"],
+      },
+      {
+        id: "f2",
+        from: "",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: [],
+        unmodelledCriteria: ["query"],
+      },
+    ]);
+    const store = await storeOwning("f1", "f2");
+
+    expect(await suggestFilterOptimisations(gmail, store)).toEqual([]);
+  });
+
+  it("does not let a partial domain rule make an address rule look redundant (#212)", async () => {
+    const gmail = new MockGmailClient();
+    // `*@shop.com AND subject:sale` covers some of shop.com, not shop.com — so the address
+    // rule is still doing work, and removing it would let that sender's other mail through.
+    gmail.seedFilters([
+      {
+        id: "partial-domain",
+        from: "*@shop.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+        unmodelledCriteria: ["subject"],
+      },
+      block("addr", "promo@shop.com"),
+    ]);
+    const store = await storeOwning("partial-domain", "addr");
+
+    expect(await suggestFilterOptimisations(gmail, store)).toEqual([]);
+  });
+
   it("records the consolidated filter as managed and drops the removed ids (#202)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
