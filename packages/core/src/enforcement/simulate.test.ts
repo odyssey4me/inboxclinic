@@ -433,3 +433,62 @@ describe("simulateEnforcement", () => {
     expect(gmail.senderQueries).toContain("*@promo.com");
   });
 });
+
+describe("simulateEnforcement — parent-domain rules (#218)", () => {
+  /** A blocked rule over the whole example.com subtree. */
+  const parentRule = () =>
+    domainBuilder("example.com", {
+      trustStatus: "blocked",
+      decisionScope: "parentDomain",
+    });
+
+  it("counts the rescue when trusting a sender a parent rule currently blocks", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(parentRule());
+    await store.domains.put(domainBuilder("news.example.com"));
+    await store.senders.put(
+      senderBuilder("promo@news.example.com", { trustStatus: "pending", spamMarkedCount: 6 }),
+    );
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("promo@news.example.com"), scope: "address", decision: "trust" },
+    ]);
+
+    // Reading two levels, the sender looks pending — so nothing appears to be rescued, and a
+    // confirm-first preview understates what Apply then does.
+    expect(impact.messagesToRescue).toBe(6);
+  });
+
+  it("previews a parent block as covering the subtree's senders", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("example.com"));
+    await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient();
+
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("example.com"), scope: "parentDomain", decision: "block" },
+    ]);
+
+    // The subtree member becomes effectively blocked, so a filter is wanted for it.
+    expect(impact.filtersToCreate).toBeGreaterThan(0);
+  });
+
+  it("keeps a sender the same batch carves out of a parent block", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("example.com"));
+    await store.senders.put(
+      senderBuilder("vip@news.example.com", { trustStatus: "pending", spamMarkedCount: 4 }),
+    );
+    const gmail = new MockGmailClient();
+
+    // "Block the whole subtree, but keep this one" — applyDecision records the address as an
+    // exception on the parent, so the preview must show it rescued rather than blocked.
+    const impact = await simulateEnforcement(gmail, store, [
+      { subjectId: keyFor("example.com"), scope: "parentDomain", decision: "block" },
+      { subjectId: keyFor("vip@news.example.com"), scope: "address", decision: "trust" },
+    ]);
+
+    expect(impact.messagesToRescue).toBe(4);
+  });
+});

@@ -26,6 +26,7 @@ import {
   isBlockFilter,
   parseFilterSubjects,
 } from "../enforcement/filterShape";
+import { effectiveSenderStatus, parentDomainRuleFor } from "./effectiveStatus";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import { extractSenders } from "../senders/extract";
@@ -67,10 +68,24 @@ export async function learnPriorDecisions(
   const maxMessages = options.maxMessages ?? 200;
   const unreadThreshold = options.unreadThreshold ?? 0.5;
 
-  // Never re-suggest a subject the user has already decided (trusted or blocked).
+  // Never re-suggest a subject the user has already decided (trusted or blocked) — by its own
+  // decision OR by a broader rule covering it. Reading raw status would re-suggest a sender
+  // already decided by its domain or by a parent-domain rule, asking the user to answer again
+  // for one of the very senders their broader decision was meant to cover.
   const allSenders = await store.senders.query({});
+  const allDomains = await store.domains.query({});
+  const domainsByKey = new Map(allDomains.map((d) => [keyFor(d.domain), d]));
   const decidedSenders = new Set(
-    allSenders.filter((s) => s.trustStatus !== "pending").map((s) => s.id),
+    allSenders
+      .filter(
+        (s) =>
+          effectiveSenderStatus(
+            s,
+            domainsByKey.get(keyFor(s.domain)),
+            parentDomainRuleFor(s.domain, domainsByKey),
+          ) !== "pending",
+      )
+      .map((s) => s.id),
   );
   // Per-sender count of mail trashed **while unread** — a scoring input (Decision 8),
   // collected during the Trash scan below and persisted after.
@@ -79,8 +94,19 @@ export async function learnPriorDecisions(
   // input, collected during the filter scan below and persisted after.
   const filterAddressIds = new Set<string>();
   const filterDomains = new Set<string>();
+  // A domain is decided by its own record, or by a parent rule it isn't carved out of.
   const decidedDomains = new Set(
-    (await store.domains.query({})).filter((d) => d.trustStatus !== "pending").map((d) => d.id),
+    allDomains
+      .filter((d) => {
+        if (d.trustStatus !== "pending") return true;
+        const parent = parentDomainRuleFor(d.domain, domainsByKey);
+        return (
+          parent !== undefined &&
+          parent.trustStatus !== "pending" &&
+          !parent.exceptionDomains.includes(d.domain)
+        );
+      })
+      .map((d) => d.id),
   );
   const isDecided = (scope: DecisionScope, id: string): boolean =>
     scope === "domain" ? decidedDomains.has(id) : decidedSenders.has(id);
