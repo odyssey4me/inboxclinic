@@ -758,11 +758,26 @@ def cmd_match(args: argparse.Namespace) -> None:
             note("nothing armed")
             return
         token = ensure_token(SCOPE_FILTERS)
-        for subject in state["subjects"]:
+        armed_at = int(state["armedAt"])  # type: ignore[arg-type]
+        subjects: list[dict[str, str]] = state["subjects"]  # type: ignore[assignment]
+        for subject in subjects:
             _delete_filter(token, str(subject["filterId"]))
             note(f"removed the probe filter for {subject['domain']}")
         os.remove(MATCH_STATE)
-        note("unstar anything they starred")
+
+        # Deleting a filter does not undo what it already did, and this probe deliberately
+        # holds no scope to modify mail — unstarring would need `gmail.modify`, the same
+        # permission the app uses to trash and archive, which is far more than a QA tool
+        # should carry to tidy up after itself. Hand over the exact searches instead: each
+        # selects only this probe's work, so it is select-all then unstar, per subject.
+        stamp = time.strftime("%Y/%m/%d", time.gmtime(armed_at))
+        print()
+        note("The stars it added are still there. Paste each into Gmail search,")
+        note("then select all and unstar:")
+        for subject in subjects:
+            note(f"  is:starred from:*@{subject['domain']} after:{stamp}")
+        note("(dated from the arming day, so it can also catch mail you starred yourself")
+        note(" from those domains since then — worth a glance before unstarring.)")
         return
 
     # arm
