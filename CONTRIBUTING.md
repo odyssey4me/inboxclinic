@@ -122,6 +122,7 @@ an access token (~1h, no refresh token), so nothing long-lived sits on disk.
 
 ```bash
 ./scripts/qa-gmail-probe.py login       # read-only consent in the browser (~1h)
+                                        # (optional — probes prompt for what they need)
 ./scripts/qa-gmail-probe.py discover    # find real subjects in the mailbox
 ./scripts/qa-gmail-probe.py search      # wildcard + subdomain + exclusion semantics
 ./scripts/qa-gmail-probe.py filters     # stored negatedQuery shape (read-only)

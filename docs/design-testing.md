@@ -295,9 +295,11 @@ Criteria it is built to:
 
 1. **Read-only wherever the question allows it.** Anything answerable by *observing* the
    account — query semantics, the shape of stored filter criteria — uses `gmail.readonly`.
-   Write scope (`gmail.settings.basic`) is requested only for the one question nothing
-   existing can answer (where the length limit falls), and that probe is additionally
-   opt-in at the command line.
+   Write scope (`gmail.settings.basic`) is needed for exactly one question nothing existing
+   can answer (where the length limit falls), and that probe is additionally opt-in at the
+   command line. **Scope is requested when a probe needs it, not chosen up front:** a
+   read-only session stays read-only, and the widening prompt names the scope and the reason.
+   No flag to remember, and no credential carrying permissions the session never used.
 2. **Least privilege, short-lived.** Consent grants **exactly** the Gmail scopes the probe
    needs — read-only unless a write probe is explicitly requested — and lasts about an hour.
    Only the **access token** is cached (`.local/`, mode 0600, gitignored); no refresh token is

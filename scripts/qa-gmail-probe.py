@@ -29,13 +29,16 @@
 #             Binary-searches the criteria budget DEFAULT_MAX_CRITERIA_CHARS
 #             guesses at. Nothing existing answers this, so it creates and
 #             immediately deletes probe filters against an unroutable domain —
-#             the only probe needing write scope, and opt-in.
+#             the only probe needing write scope. It asks for that scope when
+#             run, so nothing has to be requested up front.
 #                                              [gmail.settings.basic, --i-know]
 #
 # The semantics under test, and why enforcement depends on them, are in
 # docs/design-gmail-integration.md (Decision 5).
 #
-# Auth: consent grants EXACTLY the Gmail scopes the requested probes need, via
+# Auth: consent grants EXACTLY the scopes the probes you actually run need. The
+# read-only ones need nothing more; `limit` asks to widen when you run it, so
+# there is no scope flag to know about in advance. Obtained via
 # the standard installed-app loopback flow (PKCE) against a project-owned
 # Desktop OAuth client. The Google CLI cannot do this — `gcloud auth
 # application-default login` refuses to mint a credential without
@@ -55,7 +58,7 @@
 # (dumps carry your own sender addresses — .local/ is gitignored, keep them there)
 #
 # Usage:
-#   ./scripts/qa-gmail-probe.py login [--with-filters] [--client-id-file F]
+#   ./scripts/qa-gmail-probe.py login [--client-id-file F]   # optional; probes prompt
 #   ./scripts/qa-gmail-probe.py discover [--sample 200]
 #   ./scripts/qa-gmail-probe.py search [--domain x.com] [--exclude a@x.com]
 #   ./scripts/qa-gmail-probe.py filters [--json] [--out FILE]
@@ -208,23 +211,51 @@ def cache_clear() -> None:
 
 
 def ensure_token(needed: str) -> str:
-    """Return a live token carrying `needed`, or exit saying what to run."""
-    extra = " --with-filters" if needed == SCOPE_FILTERS else ""
+    """Return a live token carrying `needed`, consenting on the spot if it doesn't.
+
+    The scope a probe needs is known when it runs, so asking for it then — rather than
+    making the caller predict it at login — keeps the credential to what the session has
+    actually used, with no flag to remember.
+    """
     cache = cache_read()
+    if cache is not None and needed in str(cache.get("scope", "")).split():
+        left = int(cache["expires_at"]) - int(time.time())  # type: ignore[arg-type]
+        if left < 300:
+            note(f"note: this credential expires in {left}s; re-run if a probe fails part-way")
+        return str(cache["access_token"])
+
     if cache is None:
         cache_clear()  # a dead credential is cleared, not left to fail again
-        fail(f"no usable credential — run: ./scripts/qa-gmail-probe.py login{extra}")
-    if needed not in str(cache.get("scope", "")).split():
-        fail(f"credential lacks {needed} — re-run: ./scripts/qa-gmail-probe.py login{extra}")
-    left = int(cache["expires_at"]) - int(time.time())  # type: ignore[arg-type]
-    if left < 300:
-        note(f"note: this credential expires in {left}s; re-run login if a probe fails part-way")
+        reason = "No usable credential."
+        scopes = [SCOPE_READ] if needed == SCOPE_READ else [SCOPE_READ, needed]
+    else:
+        # Widening: keep what the session already has and add what this probe needs, so a
+        # read-only credential isn't silently downgraded mid-run.
+        reason = f"This probe needs {needed}, which the current credential lacks."
+        scopes = sorted({*str(cache.get("scope", "")).split(), needed})
+
+    if not sys.stdin.isatty():
+        fail(f"{reason} Run: ./scripts/qa-gmail-probe.py login")
+    print(f"{reason}")
+    print("Consent to:")
+    for scope in scopes:
+        print(f"  {scope}")
+    if input("Open the browser to authorise? [y/N] ").strip().lower() not in {"y", "yes"}:
+        fail("declined — nothing was requested")
+    run_consent(scopes, CLIENT_FILE)
+    cache = cache_read()
+    if cache is None:
+        fail("consent completed but no usable token was cached")
     return str(cache["access_token"])
 
 
 def cmd_login(args: argparse.Namespace) -> None:
-    scopes = [SCOPE_READ] + ([SCOPE_FILTERS] if args.with_filters else [])
-    client_id, client_secret = read_client(args.client_id_file)
+    run_consent([SCOPE_READ], args.client_id_file)
+
+
+def run_consent(scopes: list[str], client_id_file: str) -> None:
+    """The installed-app loopback flow (PKCE) for exactly `scopes`."""
+    client_id, client_secret = read_client(client_id_file)
 
     verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).decode().rstrip("=")
     challenge = (
@@ -549,7 +580,7 @@ def cmd_limit(args: argparse.Namespace) -> None:
         sender_from = f"*@{domain}"
         addresses: list[str] = []
         index = 0
-        while len(sender_from) + 7 + len(" OR ".join(addresses)) < target and index < 500:
+        while len(sender_from) + 7 + len(" OR ".join(addresses)) < target and index < 4000:
             addresses.append(f"p{index:04d}@{domain}")
             index += 1
         body = json.dumps(
@@ -586,23 +617,42 @@ def cmd_limit(args: argparse.Namespace) -> None:
             note(f"WARNING: could not delete probe filter {created['id']} — remove it by hand")
         return True
 
-    low, high = 100, 4000
+    low = 100
     if not accepts(low):
         fail(f"even {low} chars was rejected: {last_error}")
-    last_ok, first_fail = low, 0
-    while high - low > 25:
-        mid = (low + high) // 2
-        if accepts(mid):
-            low = last_ok = mid
+
+    # Find a rejection before bisecting: a fixed ceiling that Gmail happens to accept
+    # reports the ceiling as "the limit", which is a wrong answer wearing a number.
+    high = 0
+    probe = low
+    while probe <= 60_000:
+        probe *= 2
+        if accepts(probe):
+            low = probe
+            note(f"accepted at ~{probe} chars; probing higher")
         else:
-            high = first_fail = mid
+            high = probe
+            break
+    if high == 0:
+        note(f"accepted every size up to ~{low} chars without a rejection.")
+        note("Either the limit is higher still, or criteria length is not bounded the way")
+        note("DEFAULT_MAX_CRITERIA_CHARS assumes. Raise the ceiling in this probe to dig further.")
+        return
+
+    last_ok, first_fail = low, high
+    while first_fail - last_ok > 25:
+        mid = (last_ok + first_fail) // 2
+        if accepts(mid):
+            last_ok = mid
+        else:
+            first_fail = mid
 
     note(f"largest accepted criteria: ~{last_ok} chars")
-    if first_fail:
-        note(f"smallest rejected:         ~{first_fail} chars ({last_error})")
+    note(f"smallest rejected:         ~{first_fail} chars ({last_error})")
     print()
-    note("Well below 1500 => DEFAULT_MAX_CRITERIA_CHARS is too generous and the bug still bites.")
-    note("Well above     => domains degrade to enumerate form earlier than they need to.")
+    note(f"DEFAULT_MAX_CRITERIA_CHARS assumes 1500.")
+    note("Below that => the budget is too generous and over-long filters still get rejected.")
+    note("Above it   => domains degrade to enumerate form earlier than they need to.")
 
 
 # --- cli ---------------------------------------------------------------------
@@ -614,8 +664,7 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    login = sub.add_parser("login", help="consent to exactly the scopes a probe needs")
-    login.add_argument("--with-filters", action="store_true", help="also request filter write")
+    login = sub.add_parser("login", help="consent up front (read-only; probes widen on demand)")
     login.add_argument("--client-id-file", default=CLIENT_FILE)
     login.set_defaults(func=cmd_login)
 
