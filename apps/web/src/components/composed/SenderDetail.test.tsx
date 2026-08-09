@@ -200,6 +200,62 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     });
   });
 
+  it("names the subtree rule, not the subdomain's own, when the subdomain was decided first", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        sender={senderBuilder("a@news.example.com")}
+        allDomains={[
+          // Decided at domain scope BEFORE the subtree rule existed, so it was never added to
+          // example.com's exceptionDomains — nothing carves out retroactively.
+          domainBuilder("news.example.com", {
+            trustStatus: "trusted",
+            decisionScope: "domain",
+          }),
+          domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "parentDomain" }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    // resolveEffectiveDecision applies the broadest un-excepted rule, so this sender is blocked.
+    // Naming news.example.com would state the opposite verdict to the status badge beside it.
+    expect(screen.getByText(/Blocked by the rule on/i)).toBeInTheDocument();
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    expect(screen.queryByText("news.example.com")).not.toBeInTheDocument();
+  });
+
+  it("prefers the subdomain's own rule once it is carved out of the subtree rule", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        sender={senderBuilder("a@news.example.com")}
+        allDomains={[
+          domainBuilder("news.example.com", { trustStatus: "trusted", decisionScope: "domain" }),
+          // The carve-out the parent records when the subdomain is decided under it.
+          domainBuilder("example.com", {
+            trustStatus: "blocked",
+            decisionScope: "parentDomain",
+            exceptionDomains: ["news.example.com"],
+          }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    // The parent steps aside for an excepted subdomain, so the exact rule is the one in force.
+    expect(screen.getByText(/Trusted by the rule on/i)).toBeInTheDocument();
+    expect(screen.getByText("news.example.com")).toBeInTheDocument();
+  });
+
   it("says nothing when no rule governs the sender", () => {
     const { store, gmail } = setup();
     render(

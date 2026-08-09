@@ -118,19 +118,38 @@ export function SenderDetail({
   const domainsByKey = new Map(allDomains.map((d) => [keyFor(d.domain), d]));
   const exactRule = domainsByKey.get(keyFor(sender.domain));
   const parentRule = parentDomainRuleFor(sender.domain, domainsByKey);
-  // Most specific first, matching the precedence ladder the resolver walks.
+  // BROADEST first, each rule applying unless this sender is carved out of it — the order
+  // `resolveEffectiveDecision` walks, and the reason the panel can't just take the narrowest
+  // rule it finds. A subdomain decided BEFORE a subtree rule was made above it is never added
+  // to that rule's `exceptionDomains` (nothing carves out retroactively), so the parent governs
+  // — and naming the subdomain's own rule would state the opposite verdict to the status badge.
+  const exceptedFromParent =
+    parentRule !== undefined &&
+    (parentRule.exceptionAddresses.includes(sender.email) ||
+      parentRule.exceptionDomains.includes(sender.domain));
   const governingRule =
-    exactRule !== undefined && exactRule.trustStatus !== "pending"
-      ? exactRule
-      : parentRule !== undefined && parentRule.trustStatus !== "pending"
-        ? parentRule
+    parentRule !== undefined && parentRule.trustStatus !== "pending" && !exceptedFromParent
+      ? parentRule
+      : exactRule !== undefined &&
+          exactRule.trustStatus !== "pending" &&
+          !exactRule.exceptionAddresses.includes(sender.email)
+        ? exactRule
         : undefined;
-  // A recorded exception is what makes the rule step aside — the same marker enforcement reads.
-  const carvedOut = governingRule?.exceptionAddresses.includes(sender.email) ?? false;
-  // A decision of its own that the rule currently overrides: made before the rule existed, since
+  // Nothing governs it, but a rule records it as an exception: its own decision stands because
+  // it was carved out, which is what "follow the rule again" undoes. A recorded exception is the
+  // same marker enforcement reads. Broadest first again, since that is the rule being rejoined.
+  const carvedOutOf =
+    governingRule !== undefined
+      ? undefined
+      : [parentRule, exactRule].find(
+          (rule) =>
+            rule !== undefined &&
+            rule.trustStatus !== "pending" &&
+            rule.exceptionAddresses.includes(sender.email),
+        );
+  // A decision of its own that the governing rule overrides: made before the rule existed, since
   // deciding under one records the carve-out. Dormant, but it resurfaces if the rule is removed.
-  const overriddenDecision =
-    !carvedOut && (sender.trustStatus !== "pending" || sender.decisionScope !== null);
+  const overriddenDecision = sender.trustStatus !== "pending" || sender.decisionScope !== null;
   const ruleIsSubtree = governingRule !== undefined && governingRule === parentRule;
 
   // The scope-toggle (single-sender domain) path always supplies concrete actions from
@@ -243,30 +262,28 @@ export function SenderDetail({
         <>
           {governingRule !== undefined && (
             <p className="text-sm text-muted">
-              {carvedOut ? (
-                <>
-                  Carved out of the rule on{" "}
-                  <span className="font-medium text-ink">{governingRule.domain}</span>: this address
-                  keeps its own decision.{" "}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void rejoinRule()}
-                    className="underline transition-colors hover:text-accent-ink disabled:opacity-50"
-                  >
-                    Follow the rule again
-                  </button>
-                </>
-              ) : (
-                <>
-                  {governingRule.trustStatus === "blocked" ? "Blocked" : "Trusted"} by the rule on{" "}
-                  <span className="font-medium text-ink">{governingRule.domain}</span>
-                  {ruleIsSubtree ? ", which covers every domain beneath it" : ""} —{" "}
-                  {overriddenDecision
-                    ? "it overrides the earlier decision on this address."
-                    : "no decision was made about this address on its own."}
-                </>
-              )}
+              {governingRule.trustStatus === "blocked" ? "Blocked" : "Trusted"} by the rule on{" "}
+              <span className="font-medium text-ink">{governingRule.domain}</span>
+              {ruleIsSubtree ? ", which covers every domain beneath it" : ""} —{" "}
+              {overriddenDecision
+                ? "it overrides the earlier decision on this address."
+                : "no decision was made about this address on its own."}
+            </p>
+          )}
+
+          {carvedOutOf !== undefined && (
+            <p className="text-sm text-muted">
+              Carved out of the rule on{" "}
+              <span className="font-medium text-ink">{carvedOutOf.domain}</span>: this address keeps
+              its own decision.{" "}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void rejoinRule()}
+                className="underline transition-colors hover:text-accent-ink disabled:opacity-50"
+              >
+                Follow the rule again
+              </button>
             </p>
           )}
 
