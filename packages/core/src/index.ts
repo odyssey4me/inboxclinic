@@ -148,6 +148,12 @@ export {
   type EffectiveDecisionInput,
 } from "./decisions/resolveEffectiveDecision";
 export { defaultBlockActions } from "./decisions/blockActions";
+// Stop deciding a subject, so the rules above it govern again (#225).
+export {
+  withdrawDecision,
+  type WithdrawDecisionInput,
+  type WithdrawDecisionResult,
+} from "./decisions/withdrawDecision";
 // Effective-status resolution across the specificity ladder (address → domain → parentDomain).
 export { effectiveSenderStatus, parentDomainRuleFor } from "./decisions/effectiveStatus";
 
