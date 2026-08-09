@@ -215,13 +215,13 @@ async function applyDomainDecision(
   // and `broaderRulesFor` both look up a subtree's rule by exact key on the registrable domain,
   // so a record violating this would be silently unreachable from any subdomain (#230). Fail
   // loudly here rather than let a bad caller write a decision the resolution model can't find.
-  if (
-    input.scope === "parentDomain" &&
-    registrableDomain(domain.domain) !== domain.domain.toLowerCase()
-  ) {
-    throw new Error(
-      `applyDecision: parentDomain scope requires ${subjectId} (${domain.domain}) to be its own registrable domain, got ${registrableDomain(domain.domain)}`,
-    );
+  if (input.scope === "parentDomain") {
+    const registrable = registrableDomain(domain.domain);
+    if (registrable !== domain.domain.toLowerCase()) {
+      throw new Error(
+        `applyDecision: parentDomain scope requires ${subjectId} (${domain.domain}) to be its own registrable domain, got ${registrable}`,
+      );
+    }
   }
 
   // Defer on an already-decided domain must not revert it — see module docs.
