@@ -136,6 +136,19 @@ function chunkDomainsStably(sortedDomains: readonly string[], maxPerFilter: numb
   return chunks;
 }
 
+/**
+ * Characters a `FilterSpec` occupies in Gmail's `criteria`, as the provider adapter sends it.
+ * `from` goes verbatim, but `excludeFrom` is wrapped into a query — `from:(a OR b)` — so
+ * measuring the bare address list undercounts by the wrapper's length and lets a carve-out
+ * within a few characters of the limit still compile to a filter Gmail rejects (#191).
+ */
+const NEGATED_QUERY_WRAPPER_CHARS = "from:()".length;
+
+function criteriaLength(from: string, negatedQuery: string): number {
+  if (negatedQuery === "") return from.length;
+  return from.length + NEGATED_QUERY_WRAPPER_CHARS + negatedQuery.length;
+}
+
 function blockFilter(from: string, excludeFrom?: string): FilterSpec {
   return {
     from,
@@ -190,7 +203,7 @@ export function compileFilters(
       .sort();
     if (addresses.length === 0) continue;
     const negatedQuery = addresses.join(" OR ");
-    if (`*@${domain}`.length + negatedQuery.length <= maxCriteriaChars) {
+    if (criteriaLength(`*@${domain}`, negatedQuery) <= maxCriteriaChars) {
       excludeByDomain.set(domain, negatedQuery);
       continue;
     }

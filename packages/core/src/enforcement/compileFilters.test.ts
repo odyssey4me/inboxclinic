@@ -177,6 +177,25 @@ describe("compileFilters", () => {
       expect(filters[0]?.excludeFrom).toBe(manyExceptions.join(" OR "));
     });
 
+    it("counts the query wrapper the adapter adds around the exclusion (#191)", () => {
+      // The adapter sends `negatedQuery: from:(<addresses>)`, so the wrapper's 7 characters
+      // are part of the criteria. Budget = from + wrapper + addresses exactly, so one char
+      // less must overflow — measuring the bare address list would call this a fit.
+      const domain = "shop.com";
+      const addresses = ["a@shop.com", "b@shop.com"];
+      const exact = `*@${domain}`.length + "from:()".length + addresses.join(" OR ").length;
+
+      const fits = compileFilters([], [{ domain, excludeAddresses: addresses }], {
+        maxCriteriaChars: exact,
+      });
+      expect(fits.exceptionOverflows).toEqual([]);
+
+      const overflows = compileFilters([], [{ domain, excludeAddresses: addresses }], {
+        maxCriteriaChars: exact - 1,
+      });
+      expect(overflows.exceptionOverflows).toHaveLength(1);
+    });
+
     it("degrades to one filter per still-blocked member when the carve-out won't fit", () => {
       const { filters, exceptionOverflows } = compileFilters(
         [],
