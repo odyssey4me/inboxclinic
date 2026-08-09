@@ -333,6 +333,35 @@ describe("runScan", () => {
       exceptionAddresses: ["deals@promo.com"],
     });
   });
+
+  it("preserves a parent rule's subdomain carve-outs across a rescan (#184)", async () => {
+    const client = new MockGmailClient([
+      messageMetaBuilder({ headers: { from: "promo@example.com" } }),
+      messageMetaBuilder({ headers: { from: "hello@news.example.com" } }),
+    ]);
+    const store = createInMemoryStore();
+
+    await runScan(client, store, { now: NOW });
+
+    // A parent rule over the subtree, with one subdomain the user chose to keep.
+    const parent = await store.domains.get(keyFor("example.com"));
+    await store.domains.put({
+      ...parent!,
+      trustStatus: "blocked",
+      trustDecidedAt: NOW,
+      decisionScope: "parentDomain",
+      exceptionDomains: ["news.example.com"],
+    });
+
+    await runScan(client, store, { now: NOW + 1000 });
+
+    // A fresh scan seeds `exceptionDomains: []`, so without carry-forward a routine rescan
+    // erases the carve-out and enforcement resumes blocking a subdomain the user kept.
+    expect(await store.domains.get(keyFor("example.com"))).toMatchObject({
+      decisionScope: "parentDomain",
+      exceptionDomains: ["news.example.com"],
+    });
+  });
 });
 
 describe("reseedHistoryMarker", () => {

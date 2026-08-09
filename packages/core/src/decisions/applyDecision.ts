@@ -122,7 +122,14 @@ async function deferPrompt(store: Store, id: string, now: number): Promise<boole
 async function broaderRulesFor(store: Store, senderDomain: string): Promise<Domain[]> {
   const rules: Domain[] = [];
   const exact = await store.domains.get(keyFor(senderDomain));
-  if (exact?.decisionScope === "domain") rules.push(exact);
+  // The sender's own record can carry EITHER kind of rule: when a domain is its own
+  // registrable domain, the parent rule over that subtree lives on this same row. Matching
+  // only `"domain"` here would find no broader rule at all for an apex sender, so trusting
+  // `someone@example.com` under a blocked parent rule on `example.com` would record no
+  // carve-out — and the compiled filter would go on trashing mail the user just protected.
+  if (exact?.decisionScope === "domain" || exact?.decisionScope === "parentDomain") {
+    rules.push(exact);
+  }
 
   const registrable = registrableDomain(senderDomain);
   if (registrable !== null && keyFor(registrable) !== keyFor(senderDomain)) {

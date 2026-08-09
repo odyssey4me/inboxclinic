@@ -48,6 +48,7 @@
 
 import { reseedHistoryMarker, runScan } from "./runScan";
 import { recordDailyAnalytics } from "../analytics/record";
+import { registrableDomain } from "../domains/registrableDomain";
 import { FILTER_SYNC_KEY, reconcileNativeFilters } from "../enforcement/enforce";
 import { keyFor } from "../keys";
 import { generatePrompts } from "../prompts/generatePrompts";
@@ -319,9 +320,17 @@ async function runIncrementalSync(
     (s) => s.trustStatus === "pending" && affectedDomains.has(s.domain),
   );
   // Pass domain decisions so a domain-covered member isn't re-prompted every sync (#123),
-  // scoped to the domains touched this sync (matching pendingInAffectedDomains).
-  const domainsForPrompts = (await store.domains.query({})).filter((d) =>
-    affectedDomains.has(d.domain),
+  // scoped to the domains touched this sync (matching pendingInAffectedDomains) — plus each
+  // touched domain's REGISTRABLE domain, whose record may carry a parent rule covering the
+  // subtree. That ancestor is never itself "touched" by a delta, so filtering on the affected
+  // names alone would hide the rule and re-prompt senders it already decides.
+  const affectedRegistrable = new Set<string>();
+  for (const name of affectedDomains) {
+    const registrable = registrableDomain(name);
+    if (registrable !== null) affectedRegistrable.add(registrable);
+  }
+  const domainsForPrompts = (await store.domains.query({})).filter(
+    (d) => affectedDomains.has(d.domain) || affectedRegistrable.has(d.domain.toLowerCase()),
   );
   const prompts = generatePrompts(pendingInAffectedDomains, { now, domains: domainsForPrompts });
   await store.prompts.bulkPut(prompts);

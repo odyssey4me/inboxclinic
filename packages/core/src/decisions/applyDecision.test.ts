@@ -479,6 +479,29 @@ describe("parent-domain scope (#184)", () => {
     expect(parent?.exceptionAddresses).toContain("promo@news.example.com");
   });
 
+  it("records an apex address decided under the parent rule on its own record (#184)", async () => {
+    const store = createInMemoryStore();
+    // The rule lives on `example.com`'s own row — a domain IS its own registrable domain, so
+    // there is no separate parent record to find. The carve-out has to land here or nowhere.
+    await store.domains.put(
+      domainFix("example.com", { trustStatus: "blocked", decisionScope: "parentDomain" }),
+    );
+    await store.senders.put(senderFix("someone@example.com"));
+
+    await applyDecision(store, {
+      subjectId: keyFor("someone@example.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    // `effectiveBlockedDomains` builds the compiled filter's carve-out from this list, so a
+    // missing entry means the filter keeps trashing mail the user just chose to trust —
+    // while the Dashboard shows them as trusted.
+    const domain = await store.domains.get(keyFor("example.com"));
+    expect(domain?.exceptionAddresses).toContain("someone@example.com");
+  });
+
   it("records a subdomain decided under a parent rule as an exception to it", async () => {
     const store = await seedSubtree();
 

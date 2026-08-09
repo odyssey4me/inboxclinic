@@ -108,6 +108,43 @@ describe("incrementalSync — added delta", () => {
     expect(profile?.messageCount).toBe(3);
   });
 
+  it("does not prompt for a sender a parent rule already covers (#184)", async () => {
+    const { client, store } = await syncedFixture();
+    // A rule over the whole example.com subtree, already decided by the user.
+    await store.domains.put({
+      id: keyFor("example.com"),
+      domain: "example.com",
+      trustStatus: "blocked",
+      senderCount: 0,
+      totalEmails: 0,
+      exceptionAddresses: [],
+      exceptionDomains: [],
+      updatedAt: NOW,
+      trustDecidedAt: NOW,
+      decisionScope: "parentDomain",
+      decisionContext: null,
+      pendingActions: [],
+    });
+
+    client.addInboxMessages([msg("c9", "hello@news.example.com")]);
+    client.seedHistory(
+      [
+        {
+          id: "150",
+          messagesAdded: [{ message: { id: "c9", threadId: "t-c9", labelIds: ["INBOX"] } }],
+        },
+      ],
+      "200",
+    );
+
+    await incrementalSync(client, store, { now: NOW });
+
+    // The ancestor record is never itself "touched" by a delta, so scoping the domains passed
+    // to generatePrompts by affected name alone would hide the rule and ask the user again
+    // about mail they have already decided for the whole subtree.
+    expect(await store.prompts.get(keyFor("hello@news.example.com"))).toBeUndefined();
+  });
+
   it("merges repeat messages into an existing sender's counts", async () => {
     const { client, store } = await syncedFixture();
     const before = await store.senders.get(keyFor("jane@acme.com"));
