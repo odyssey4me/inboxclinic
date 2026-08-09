@@ -532,6 +532,22 @@ describe("parent-domain scope (#184)", () => {
     expect(domain?.decisionScope).toBe("parentDomain");
   });
 
+  it("throws when parentDomain scope targets a record that is not its own registrable domain (#230)", async () => {
+    const store = await seedSubtree();
+
+    // `news.example.com` is a subdomain of the registrable domain `example.com` — a
+    // `parentDomain`-scoped decision on it would create a rule `parentDomainRuleFor` can never
+    // find, since that lookup is keyed on the registrable domain alone.
+    await expect(
+      applyDecision(store, {
+        subjectId: keyFor("news.example.com"),
+        scope: "parentDomain",
+        decision: "block",
+        now: NOW,
+      }),
+    ).rejects.toThrow(/own registrable domain/);
+  });
+
   it("applies broadest-first in a batch, so each narrower decision is carved out", async () => {
     const store = createInMemoryStore();
     await store.domains.put(domainFix("example.com"));
