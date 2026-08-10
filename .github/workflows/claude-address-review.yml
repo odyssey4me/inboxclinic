@@ -45,7 +45,7 @@ jobs:
           persist-credentials: false
 
       - name: Address the submitted review
-        uses: anthropics/claude-code-action@be7b93b1907a4abad570368f3c74b6fe3807510b # v1
+        uses: anthropics/claude-code-action@6b082c41935b4c8a3b8b0ef85ba4ba4d9eeb8975 # v1
         with:
           # Explicit writable token for git push + PR reply, bypassing the buggy OIDC
           # app token (anthropics/claude-code-action#907). A PAT push also triggers CI,
