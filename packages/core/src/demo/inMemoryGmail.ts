@@ -26,6 +26,7 @@ import type {
 } from "../ports/GmailClient";
 import { SCOPES_BY_TIER, StaleHistoryError } from "../ports/GmailClient";
 import { inDomainSubtree } from "../domains/subtree";
+import { parseFromHeader } from "../senders/extract";
 
 /** A recorded `batchModifyMessages` call. */
 export interface BatchModifyCall {
@@ -189,22 +190,22 @@ export class InMemoryGmailClient implements GmailClient {
   }
 }
 
-/** The address inside a `From` header — `Name <a@b.com>` and a bare `a@b.com` both yield `a@b.com`. */
-function addressOf(header: string): string {
-  const angled = /<([^>]+)>/.exec(header);
-  return (angled?.[1] ?? header).trim().toLowerCase();
-}
-
 /**
  * Does a `From` header's sender fall inside `domain`'s subtree — what `from:*@domain` matches.
  *
- * Defers to the shared `inDomainSubtree` so the reference client, enforcement and the preview
- * cannot drift apart on what "under a domain" means.
+ * Parses with the **production** `parseFromHeader` rather than a local regex, for two reasons.
+ * A `From` header is untrusted input, and that parser already replaced `/<([^>]+)>/` with linear
+ * string ops precisely because the unanchored form is a polynomial-ReDoS risk
+ * (`js/polynomial-redos`) — a second copy here reintroduced the vulnerability the codebase had
+ * deliberately removed. And a reference client that reads a `From` differently from the app is
+ * one whose agreement with production proves nothing.
+ *
+ * Then defers to the shared `inDomainSubtree`, so the reference client, enforcement and the
+ * preview cannot drift apart on what "under a domain" means.
  */
 function headerInDomainSubtree(header: string, domain: string): boolean {
-  const address = addressOf(header);
-  const at = address.lastIndexOf("@");
-  return at === -1 ? false : inDomainSubtree(address.slice(at + 1), domain);
+  const parsed = parseFromHeader(header);
+  return parsed !== null && inDomainSubtree(parsed.domain, domain);
 }
 
 /** Build a predicate that matches a `From` header against an address or `*@domain`. */
