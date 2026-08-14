@@ -29,17 +29,18 @@
 #   limit     Where does Gmail actually reject an over-long filter?
 #             Binary-searches the criteria budget DEFAULT_MAX_CRITERIA_CHARS
 #             guesses at. Nothing existing answers this, so it creates and
-#             immediately deletes probe filters against an unroutable domain —
-#             the only probe needing write scope. It asks for that scope when
-#             run, so nothing has to be requested up front.
-#                                              [gmail.settings.basic, --i-know]
+#             immediately deletes probe filters against an unroutable domain.
+#                                                            [writes, --i-know]
 #
 # The semantics under test, and why enforcement depends on them, are in
 # docs/design-gmail-integration.md (Decision 5).
 #
-# Auth: consent grants EXACTLY the scopes the probes you actually run need. The
-# read-only ones need nothing more; `limit` asks to widen when you run it, so
-# there is no scope flag to know about in advance. Obtained via
+# Auth: one consent per session, covering every scope the probes use — Gmail
+# read-only plus filter management. Not progressive: a probe never stops half way
+# to ask, and no terminal is needed, since the browser consent screen is what
+# actually grants it. This is a hand-run QA tool against the developer's own
+# mailbox, so the credential is bounded by its LIFETIME rather than its
+# narrowness. Obtained via
 # the standard installed-app loopback flow (PKCE) against a project-owned
 # Desktop OAuth client. The Google CLI cannot do this — `gcloud auth
 # application-default login` refuses to mint a credential without
@@ -59,7 +60,8 @@
 # (dumps carry your own sender addresses — .local/ is gitignored, keep them there)
 #
 # Usage:
-#   ./scripts/qa-gmail-probe.py login [--client-id-file F]   # optional; probes prompt
+#   ./scripts/qa-gmail-probe.py login [--client-id-file F]   # optional; one consent
+#                                                            #   covers every probe
 #   ./scripts/qa-gmail-probe.py discover [--sample 200]
 #   ./scripts/qa-gmail-probe.py search [--domain x.com] [--exclude a@x.com]
 #   ./scripts/qa-gmail-probe.py filters [--json] [--out FILE]
@@ -88,6 +90,9 @@ from collections import Counter
 
 SCOPE_READ = "https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_FILTERS = "https://www.googleapis.com/auth/gmail.settings.basic"
+# Every scope any probe uses. `login` requests the lot, so one consent covers a whole
+# session — see cmd_login for why that beats widening per probe in practice.
+ALL_SCOPES = [SCOPE_READ, SCOPE_FILTERS]
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 AUTH_URI = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -233,11 +238,12 @@ def cache_clear() -> None:
 
 
 def ensure_token(needed: str) -> str:
-    """Return a live token carrying `needed`, consenting on the spot if it doesn't.
+    """Return a live token carrying `needed`, consenting for ALL_SCOPES if none does.
 
-    The scope a probe needs is known when it runs, so asking for it then — rather than
-    making the caller predict it at login — keeps the credential to what the session has
-    actually used, with no flag to remember.
+    One grant per session, not progressive: asking per probe stopped runs half way to request
+    a scope, and where there is no terminal to ask at, could not request it at all. This is a
+    QA tool run by hand against the developer's own mailbox — the credential is bounded by its
+    lifetime rather than its narrowness (access token only, about an hour, no refresh token).
     """
     cache = cache_read()
     if cache is not None and needed in str(cache.get("scope", "")).split():
@@ -246,25 +252,21 @@ def ensure_token(needed: str) -> str:
             note(f"note: this credential expires in {left}s; re-run if a probe fails part-way")
         return str(cache["access_token"])
 
-    if cache is None:
-        cache_clear()  # a dead credential is cleared, not left to fail again
-        reason = "No usable credential."
-        scopes = [SCOPE_READ] if needed == SCOPE_READ else [SCOPE_READ, needed]
-    else:
-        # Widening: keep what the session already has and add what this probe needs, so a
-        # read-only credential isn't silently downgraded mid-run.
-        reason = f"This probe needs {needed}, which the current credential lacks."
-        scopes = sorted({*str(cache.get("scope", "")).split(), needed})
-
-    if not sys.stdin.isatty():
-        fail(f"{reason} Run: ./scripts/qa-gmail-probe.py login")
-    print(f"{reason}")
+    # Dead, or minted before this probe's scope was needed. Either way it is replaced rather
+    # than left to fail again on the next call.
+    cache_clear()
+    print("No usable credential.")
     print("Consent to:")
-    for scope in scopes:
+    for scope in ALL_SCOPES:
         print(f"  {scope}")
-    if input("Open the browser to authorise? [y/N] ").strip().lower() not in {"y", "yes"}:
-        fail("declined — nothing was requested")
-    run_consent(scopes, CLIENT_FILE)
+    # No terminal to confirm at? Open the browser anyway — Google's consent screen names the
+    # same scopes and is what actually grants them.
+    if sys.stdin.isatty():
+        if input("Open the browser to authorise? [y/N] ").strip().lower() not in {"y", "yes"}:
+            fail("declined — nothing was requested")
+    else:
+        print("(no terminal to confirm at — opening the browser; consent there, or close it)")
+    run_consent(ALL_SCOPES, CLIENT_FILE)
     cache = cache_read()
     if cache is None:
         fail("consent completed but no usable token was cached")
@@ -272,7 +274,8 @@ def ensure_token(needed: str) -> str:
 
 
 def cmd_login(args: argparse.Namespace) -> None:
-    run_consent([SCOPE_READ], args.client_id_file)
+    """Consent once, to every scope any probe uses — so no probe stops to ask later."""
+    run_consent(ALL_SCOPES, args.client_id_file)
 
 
 def run_consent(scopes: list[str], client_id_file: str) -> None:

@@ -300,11 +300,21 @@ Criteria it is built to:
    command line. **Scope is requested when a probe needs it, not chosen up front:** a
    read-only session stays read-only, and the widening prompt names the scope and the reason.
    No flag to remember, and no credential carrying permissions the session never used.
-2. **Least privilege, short-lived.** Consent grants **exactly** the Gmail scopes the probe
-   needs — read-only unless a write probe is explicitly requested — and lasts about an hour.
-   Only the **access token** is cached (`.local/`, mode 0600, gitignored); no refresh token is
-   requested, so the credential expires rather than persisting on disk, and a leaked cache
-   file is worth an hour at most. Re-consent per session is accepted as the cost of that.
+2. **Short-lived, and bounded by lifetime rather than narrowness.** Consent is a **single
+   grant per session** covering every Gmail scope the probes use — read-only plus filter
+   management — and lasts about an hour. Only the **access token** is cached (`.local/`, mode
+   0600, gitignored); no refresh token is requested, so the credential expires rather than
+   persisting on disk, and a leaked cache file is worth an hour at most. Re-consent per
+   session is accepted as the cost of that.
+
+   Consent is deliberately **not progressive**. Requesting each scope at the moment a probe
+   needed it read better than it worked: a run could stop half way to ask, and since the ask
+   needs a terminal, a probe run from any non-TTY shell could not obtain write scope by *any*
+   route — leaving `match arm`/`disarm` unreachable and armed probe filters unremovable. This
+   is a manual tool run by hand against the developer's own mailbox, not the application, so
+   the hour-long lifetime is the meaningful bound; scope narrowness within that hour bought
+   friction rather than safety. The application's own scope discipline (architecture.md §6) is
+   untouched by this and remains strictly least-privilege.
 
    **The Google CLI cannot provide this.** `gcloud auth application-default login` refuses to
    mint a credential without `cloud-platform` — even when given `--client-id-file` — and
@@ -523,6 +533,7 @@ it("applies a block decision and records a compiled filter", async () => {
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-14 | **Decision 9 criterion 2 — consent is one grant per session, not progressive.** Requesting each scope at the moment a probe needed it required a terminal to ask at, so a probe run from any non-TTY shell could not obtain write scope by any route: `match arm`/`disarm` were unreachable and armed probe filters unremovable. `login` now grants read-only plus filter management together. The credential's ~1h lifetime (access token only, no refresh token) is the meaningful bound for a hand-run QA tool against the developer's own mailbox; the application's own least-privilege scope discipline (architecture.md §6) is unaffected. | Claude |
 | 2026-08-09 | **Decision 9 auth mechanism:** the Google CLI cannot mint a Gmail-only credential by any route — ADC login mandates `cloud-platform` even with `--client-id-file`, and `gcloud auth login` takes no scopes — so the probe runs the installed-app loopback flow (PKCE) itself against a developer-local Desktop OAuth client, caching only the access token (no refresh token, ~1h, 0600). Re-consent per session is the accepted cost of keeping the grant to Gmail scopes. | Claude |
 | 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.py`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived credentials (access token only, self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
 | 2026-06-28 | Rewritten for the client-only, all-TypeScript PWA architecture: Vitest two-tier model (`packages/core` pure + `apps/web` component/integration), `GmailClient`-boundary mocking, `fake-indexeddb`, typed fixture builders, core-focused ≥80% coverage gate. Removed Python/pytest, emulators, contract and cloud-E2E/k6 testing. | Claude |
