@@ -16,6 +16,12 @@ on:
   pull_request_review:
     types: [submitted]
 
+# Deny by default at the top level, so a job added later inherits NOTHING rather than the
+# repository default. The job below then grants only what it reads. (Scorecard
+# TokenPermissions: a workflow with no top-level block scores 0 even when every job it
+# currently has is already least-privilege — the gap is what the NEXT job would get.)
+permissions: {}
+
 jobs:
   claude:
     if: |

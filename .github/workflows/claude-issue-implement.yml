@@ -10,13 +10,11 @@ on:
   issues:
     types: [labeled]
 
-# Implementing needs write to code + PRs; issues:write to comment/close.
-# id-token: write is required by claude-code-action for its OIDC token exchange.
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  id-token: write
+# Deny by default; the implement job grants itself exactly what it needs (below). Granting
+# `contents: write` at the TOP level hands it to every job in the file, including any added
+# later for an unrelated reason — the write set should belong to the job that pushes, not to
+# the workflow. Same capability, narrower blast radius.
+permissions: {}
 
 jobs:
   implement:
@@ -28,6 +26,13 @@ jobs:
       !contains(github.event.issue.labels.*.name, 'cleanup') &&
       !contains(github.event.issue.labels.*.name, 'maintainer-only')
     runs-on: ubuntu-24.04
+    # Implementing needs write to code + PRs; issues:write to comment/close.
+    # id-token: write is required by claude-code-action for its OIDC token exchange.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

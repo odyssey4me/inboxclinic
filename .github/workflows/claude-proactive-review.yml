@@ -11,16 +11,21 @@ on:
     - cron: "0 8 * * 1" # Mondays 08:00 UTC
   workflow_dispatch: {}
 
-# Least-privilege: read the code, file issues. No write to code, no PRs.
-# id-token: write is required by claude-code-action for its OIDC token exchange.
-permissions:
-  contents: read
-  issues: write
-  id-token: write
+# Deny by default; the review job grants its own write below. Not flagged by Scorecard yet,
+# but it is the same shape as the two that were (claude.yml, claude-issue-implement.yml) —
+# a top-level write reaches every job in the file, including ones added later for unrelated
+# reasons.
+permissions: {}
 
 jobs:
   review:
     runs-on: ubuntu-24.04
+    # Least-privilege: read the code, file issues. No write to code, no PRs.
+    # id-token: write is required by claude-code-action for its OIDC token exchange.
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

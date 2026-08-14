@@ -227,6 +227,8 @@ def cache_clear() -> None:
         with open(TOKEN_CACHE, encoding="utf-8") as handle:
             cache = json.load(handle)
     except (OSError, json.JSONDecodeError):
+        # An unreadable or corrupt cache is the same situation as no cache at all: there is no
+        # token to revoke, and the file is removed below either way. Nothing to report.
         pass
     if cache and cache.get("access_token"):
         # Revoke quietly, without the shared helper's report-and-exit: a token that has
@@ -244,6 +246,8 @@ def cache_clear() -> None:
     try:
         os.remove(TOKEN_CACHE)
     except FileNotFoundError:
+        # Already gone — this function's job is "no cached credential remains", which is
+        # exactly the state a missing file describes. Not an error.
         pass
 
 
