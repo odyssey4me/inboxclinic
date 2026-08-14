@@ -25,6 +25,7 @@ import type {
   ScopeTier,
 } from "../ports/GmailClient";
 import { SCOPES_BY_TIER, StaleHistoryError } from "../ports/GmailClient";
+import { inDomainSubtree } from "../domains/subtree";
 
 /** A recorded `batchModifyMessages` call. */
 export interface BatchModifyCall {
@@ -195,19 +196,15 @@ function addressOf(header: string): string {
 }
 
 /**
- * Does a `From` header's host fall inside `domain`'s subtree — the domain itself, or under it?
+ * Does a `From` header's sender fall inside `domain`'s subtree — what `from:*@domain` matches.
  *
- * This is what `from:*@domain` actually matches. Measured against a real account (#210):
- * `from:*@google.com` returned `docs.`, `accounts.` and `plus.google.com` alongside 116 apex
- * senders, and `from:*@monzo.com` returned `email.` and `customercontent.monzo.com` — two
- * labels deep. Matching on a label boundary rather than a substring is the point: `notx.com`
- * and `x.com.evil.com` are not under `x.com`, and a substring test counted both.
+ * Defers to the shared `inDomainSubtree` so the reference client, enforcement and the preview
+ * cannot drift apart on what "under a domain" means.
  */
-function inDomainSubtree(header: string, domain: string): boolean {
+function headerInDomainSubtree(header: string, domain: string): boolean {
   const address = addressOf(header);
   const at = address.lastIndexOf("@");
-  const host = at === -1 ? "" : address.slice(at + 1);
-  return host === domain || host.endsWith(`.${domain}`);
+  return at === -1 ? false : inDomainSubtree(address.slice(at + 1), domain);
 }
 
 /** Build a predicate that matches a `From` header against an address or `*@domain`. */
@@ -215,7 +212,7 @@ function senderMatcher(from: string): (header: string) => boolean {
   const needle = from.toLowerCase();
   if (needle.startsWith("*@")) {
     const domain = needle.slice(2);
-    return (header) => inDomainSubtree(header, domain);
+    return (header) => headerInDomainSubtree(header, domain);
   }
   return (header) => header.toLowerCase().includes(needle);
 }
@@ -237,7 +234,9 @@ function excludeMatcher(excludeFrom: string | undefined): (header: string) => bo
       // `-from:(*@marketplace.amazon.co.uk)` and it measurably removed that subdomain's mail
       // (8 → 0, #210). Treating it as a substring would never match a real header, so a
       // subdomain carve-out would silently fail to carve anything out.
-      needle.startsWith("*@") ? inDomainSubtree(header, needle.slice(2)) : lower.includes(needle),
+      needle.startsWith("*@")
+        ? headerInDomainSubtree(header, needle.slice(2))
+        : lower.includes(needle),
     );
   };
 }

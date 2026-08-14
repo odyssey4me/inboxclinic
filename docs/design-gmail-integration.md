@@ -163,6 +163,25 @@ them continuously (architecture.md §6):
    **single filter** (no de-aggregation, preserving the ~450 soft-cap headroom); a domain
    carrying exceptions gets its own filter rather than OR-combining (one exclusion per
    filter). The exclusion is part of the reconcile signature, so enforcement stays idempotent.
+9. **A domain block covers the domain's whole subtree, and carves out decided subdomains.**
+   `*@domain` is **not** an exact match. Measured on a real account (#210): `from:*@google.com`
+   returned `docs.`, `accounts.` and `plus.google.com` alongside 116 apex senders, and
+   `from:*@monzo.com` reached `customercontent.monzo.com`, two labels deep. Both the filter and
+   the existing-mail sweep therefore act on the subtree.
+
+   Because a subdomain is its own `Domain` record with its own `trustStatus`, a block would
+   otherwise override a decision the user explicitly made about it. So every subdomain the user
+   has separately decided to **trust** is carved out of the same `negatedQuery` as a wildcard
+   term — `from:(*@email.monzo.com OR alice@monzo.com)`. Gmail accepts that form, and it
+   measurably removed the excluded subdomain's mail (8 → 0, #210). A **pending** subdomain is
+   *not* carved out: no decision has been made about it, so the block covers it, and that
+   breadth is stated at decision time rather than discovered afterwards.
+
+   The carve-out terms are built **once** (`exclusionTerms`) and used for both the filter's
+   `negatedQuery` and the sweep's `excludeFrom`. If those two disagreed, a sender would either
+   be swept despite being spared going forward, or spared from the sweep while its future mail
+   stayed blocked. Subdomain wildcards count against the criteria budget like any other term,
+   so they can trigger the same enumerate fallback (point 8, #191).
 
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
@@ -533,6 +552,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-14 | **Decision 5 point 9 — a domain block covers the subtree, with decided subdomains carved out (#210).** `*@domain` is not an exact match: measured on a real account, `from:*@google.com` returned `docs.`/`accounts.`/`plus.google.com` alongside the apex, and `from:*@monzo.com` reached two labels deep. Both the filter and the sweep act on the subtree, so a subdomain the user separately **trusted** is now carved out of the same `negatedQuery` as a `*@sub.domain` wildcard term (a form Gmail accepts, and which measurably removed that subdomain's mail). A **pending** subdomain is not carved out — the block covers it, and the breadth is stated at decision time instead. Carve-out terms are built once (`exclusionTerms`) and shared by the filter and the sweep so the two cannot spare different senders; wildcard terms count against the criteria budget like any other. The in-memory reference client was corrected to match, since it had encoded the pre-#210 belief that every automated tier then confirmed. | Claude |
 | 2026-08-09 | **Decision 5 point 6 — release ownership of a hand-edited managed filter (#232):** `reconcileFilters` narrows to filters it can reason about, dropping any carrying unmodelled criteria — but a filter the app created and the user then hand-edited in Gmail's UI stayed in `managedFilterIds` forever, since the "does it still exist?" prune can't remove an id whose filter is still there, just no longer comparable. `FilterReconcilePlan` gains `disowned: string[]` — managed ids whose filter is present but no longer comparable — which the caller drops from persisted `managedFilterIds`. The filter itself is never deleted; ownership is released, not enforced. | Claude |
 | 2026-08-09 | **Decision 5 point 6 — only reason about filters we fully model (#212):** a real account turned up filters matching on `to`/`subject`/`query`, which `FilterSpec` drops. Two such filters signed identically and the tidy-up offered to delete one as a duplicate; a `from:X AND subject:Y` rule also signs like a plain block on X, so adoption would claim it and reconcile could later delete it. Such filters are now foreign by construction — never adopted, deleted, deduplicated, counted as coverage, or read as a prior decision — and the adapter reports which criteria it dropped. Renumbers the former points 6–7 to 7–8. | Claude |
 | 2026-08-09 | **Decision 5 point 3 — hysteresis implemented (#208):** a domain sitting on the criteria budget flipped broad↔enumerate on a single added or removed exception, each flip tearing down and rebuilding 1↔N Gmail filters. `compileFilters` now applies a dead band — degrade at the budget, re-promote only under `ENUMERATE_PROMOTE_RATIO` (0.8) of it — fed by `filterSyncState.enumeratedDomains`, written after a reconcile applies the form and read by every compile site through one shared `withCurrentFilterForm`. Chose **persist** over each call site deriving the form from the account's filters: independent re-derivation is what produced #192/#218/#221. The field is required rather than optional, since every `filterSync.put` writes a whole record and an optional one would be silently dropped by the sync/tidy/adopt paths. Built now rather than after #213 because raising the budget moves the boundary rather than removing it — and makes each crossing larger. | Claude |

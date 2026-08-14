@@ -26,6 +26,7 @@
 
 import {
   compileFilters,
+  exclusionTerms,
   reconcileFilters,
   type CompileFiltersOptions,
   type ExceptionOverflow,
@@ -140,6 +141,7 @@ export async function reconcileNativeFilters(
     blockedDomains.map((d) => ({
       domain: d.domain.domain,
       excludeAddresses: d.excludeAddresses,
+      excludeSubdomains: d.excludeSubdomains,
       blockedMemberAddresses: d.blockedMemberAddresses,
     })),
     await withCurrentFilterForm(store, options),
@@ -247,12 +249,13 @@ export async function enforce(
   for (const target of blockedDomains) {
     const domain = target.domain;
     if (domain.pendingActions.length === 0) continue;
+    // Skip the domain's trusted exception addresses in the existing-mail sweep (#145), and
+    // the subdomains the user decided separately (#210) — the same terms the filter carries,
+    // so the sweep and the filter cannot disagree about who is spared.
+    const excludeFrom = exclusionTerms(target).join(" OR ");
     subjects.push({
       from: `*@${domain.domain}`,
-      // Skip the domain's trusted exception addresses in the existing-mail sweep (#145).
-      ...(target.excludeAddresses.length > 0
-        ? { excludeFrom: target.excludeAddresses.join(" OR ") }
-        : {}),
+      ...(excludeFrom.length > 0 ? { excludeFrom } : {}),
       pendingActions: domain.pendingActions,
       hasListUnsubscribe: false,
       clear: () => store.domains.put({ ...domain, pendingActions: [] }),

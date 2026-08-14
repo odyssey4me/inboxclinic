@@ -154,6 +154,56 @@ describe("simulateEnforcement", () => {
     expect(impact.messagesToDelete).toBe(1); // only promo@shop.com; keep@shop.com is carved out
   });
 
+  it("does not count a separately-trusted subdomain's mail in a domain block (#210)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("monzo.com")); // pending; blocked in the batch below
+    await store.domains.put(
+      domainBuilder("email.monzo.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    await store.domains.put(domainBuilder("ads.monzo.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient([
+      msgFrom("promo@monzo.com"),
+      msgFrom("statements@email.monzo.com"),
+      msgFrom("offers@ads.monzo.com"),
+    ]);
+
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("monzo.com"),
+        scope: "domain",
+        decision: "block",
+        actions: ["create_filter", "delete"],
+      },
+    ]);
+
+    // The block spans the subtree, so the undecided subdomain counts — but the trusted one is
+    // carved out, and the preview must not promise to delete mail the apply will spare.
+    expect(impact.messagesToDelete).toBe(2);
+  });
+
+  it("counts an undecided subdomain's mail, since the block does cover it (#210)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(domainBuilder("monzo.com"));
+    await store.domains.put(domainBuilder("ads.monzo.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient([
+      msgFrom("promo@monzo.com"),
+      msgFrom("offers@ads.monzo.com"),
+    ]);
+
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("monzo.com"),
+        scope: "domain",
+        decision: "block",
+        actions: ["create_filter", "delete"],
+      },
+    ]);
+
+    // The number was already right before #210 — what was missing was saying WHY it was this
+    // big. Asserted here so the breadth cannot be narrowed back without a deliberate choice.
+    expect(impact.messagesToDelete).toBe(2);
+  });
+
   it("classifies archive vs delete from the staged actions", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("a@x.com"));

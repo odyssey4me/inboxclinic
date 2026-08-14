@@ -10,11 +10,12 @@
  * mutating endpoint, so a preview never touches Gmail.
  */
 
-import { compileFilters, reconcileFilters } from "./compileFilters";
+import { compileFilters, exclusionTerms, reconcileFilters } from "./compileFilters";
 import { withCurrentFilterForm } from "./filterForm";
 import { planActions } from "./planActions";
 import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
 import { registrableDomain } from "../domains/registrableDomain";
+import { isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import type {
@@ -233,7 +234,8 @@ export async function simulateEnforcement(
       // a domain that IS its own registrable domain can carry the rule at `"parentDomain"`
       // scope instead, and resolveEffectiveDecision only overrides an already-decided address
       // for the scope it actually sees (#222).
-      domainScope: domainStat === "pending" || domain === undefined ? null : prospectiveScope(domain),
+      domainScope:
+        domainStat === "pending" || domain === undefined ? null : prospectiveScope(domain),
       ...parentFields(sender),
     }).status;
   };
@@ -241,6 +243,25 @@ export async function simulateEnforcement(
   /** The senders a parent-domain decision covers — the whole subtree, by registrable domain. */
   const subtreeMembers = (domain: Domain): Sender[] =>
     senders.filter((s) => registrableDomain(s.domain) === domain.domain.toLowerCase());
+
+  /**
+   * Subdomains under a (prospectively) blocked domain that the user has separately decided to
+   * TRUST — carved out of both its filter and its sweep, mirroring `effectiveBlockedDomains`.
+   *
+   * A domain block spans the subtree (#210), so without this the preview would count mail the
+   * apply is going to spare, and overstate the block by exactly the subdomains the user
+   * protected. Reads the prospective status, so a subdomain trusted earlier in this same batch
+   * already counts as decided.
+   */
+  const prospectiveSubdomainExclusions = (domain: Domain): string[] =>
+    domains
+      .filter(
+        (d) =>
+          isSubdomainOf(d.domain, domain.domain) &&
+          (domainStatus.get(d.id) ?? d.trustStatus) === "trusted",
+      )
+      .map((d) => d.domain)
+      .sort();
 
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;
@@ -259,6 +280,8 @@ export async function simulateEnforcement(
           // Carve out exception addresses this (prospectively) blocked domain no longer blocks,
           // so the previewed filter set matches what enforce would create (#145).
           excludeAddresses,
+          // ...and the subdomains it no longer blocks either (#210).
+          excludeSubdomains: prospectiveSubdomainExclusions(d),
           // The members the block still covers, so an overflowing carve-out previews the same
           // enumerate fallback enforce would compile (#191).
           blockedMemberAddresses: (sendersByDomain.get(d.domain.toLowerCase()) ?? [])
@@ -307,8 +330,13 @@ export async function simulateEnforcement(
       if (plan.messageMutation !== null) {
         // Exclude the domain's trusted exception addresses from the estimate, matching enforce's
         // sweep — otherwise a domain block overstates its existing-mail count (#151).
-        const excludeAddresses = domain ? prospectiveDomainExclusions(domain) : [];
-        const excludeFrom = excludeAddresses.length > 0 ? excludeAddresses.join(" OR ") : undefined;
+        const terms = domain
+          ? exclusionTerms({
+              excludeAddresses: prospectiveDomainExclusions(domain),
+              excludeSubdomains: prospectiveSubdomainExclusions(domain),
+            })
+          : [];
+        const excludeFrom = terms.length > 0 ? terms.join(" OR ") : undefined;
         const ids = await client.listMessageIdsForSender(from, undefined, excludeFrom);
         if (plan.messageMutation.addLabelIds?.includes("TRASH") === true) {
           messagesToDelete += ids.length;

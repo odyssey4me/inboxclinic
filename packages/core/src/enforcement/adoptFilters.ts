@@ -40,6 +40,7 @@ export async function suggestFilterAdoptions(
     blockedDomains.map((d) => ({
       domain: d.domain.domain,
       excludeAddresses: d.excludeAddresses,
+      excludeSubdomains: d.excludeSubdomains,
       blockedMemberAddresses: d.blockedMemberAddresses,
     })),
     await withCurrentFilterForm(store, options),
@@ -80,6 +81,7 @@ export async function applyFilterAdoptions(
     blockedDomains.map((d) => ({
       domain: d.domain.domain,
       excludeAddresses: d.excludeAddresses,
+      excludeSubdomains: d.excludeSubdomains,
       blockedMemberAddresses: d.blockedMemberAddresses,
     })),
     await withCurrentFilterForm(store, options),

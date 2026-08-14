@@ -147,6 +147,48 @@ describe("enforce", () => {
     expect(again.filtersDeleted).toBe(0);
   });
 
+  it("spares a subdomain the user separately trusted from its parent's block (#210)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("monzo.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    // A subdomain the user decided about independently — its own record, its own decision.
+    await store.domains.put(
+      domainBuilder("email.monzo.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    // ...and one still pending, which the block therefore covers.
+    await store.domains.put(domainBuilder("ads.monzo.com", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient([
+      msgFrom("promo@monzo.com"),
+      msgFrom("statements@email.monzo.com"),
+      msgFrom("offers@ads.monzo.com"),
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // The filter carves out the trusted subdomain as a wildcard term.
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      {
+        from: "*@monzo.com",
+        excludeFrom: "*@email.monzo.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+    // The sweep trashes the apex and the undecided subdomain, but not the trusted one — an
+    // explicit decision on a subdomain survives its parent's block.
+    expect(result.messagesTrashed).toBe(2);
+
+    // Idempotent: the wildcard exclusion round-trips through the filter read-back.
+    const again = await enforce(gmail, store, { now: NOW });
+    expect(again.filtersCreated).toBe(0);
+    expect(again.filtersDeleted).toBe(0);
+  });
+
   it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
     const store = createInMemoryStore();
     await store.senders.put(

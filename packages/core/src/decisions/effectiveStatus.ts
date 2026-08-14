@@ -8,6 +8,7 @@
  */
 
 import { registrableDomain } from "../domains/registrableDomain";
+import { isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
 import type { Store } from "../store";
 import type { Domain, Sender, TrustStatus } from "../store/types";
@@ -122,6 +123,17 @@ export interface BlockedDomainTarget {
   /** Exception addresses whose effective status is NOT blocked — carved out via negatedQuery. */
   excludeAddresses: string[];
   /**
+   * Subdomains under this block that the user has **separately decided to trust**, carved out
+   * as `*@sub.domain` terms.
+   *
+   * A domain block covers the subtree, because that is what Gmail's `*@domain` matches (#210).
+   * Without this, an explicit trust decision on `email.monzo.com` would not save its mail from
+   * a `monzo.com` block — the sharpest form of that bug, since the user made the decision and
+   * watched it be ignored. Sorted, because these terms end up in filter criteria whose exact
+   * string the reconcile signature compares.
+   */
+  excludeSubdomains: string[];
+  /**
    * The domain's observed senders whose effective status IS still blocked. Used only when the
    * carve-out overflows one filter's criteria budget and the compiler falls back to enumerating
    * them (#191).
@@ -150,13 +162,26 @@ export async function effectiveBlockedDomains(store: Store): Promise<BlockedDoma
         excludeAddresses.push(email);
       }
     }
+    // A domain block reaches the whole subtree (#210), so it also covers subdomains that are
+    // their own `Domain` records carrying their own decisions. Carve out the ones the user has
+    // separately decided to TRUST. A `pending` subdomain is deliberately NOT carved out: no
+    // decision has been made about it, so the block covers it — a breadth that is stated at
+    // decision time rather than discovered afterwards. A `blocked` subdomain needs no
+    // carve-out, being blocked either way.
+    const excludeSubdomains = [...byKey.values()]
+      .filter(
+        (candidate) =>
+          isSubdomainOf(candidate.domain, domain.domain) && candidate.trustStatus === "trusted",
+      )
+      .map((candidate) => candidate.domain)
+      .sort();
     // The members the block still covers — the enumerate fallback's input when the carve-out
     // grows past what one filter's criteria can hold (#191).
     const members = await store.senders.query({ domain: domain.domain });
     const blockedMemberAddresses = members
       .filter((sender) => effectiveSenderStatus(sender, domain, parentRule) === "blocked")
       .map((sender) => sender.email);
-    targets.push({ domain, excludeAddresses, blockedMemberAddresses });
+    targets.push({ domain, excludeAddresses, excludeSubdomains, blockedMemberAddresses });
   }
   return targets;
 }

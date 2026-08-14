@@ -101,12 +101,46 @@ export interface BlockedDomainInput {
   domain: string;
   excludeAddresses?: string[];
   /**
+   * Subdomains to carve out of the block as `*@sub.domain` terms — the ones the user has
+   * separately decided to trust. A domain block spans the subtree (#210), so without these a
+   * decision made about a subdomain is silently overridden by its parent's block.
+   */
+  excludeSubdomains?: string[];
+  /**
    * The domain's observed senders whose effective status is still blocked. Only read when the
    * exception carve-out overflows the criteria budget, to compile the enumerate form (#191).
    * Omit it and an overflowing domain compiles to no filter at all rather than to a filter
    * Gmail would reject.
    */
   blockedMemberAddresses?: string[];
+}
+
+/** Lowercase, drop blanks, sort — the normalisation every carve-out list gets. */
+function normaliseList(values: string[] | undefined): string[] {
+  return (values ?? [])
+    .map((v) => v.toLowerCase())
+    .filter((v) => v.length > 0)
+    .sort();
+}
+
+/**
+ * The OR-joined carve-out terms for a blocked domain: trusted exception **addresses**, plus
+ * `*@sub.domain` wildcards for **subdomains** the user decided separately (#210).
+ *
+ * Shared deliberately. These terms become both the filter's `criteria.negatedQuery` (future
+ * mail) and the sweep's `excludeFrom` (existing mail), and the two must carve out exactly the
+ * same set — if they disagree, a sender is either swept despite being spared going forward, or
+ * spared from the sweep while its future mail is still blocked. Sorted within each group and
+ * subdomains first, so the string is stable: the reconcile signature compares it byte-for-byte,
+ * and an unstable order would churn every filter on every sync.
+ */
+export function exclusionTerms(
+  input: Pick<BlockedDomainInput, "excludeAddresses" | "excludeSubdomains">,
+): string[] {
+  return [
+    ...normaliseList(input.excludeSubdomains).map((d) => `*@${d}`),
+    ...normaliseList(input.excludeAddresses),
+  ];
 }
 
 /**
@@ -221,12 +255,10 @@ export function compileFilters(
   const exceptionOverflows: ExceptionOverflow[] = [];
   for (const bd of blockedDomains) {
     const domain = bd.domain.toLowerCase();
-    const addresses = (bd.excludeAddresses ?? [])
-      .map((a) => a.toLowerCase())
-      .filter((a) => a.length > 0)
-      .sort();
-    if (addresses.length === 0) continue;
-    const negatedQuery = addresses.join(" OR ");
+    const terms = exclusionTerms(bd);
+    if (terms.length === 0) continue;
+    const negatedQuery = terms.join(" OR ");
+    const addresses = normaliseList(bd.excludeAddresses);
     // Asymmetric by design: a domain already enumerated has to fall back under a *lower* bar
     // before returning to the broad form, so an exception added and removed around the budget
     // doesn't rebuild the whole filter set twice (#208).
@@ -251,7 +283,9 @@ export function compileFilters(
     exceptionOverflows.push({
       domain,
       strategy: stillBlocked.length > 0 ? "enumerate" : "dropped",
-      exceptionCount: addresses.length,
+      // Every carve-out term counts, subdomain wildcards included — they consume the same
+      // budget, so reporting only the addresses would understate what overflowed it.
+      exceptionCount: terms.length,
     });
   }
 
