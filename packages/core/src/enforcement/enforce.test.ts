@@ -219,6 +219,30 @@ describe("enforce", () => {
     expect(domain?.pendingActions).toEqual([]);
   });
 
+  it("sweeps a blocked domain's subdomain mail too, as Gmail's matching does (#210)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("ads.com", {
+        trustStatus: "blocked",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    const gmail = new MockGmailClient([
+      msgFrom("promo@ads.com"),
+      msgFrom("news@mail.ads.com"),
+      msgFrom("deep@a.b.ads.com"),
+      // Not under ads.com — the sweep matches on a label boundary, not a substring.
+      msgFrom("other@notads.com"),
+      msgFrom("spoof@ads.com.evil.com"),
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    // Asserted, not avoided: this is the breadth a domain block actually has, and the tests
+    // sidestepped it while the mock still matched `*@domain` exactly (#210).
+    expect(result.messagesTrashed).toBe(3);
+  });
+
   it("rescues a spam-marked trusted sender and zeroes the marker", async () => {
     const store = createInMemoryStore();
     await store.senders.put(

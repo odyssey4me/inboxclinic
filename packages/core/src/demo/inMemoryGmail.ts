@@ -188,17 +188,39 @@ export class InMemoryGmailClient implements GmailClient {
   }
 }
 
+/** The address inside a `From` header — `Name <a@b.com>` and a bare `a@b.com` both yield `a@b.com`. */
+function addressOf(header: string): string {
+  const angled = /<([^>]+)>/.exec(header);
+  return (angled?.[1] ?? header).trim().toLowerCase();
+}
+
+/**
+ * Does a `From` header's host fall inside `domain`'s subtree — the domain itself, or under it?
+ *
+ * This is what `from:*@domain` actually matches. Measured against a real account (#210):
+ * `from:*@google.com` returned `docs.`, `accounts.` and `plus.google.com` alongside 116 apex
+ * senders, and `from:*@monzo.com` returned `email.` and `customercontent.monzo.com` — two
+ * labels deep. Matching on a label boundary rather than a substring is the point: `notx.com`
+ * and `x.com.evil.com` are not under `x.com`, and a substring test counted both.
+ */
+function inDomainSubtree(header: string, domain: string): boolean {
+  const address = addressOf(header);
+  const at = address.lastIndexOf("@");
+  const host = at === -1 ? "" : address.slice(at + 1);
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
 /** Build a predicate that matches a `From` header against an address or `*@domain`. */
 function senderMatcher(from: string): (header: string) => boolean {
   const needle = from.toLowerCase();
   if (needle.startsWith("*@")) {
     const domain = needle.slice(2);
-    return (header) => header.toLowerCase().includes(`@${domain}`);
+    return (header) => inDomainSubtree(header, domain);
   }
   return (header) => header.toLowerCase().includes(needle);
 }
 
-/** Predicate: does a `From` header match any address in an OR-combined `excludeFrom` list? */
+/** Predicate: does a `From` header match any term in an OR-combined `excludeFrom` list? */
 function excludeMatcher(excludeFrom: string | undefined): (header: string) => boolean {
   if (excludeFrom === undefined || excludeFrom === "") return () => false;
   // Split on the literal " or " we join exclusions with (a regex `\s+or\s+` is a ReDoS shape
@@ -210,6 +232,12 @@ function excludeMatcher(excludeFrom: string | undefined): (header: string) => bo
     .filter((s) => s.length > 0);
   return (header) => {
     const lower = header.toLowerCase();
-    return needles.some((needle) => lower.includes(needle));
+    return needles.some((needle) =>
+      // A carve-out term may itself be a wildcard — Gmail accepts
+      // `-from:(*@marketplace.amazon.co.uk)` and it measurably removed that subdomain's mail
+      // (8 → 0, #210). Treating it as a substring would never match a real header, so a
+      // subdomain carve-out would silently fail to carve anything out.
+      needle.startsWith("*@") ? inDomainSubtree(header, needle.slice(2)) : lower.includes(needle),
+    );
   };
 }
