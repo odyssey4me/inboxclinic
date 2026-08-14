@@ -31,6 +31,16 @@
 #             guesses at. Nothing existing answers this, so it creates and
 #             immediately deletes probe filters against an unroutable domain.
 #                                                            [writes, --i-know]
+#   match     Does a live `*@domain` filter reach SUBDOMAINS, and does its
+#             `negatedQuery` spare the excepted sender's ARRIVING mail? Neither
+#             is answerable by reading the account — only by mail that arrives
+#             after a filter exists. Arms filters whose only action is to add
+#             STARRED (a system label: no label creation, no extra scope,
+#             nothing moved or deleted), then reports what got starred. Subjects
+#             are ranked by the rate of the evidence each can actually produce,
+#             and the expected wait is stated when arming, so a slow subject is
+#             obvious up front rather than after days of silence.
+#                                                 [writes, to arm and disarm]
 #
 # The semantics under test, and why enforcement depends on them, are in
 # docs/design-gmail-integration.md (Decision 5).
@@ -414,89 +424,150 @@ def host_of(address: str) -> str:
 # --- probes ------------------------------------------------------------------
 
 
-def find_pairs(
-    token: str, sample: int
-) -> tuple[list[tuple[str, list[str], str, int, int]], Counter]:
-    """Domains with mail from BOTH themselves and a subdomain, **most recently active first**.
+# Counting window for how often a subtree's SUBDOMAINS send. Much wider than the 30 days
+# once used for general activity, because subdomain mail is RARE: on a real account the
+# busiest candidate managed 8 subdomain messages in 90 days, so a 30-day window returned 0
+# or 1 for nearly every domain and could not order them at all.
+SUBDOMAIN_WINDOW_DAYS = 90
+
+# Ceiling on any counted query. A real count up to here; at the cap the true figure is only
+# known to be "at least this", which is honest enough to rank on.
+VOLUME_CAP = 200
+
+
+def weekly(count: int, days: int = SUBDOMAIN_WINDOW_DAYS) -> float:
+    """A per-week rate, so a wait can be estimated from it rather than guessed at."""
+    return count * 7.0 / days
+
+
+def count_messages(token: str, query: str, cap: int = VOLUME_CAP) -> int:
+    """Messages matching `query` — counted from returned ids, never estimated.
+
+    Counts ids rather than reading `resultSizeEstimate`, which is documented as an estimate
+    and measurably is one: on a real account it returned 201 for three unrelated domains at
+    30 and 14 days, then 201 for two of them and 0 for the third at 7 days. A number that
+    cannot order three domains, and contradicts itself between windows, is worse than no
+    number — ranking on it would be ranking on noise while looking precise.
+    """
+    listing = api_get(token, "/messages", {"q": query, "maxResults": str(cap)})
+    return len(listing.get("messages") or [])  # type: ignore[arg-type]
+
+
+def sub_roots(subs: list[str]) -> list[str]:
+    """The topmost observed subdomains — so one query per root counts the subtree once.
+
+    `from:*@x` spans x's own subtree, so counting every observed subdomain separately would
+    count a message from `y.x.example.com` twice — once under `x.example.com`, once under
+    itself — inflating the very number subjects are ranked on.
+    """
+    return [s for s in subs if not any(s != other and s.endswith(f".{other}") for other in subs)]
+
+
+def subdomain_volume(token: str, subs: list[str]) -> tuple[int, dict[str, int]]:
+    """(total, per-subdomain) message counts over SUBDOMAIN_WINDOW_DAYS."""
+    per_sub = {
+        sub: count_messages(token, f"from:*@{sub} newer_than:{SUBDOMAIN_WINDOW_DAYS}d")
+        for sub in sub_roots(subs)
+    }
+    return sum(per_sub.values()), per_sub
+
+
+def find_pairs(token: str, sample: int) -> tuple[list[dict[str, object]], Counter, Counter]:
+    """Domains with mail from BOTH themselves and a subdomain, **best evidence rate first**.
 
     Parent/child is decided by label-boundary suffix matching between hosts we actually
     observed — no public-suffix list needed, and nothing hard-coded: `notx.com` never counts
     as under `x.com`.
 
-    Ranked by how OFTEN the subtree sends, not by how many subdomains it has or how recently
-    it wrote. The `match` probe can only conclude from mail arriving after it is armed, so the
-    useful subject is the one that will send repeatedly and soon: a busy domain answers in
-    days and keeps confirming, while a structurally richer one that writes once a quarter
-    leaves the experiment hanging.
+    Ranked by how often the **subdomains** send, because subdomain mail is the only mail that
+    can answer the subdomain question. Ranking on *subtree* volume — what this did before —
+    ranks overwhelmingly on apex mail, which is the bulk of it: the first live run armed
+    `amazon.co.uk` as its "busiest" subject and then waited five days on a subdomain that
+    sends about once a quarter, while `monzo.com` and `google.com` — an order of magnitude
+    better on the only axis that mattered — went unarmed.
 
-    Structure comes from the sample; **volume is then measured directly**, one query per
-    candidate. Counting within the sample would rank on "share of the last N messages", which
-    scores a steady sender zero merely for sitting outside the window — a proxy where a real
-    number is one call away.
+    Structure comes from the sample; the rate is then measured directly, one query per
+    subdomain root. Counting within the sample would rank on "share of the last N messages",
+    which scores a steady sender zero merely for sitting outside the window — a proxy where a
+    real number is one call away.
+
+    Returns (pairs, distinct addresses per host, messages per address). The last is kept
+    because the *exception* question is rate-limited by a single ADDRESS, not by a domain.
     """
-    samples = sender_samples(token, "newer_than:180d", sample)
+    # A year, not 180 days: subdomain senders are rare enough that a narrower window omits
+    # the structure entirely — the ranking below cannot consider a pair it never saw.
+    samples = sender_samples(token, "newer_than:365d", sample)
     example: dict[str, str] = {}
+    seen_addresses: set[str] = set()
     addresses_per_host: Counter = Counter()
+    messages_per_address: Counter = Counter()
     for address, _received in samples:
         host = host_of(address)
-        if address in example:
+        messages_per_address[address] += 1
+        # Count each address ONCE. This previously tested `address in example`, whose keys are
+        # hosts — a test no address can pass, since every address contains an `@` and no host
+        # does. So the dedupe never fired and this counted MESSAGES while reporting "distinct
+        # sender addresses": a real account showed `amazon.co.uk` as 14 apex senders when it
+        # has 4. The exclusion-only candidate filter below thresholds on this number.
+        if address in seen_addresses:
             continue
+        seen_addresses.add(address)
         addresses_per_host[host] += 1
         example.setdefault(host, address)
 
-    pairs: list[tuple[str, list[str], str, int, int]] = []
+    pairs: list[dict[str, object]] = []
     for parent in sorted(addresses_per_host):
         subs = sorted(h for h in addresses_per_host if h != parent and h.endswith(f".{parent}"))
-        if subs:
-            # `from:*@parent` spans the subtree (that is the behaviour under test), so one
-            # query measures apex and subdomains together — which is the volume that matters.
-            volume = recent_volume(token, parent)
-            pairs.append((parent, subs, example[subs[0]], addresses_per_host[parent], volume))
-    pairs.sort(key=lambda item: item[4], reverse=True)
-    return pairs, addresses_per_host
-
-
-# Ceiling on the per-domain volume count. A real count up to here; at the cap the true
-# figure is only known to be "at least this", which is honest enough to rank on.
-VOLUME_CAP = 200
-
-
-def recent_volume(token: str, domain: str, days: int = 30) -> int:
-    """Messages from a domain's subtree in the last `days` — counted, capped at VOLUME_CAP.
-
-    Counts returned ids rather than reading `resultSizeEstimate`, which is documented as an
-    estimate and measurably is one: on a real account it returned 201 for three unrelated
-    domains at 30 and 14 days, then 201 for two of them and 0 for the third at 7 days. A
-    number that cannot order three domains, and contradicts itself between windows, is worse
-    than no number — ranking on it would be ranking on noise while looking precise.
-    """
-    listing = api_get(
-        token,
-        "/messages",
-        {"q": f"from:*@{domain} newer_than:{days}d", "maxResults": str(VOLUME_CAP)},
-    )
-    return len(listing.get("messages") or [])  # type: ignore[arg-type]
+        if not subs:
+            continue
+        volume, per_sub = subdomain_volume(token, subs)
+        pairs.append(
+            {
+                "parent": parent,
+                "subs": subs,
+                "example": example[subs[0]],
+                "apexSenders": addresses_per_host[parent],
+                "subVolume": volume,
+                "perSub": per_sub,
+            }
+        )
+    # Ties broken by name so a re-run picks the same subjects rather than whichever the API
+    # happened to list first.
+    pairs.sort(key=lambda pair: (-int(pair["subVolume"]), str(pair["parent"])))  # type: ignore[arg-type]
+    return pairs, addresses_per_host, messages_per_address
 
 
 def cmd_discover(args: argparse.Namespace) -> None:
     token = ensure_token(SCOPE_READ)
     print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
-    pairs, counts = find_pairs(token, args.sample)
+    pairs, counts, per_address = find_pairs(token, args.sample)
 
-    print("-- domains with mail from BOTH themselves and a subdomain (busiest first)")
+    print("-- domains with mail from BOTH themselves and a subdomain")
+    note(f"(ranked by SUBDOMAIN send rate over {SUBDOMAIN_WINDOW_DAYS}d — the only mail that")
+    note(" can answer the subdomain question, and the rate at which `match` can answer it)")
     if not pairs:
         note("none in this sample — try a larger --sample")
-    for parent, subs, sub_example, apex, volume in pairs:
-        note(f"{parent}  ({volume} messages in the last 30d, {apex} apex sender(s))")
-        note(f"  subdomains seen: {', '.join(subs)}")
+    for pair in pairs:
+        volume = int(pair["subVolume"])  # type: ignore[arg-type]
         note(
-            f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {parent}"
-            f" --exclude {sub_example}"
+            f"{pair['parent']}  ({volume} subdomain msgs/{SUBDOMAIN_WINDOW_DAYS}d"
+            f" = ~{weekly(volume):.1f}/week, {pair['apexSenders']} apex sender(s))"
+        )
+        for sub, count in sorted(pair["perSub"].items(), key=lambda kv: -kv[1]):  # type: ignore[union-attr]
+            note(f"    {sub}  {count}/{SUBDOMAIN_WINDOW_DAYS}d")
+        note(
+            f"  probe it:  ./scripts/qa-gmail-probe.py search --domain {pair['parent']}"
+            f" --exclude {pair['example']}"
         )
 
     print("\n-- domains with the most distinct sender addresses (exclusion subjects)")
     for host, count in counts.most_common(5):
-        note(f"{host}  ({count} distinct address(es))")
+        busiest = max(
+            (n for address, n in per_address.items() if host_of(address) == host), default=0
+        )
+        note(f"{host}  ({count} distinct address(es); busiest sent {busiest} in the sample)")
+    note("The exception question waits on ONE address, so the busiest single sender matters")
+    note("more here than the domain's total — see `match arm`.")
 
 
 def cmd_search(args: argparse.Namespace) -> None:
@@ -507,14 +578,14 @@ def cmd_search(args: argparse.Namespace) -> None:
     # guess, or worse, baking a domain into the tool.
     if domain is None:
         print("== no --domain given; discovering a subject from the mailbox ==")
-        pairs, _ = find_pairs(token, args.sample)
+        pairs, _, _ = find_pairs(token, args.sample)
         if not pairs:
             fail(
                 f"no domain with observed subdomain senders in the last {args.sample} messages\n"
                 "       pass --domain explicitly, or raise --sample"
             )
-        domain, _subs, auto_exclude, _apex, _volume = pairs[0]
-        exclude = exclude or auto_exclude
+        domain = str(pairs[0]["parent"])
+        exclude = exclude or str(pairs[0]["example"])
         note(f"chose {domain} (excluding {exclude})\n")
 
     print(f"== search semantics for {domain} ==\n")
@@ -615,7 +686,9 @@ def cmd_filters(args: argparse.Namespace) -> None:
             with open(args.out, "w", encoding="utf-8") as handle:
                 handle.write(text + "\n")
             note(f"wrote {len(dump)} filter(s) to {args.out}")
-            note(f"replay: INBOXCLINIC_FILTER_FIXTURE=$PWD/{args.out} npx vitest run realFilters")
+            # The spec needs an absolute path; only a relative --out needs $PWD glued on.
+            fixture = args.out if os.path.isabs(args.out) else f"$PWD/{args.out}"
+            note(f"replay: INBOXCLINIC_FILTER_FIXTURE={fixture} npx vitest run realFilters")
         else:
             print(text)
         return
@@ -815,63 +888,133 @@ def cmd_match(args: argparse.Namespace) -> None:
         )
     token = ensure_token(SCOPE_FILTERS)
 
-    subjects: list[dict[str, str]] = []
+    subjects: list[dict[str, object]] = []
     if args.domain:
-        exclude = args.exclude or _pick_exclusion(token, args.domain)
-        subjects.append({"domain": args.domain, "exclude": exclude})
+        if args.exclude:
+            exclude, exclude_rate = args.exclude, 0
+        else:
+            picked = _pick_exclusion(token, args.domain)
+            if picked is None:
+                fail(f"no apex sender at {args.domain} to except — pass --exclude explicitly")
+            exclude, exclude_rate = picked
+        subjects.append({"domain": args.domain, "exclude": exclude, "excludeCount": exclude_rate})
     else:
-        # Busiest first: a subject that sends often answers soonest and keeps confirming.
-        print(f"== choosing the {args.top} busiest subjects in the mailbox ==")
-        pairs, addresses_per_host = find_pairs(token, args.sample)
+        # Best evidence rate first: a subject whose SUBDOMAINS send often answers soonest and
+        # keeps confirming. See find_pairs for why subtree volume was the wrong ranking.
+        print(f"== choosing the {args.top} subjects with the busiest subdomains ==")
+        pairs, _addresses_per_host, per_address = find_pairs(token, args.sample)
         if not pairs:
             fail(
                 f"no domain with observed subdomain senders in the last {args.sample} messages\n"
                 "       pass --domain explicitly, or raise --sample"
             )
-        for domain, subs, _example, _apex, volume in pairs[: args.top]:
-            exclude = _pick_exclusion(token, domain)
-            if exclude is None:
+        for pair in pairs[: args.top]:
+            domain = str(pair["parent"])
+            picked = _pick_exclusion(token, domain)
+            if picked is None:
                 note(f"skipping {domain} — no apex sender to except, so nothing to prove")
                 continue
-            note(f"{domain} ({volume} msgs/30d; subdomains: {', '.join(subs)})")
-            subjects.append({"domain": domain, "exclude": exclude})
+            exclude, exclude_count = picked
+            volume = int(pair["subVolume"])  # type: ignore[arg-type]
+            note(
+                f"{domain}: subdomains ~{weekly(volume):.1f}/week"
+                f" ({', '.join(str(s) for s in pair['subs'])})"  # type: ignore[union-attr]
+            )
+            note(f"    excepting {exclude} (~{weekly(exclude_count):.1f}/week)")
+            subjects.append(
+                {
+                    "domain": domain,
+                    "exclude": exclude,
+                    "excludeCount": exclude_count,
+                    "subVolume": volume,
+                }
+            )
 
         # The two questions have DIFFERENT eligibility. Only a domain with subdomain senders
         # can answer the subdomain question, so the subjects above are chosen for it — but
         # the exclusion question needs no subdomains at all, just two senders at one domain.
         # Left as-is, that half waits on whether the apex senders above happen to write, and
-        # apex addresses at these domains are often the quiet ones. Add the busiest
-        # multi-sender domain outright so it can answer on its own schedule.
+        # apex addresses at these domains are often the quiet ones. Add a domain chosen for
+        # the exclusion question outright, so it can answer on its own schedule.
+        #
+        # Ranked by its BUSIEST SINGLE ADDRESS, not by domain volume: this half waits on one
+        # address writing again, so a domain busy across many rarely-writing correspondents is
+        # a poor subject however much mail it sends in total. The first live run ranked on
+        # domain volume, chose `gmail.com` (24 correspondents), and received nothing from it
+        # in five days. The sample is reused rather than re-queried per candidate — measuring
+        # every candidate exactly would cost a metadata fetch per message per domain, to order
+        # candidates that a 365-day sample already separates clearly.
         chosen = {subject["domain"] for subject in subjects}
-        candidates = sorted(
-            (host for host, count in addresses_per_host.items() if count >= 2 and host not in chosen),
-            key=lambda host: recent_volume(token, host),
-            reverse=True,
-        )
-        for host in candidates[:1]:
-            exclude = _pick_exclusion(token, host)
-            if exclude is None:
+        busiest_at: Counter = Counter()
+        for address, count in per_address.items():
+            host = host_of(address)
+            if host not in chosen:
+                busiest_at[host] = max(busiest_at[host], count)
+        for host, sampled in sorted(busiest_at.items(), key=lambda kv: (-kv[1], kv[0]))[:1]:
+            if sampled < 2:
+                note("no domain has an address sending often enough to be worth arming")
+                break
+            picked = _pick_exclusion(token, host)
+            if picked is None:
                 continue
+            exclude, exclude_count = picked
             note(f"{host} — added for the exclusion question alone (no subdomains needed)")
-            subjects.append({"domain": host, "exclude": exclude})
+            note(f"    excepting {exclude} (~{weekly(exclude_count):.1f}/week)")
+            # subVolume is explicitly null, not absent: this subject has no subdomain rate by
+            # design, which `check` must not report as a missing measurement.
+            subjects.append(
+                {
+                    "domain": host,
+                    "exclude": exclude,
+                    "excludeCount": exclude_count,
+                    "subVolume": None,
+                }
+            )
 
     if not subjects:
         fail("no usable subject found")
 
     armed_at = int(time.time())
     for subject in subjects:
-        subject["filterId"] = _create_match_filter(token, subject["domain"], subject["exclude"])
+        subject["filterId"] = _create_match_filter(
+            token, str(subject["domain"]), str(subject["exclude"])
+        )
     with open(MATCH_STATE, "w", encoding="utf-8") as handle:
         # Only mail arriving after this point is evidence; anything older predates the filters.
+        # The measured rates are stored alongside, so `check` can say whether a null result is
+        # the expected wait or a surprise — the first live run could not tell the difference
+        # and read as "no answer yet" for five days when one half was never going to answer.
         json.dump({"armedAt": armed_at, "subjects": subjects}, handle)
 
     print()
     for subject in subjects:
         note(f"armed: from:*@{subject['domain']} except {subject['exclude']} → adds {MATCH_LABEL}")
     note("They star matching mail and nothing else — no message is moved, hidden or deleted.")
-    note("Wait for mail from those domains, then:")
+
+    # `or 0` rather than a default: an exclusion-only subject stores subVolume as null, so a
+    # dict default would never fire and int(None) would blow up at the end of a successful arm.
+    sub_rate = sum(weekly(int(s.get("subVolume") or 0)) for s in subjects)  # type: ignore[arg-type]
+    exc_rate = sum(weekly(int(s.get("excludeCount") or 0)) for s in subjects)  # type: ignore[arg-type]
+    print()
+    note("Expected wait, from the rates measured above:")
+    note(f"  subdomains: {_eta(sub_rate)}   (combined ~{sub_rate:.1f} msg/week)")
+    note(f"  exception:  {_eta(exc_rate)}   (combined ~{exc_rate:.1f} msg/week)")
+    note("These are averages over a quarter, not a schedule — mail arrives in bursts.")
+    note("Then:")
     note("  ./scripts/qa-gmail-probe.py match check")
     note("  ./scripts/qa-gmail-probe.py match disarm     # when done (then unstar)")
+
+
+def _eta(per_week: float) -> str:
+    """Plain-language wait for the first message, so a slow subject is obvious up front."""
+    if per_week <= 0:
+        return "never, on these rates — re-arm with a different subject"
+    days = 7.0 / per_week
+    if days <= 2:
+        return "a day or two"
+    if days <= 10:
+        return f"about {round(days)} days"
+    return f"about {days / 7:.0f} weeks — consider a busier subject"
 
 
 def _report_stranded(token: str) -> None:
@@ -923,11 +1066,28 @@ def _load_match_state() -> dict[str, object] | None:
     return state
 
 
-def _pick_exclusion(token: str, domain: str) -> str | None:
-    """An apex address that genuinely sends — an exclusion nothing matches proves nothing."""
-    addresses = sorted(set(sender_addresses(token, f"from:*@{domain}", 60)))
-    apex = [a for a in addresses if host_of(a) == domain]
-    return apex[0] if apex else None
+def _pick_exclusion(token: str, domain: str) -> tuple[str, int] | None:
+    """The BUSIEST apex sender at `domain`, with how many messages it sent in the window.
+
+    An exclusion nothing matches proves nothing — and "genuinely sends" has to mean *often*,
+    because the exception question needs the excepted address to write AGAIN after arming.
+    Taking the alphabetically-first apex address, as this did before, picks an arbitrary one:
+    the first live run excepted `amazon-offers@amazon.co.uk` (1 message in 90 days) while
+    `shipment-tracking@amazon.co.uk` sent 7, and excepted `cloudplatform-noreply@google.com`
+    (1) over `googlestore-noreply@google.com` (5). Both halves sat inconclusive for five days
+    with the answer one address away.
+    """
+    counts = Counter(
+        address
+        for address in sender_addresses(
+            token, f"from:*@{domain} newer_than:{SUBDOMAIN_WINDOW_DAYS}d", 60
+        )
+        if host_of(address) == domain
+    )
+    if not counts:
+        return None
+    # Ties broken alphabetically, so a re-run picks the same subject.
+    return min(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
 def _create_match_filter(token: str, domain: str, exclude: str) -> str:
@@ -966,9 +1126,9 @@ def _delete_filter(token: str, filter_id: str) -> None:
         note(f"WARNING: could not delete filter {filter_id} — remove it by hand")
 
 
-def _subject_counts(token: str, subject: dict[str, str], armed_at: int) -> tuple[int, int, int, int, int, int]:
+def _subject_counts(token: str, subject: dict[str, object], armed_at: int) -> tuple[int, int, int, int, int, int]:
     """(apex starred, apex total, sub starred, sub total, excluded starred, excluded total)."""
-    domain, exclude = subject["domain"], subject["exclude"]
+    domain, exclude = str(subject["domain"]), str(subject["exclude"])
     # `after:` takes seconds; only mail that arrived since arming can be evidence.
     # `after:` narrows the fetch, but the boundary is enforced client-side against
     # `internalDate`: Gmail's date operators are documented at day granularity, and an epoch
@@ -1009,10 +1169,34 @@ def _subject_counts(token: str, subject: dict[str, str], armed_at: int) -> tuple
     return apex_starred, apex_total, sub_starred, sub_total, excluded_starred, excluded_total
 
 
+def _expected(subject: dict[str, object], key: str, elapsed_days: float, what: str) -> str:
+    """How much evidence the armed rate predicted by now — so a null can be read correctly.
+
+    A bare "no evidence yet" is ambiguous three ways: be patient, this subject was never going
+    to answer, or this subject was never meant to answer THIS question. The first live run
+    spent five days on the wrong side of the middle one. The three states are distinguished by
+    the key being absent (armed before rates were recorded), null (the subject is not a
+    candidate for this question at all), or a number.
+    """
+    if key not in subject:
+        return f"  {what}: rate unknown (armed before rates were recorded)"
+    count = subject[key]
+    if count is None:
+        return f"  {what}: n/a — this subject was armed for the other question only"
+    rate = weekly(int(count))  # type: ignore[arg-type]
+    if rate <= 0:
+        return f"  {what}: nothing expected — the armed rate was zero"
+    predicted = rate * elapsed_days / 7.0
+    if predicted < 1:
+        return f"  {what}: none expected yet — armed rate predicts ~{predicted:.1f} by now"
+    return f"  {what}: ~{predicted:.1f} expected by now at the armed rate — running late"
+
+
 def _match_report(token: str, state: dict[str, object]) -> None:
     armed_at = int(state["armedAt"])  # type: ignore[arg-type]
-    subjects: list[dict[str, str]] = state["subjects"]  # type: ignore[assignment]
-    print(f"== live filter matching ({int(time.time()) - armed_at}s since arming) ==")
+    subjects: list[dict[str, object]] = state["subjects"]  # type: ignore[assignment]
+    elapsed_days = (int(time.time()) - armed_at) / 86400.0
+    print(f"== live filter matching ({elapsed_days:.1f} days since arming) ==")
     note(f"examining up to {MATCH_PAGE} messages per subject")
 
     spans: list[bool] = []
@@ -1025,8 +1209,17 @@ def _match_report(token: str, state: dict[str, object]) -> None:
         note(f"  apex:      {apex_s}/{apex_t} starred")
         note(f"  subdomain: {sub_s}/{sub_t} starred")
         note(f"  excepted:  {exc_s}/{exc_t} starred")
+        if apex_t and apex_s == apex_t:
+            # The positive control. Without it a run of zeroes is indistinguishable from a
+            # filter that was never created, or was created wrong — and "the filter matches
+            # nothing" is the one explanation the other lines cannot rule out.
+            note(f"  control:    filter IS live — it starred all {apex_t} apex message(s)")
+        elif apex_t:
+            note(f"  control:    only {apex_s}/{apex_t} apex message(s) starred — investigate")
+            note("              this before reading anything into the lines above")
         if sub_t == 0:
             note("  subdomains: no evidence yet")
+            note(_expected(subject, "subVolume", elapsed_days, "            predicted"))
         elif sub_s == sub_t:
             spans.append(True)
             note(f"  subdomains: REACHED by the filter (from {sub_t} message(s))")
@@ -1037,6 +1230,7 @@ def _match_report(token: str, state: dict[str, object]) -> None:
             note("  subdomains: mixed — record which senders matched; not a clean answer")
         if exc_t == 0:
             note("  exception:  no evidence yet")
+            note(_expected(subject, "excludeCount", elapsed_days, "            predicted"))
         else:
             spares.append(exc_s == 0)
             note(

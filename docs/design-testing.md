@@ -337,10 +337,23 @@ Criteria it is built to:
 5. **Reports evidence, not a verdict.** Output states what Gmail did (the sender domains a
    query returned, the stored criteria string) so the finding can be pasted into an issue
    and re-verified later, rather than collapsing to pass/fail.
-6. **Finds its own subjects.** No domain or address is baked in: the probe samples the
-   mailbox and reports which domains genuinely have mail from *both* themselves and a
-   subdomain (parent/child by label-boundary suffix match between observed hosts — no
-   public-suffix list, no guessing), then points the other probes at them.
+6. **Finds its own subjects, and ranks them by the evidence they can actually produce.** No
+   domain or address is baked in: the probe samples the mailbox and reports which domains
+   genuinely have mail from *both* themselves and a subdomain (parent/child by label-boundary
+   suffix match between observed hosts — no public-suffix list, no guessing), then points the
+   other probes at them.
+
+   For a probe that can only conclude from mail arriving *after* it is armed, discovering a
+   subject is not enough — it has to be ranked on **the rate of the specific mail that answers
+   the question asked**, which is not the same as being a busy domain. Ranking the `match`
+   subjects on total subtree volume ranked them on apex mail, which is the bulk of it, and
+   armed a domain whose subdomains send about once a quarter; excepting the alphabetically
+   first apex address picked senders that had not written in 90 days. Both halves of the
+   experiment then sat inconclusive for five days with the answer one subject away. So each
+   question's rate limiter is measured and ranked on separately — subdomain send rate for the
+   subdomain question, the busiest single *address* for the exception question — and the
+   measured rates are recorded when arming so that a later null result can be read as "none
+   expected yet" rather than ambiguous silence.
 7. **Feeds the real rule set back into the real code.** `filters --json` dumps the account's
    filters in the `NativeFilter` shape, which a skipped-by-default spec
    (`realFilters.analysis.test.ts`) replays through the compiler, `reconcileFilters` and
@@ -533,6 +546,7 @@ it("applies a block decision and records a compiled filter", async () => {
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-14 | **Decision 9 criterion 6 — probe subjects are ranked by the rate of the evidence they can produce, not by how busy they are.** The `match` experiment ran for five days and answered neither of its questions: subjects were ranked on total subtree volume (overwhelmingly apex mail), which armed a domain whose subdomains send roughly once a quarter, and the excepted address was the alphabetically first apex sender, which had not written in 90 days. Each question's rate limiter is now measured separately — subdomain send rate over 90d for the subdomain question, the busiest single address for the exception question — with the rates recorded at arming so a null reads as "none expected yet" rather than ambiguous silence, and an expected wait stated up front. Also fixed: `addresses_per_host` counted messages rather than distinct addresses (the dedupe tested an address against host keys, which nothing containing `@` can match), inflating a 4-sender domain to 14 and feeding the candidate threshold a wrong number. | Claude |
 | 2026-08-14 | **Decision 9 criterion 2 — consent is one grant per session, not progressive.** Requesting each scope at the moment a probe needed it required a terminal to ask at, so a probe run from any non-TTY shell could not obtain write scope by any route: `match arm`/`disarm` were unreachable and armed probe filters unremovable. `login` now grants read-only plus filter management together. The credential's ~1h lifetime (access token only, no refresh token) is the meaningful bound for a hand-run QA tool against the developer's own mailbox; the application's own least-privilege scope discipline (architecture.md §6) is unaffected. | Claude |
 | 2026-08-09 | **Decision 9 auth mechanism:** the Google CLI cannot mint a Gmail-only credential by any route — ADC login mandates `cloud-platform` even with `--client-id-file`, and `gcloud auth login` takes no scopes — so the probe runs the installed-app loopback flow (PKCE) itself against a developer-local Desktop OAuth client, caching only the access token (no refresh token, ~1h, 0600). Re-consent per session is the accepted cost of keeping the grant to Gmail scopes. | Claude |
 | 2026-08-09 | **Decision 9 — real-account probes:** add a fourth, manual, non-gating tier (`scripts/qa-gmail-probe.py`) for Gmail behaviour Google doesn't document and no emulator reproduces, which the port mock can only encode as a belief. Criteria: read-only wherever the question allows, least-privilege short-lived credentials (access token only, self-clearing once dead), metadata-only reads, never destructive (probe filters target an unroutable `.invalid` domain and are deleted immediately), subjects discovered from the mailbox rather than hard-coded, evidence-reporting rather than pass/fail, and a dump/replay path that runs the account's real filters through the compiler and suggesters via a skipped-by-default spec. | Claude |
