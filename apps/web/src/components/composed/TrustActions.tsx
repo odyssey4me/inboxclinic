@@ -4,6 +4,7 @@ import {
   type BlockAction,
   type Decision,
   type DecisionScope,
+  type DomainBlockCoverage,
   type ParentDomainCoverage,
   type Sender,
 } from "@inboxclinic/core";
@@ -30,6 +31,13 @@ export interface TrustActionsProps {
    * would be the same decision wearing a broader-sounding name.
    */
   parentCoverage?: ParentDomainCoverage | undefined;
+  /**
+   * What the plain **domain** scope would cover. `*@domain` reaches the domain's subdomains
+   * too (#210), so "Whole domain" is broader than it sounds — and was silent about it. Absent
+   * means the coverage could not be computed; an empty subtree is still passed, so the scope
+   * label can stay honest without a panel.
+   */
+  domainCoverage?: DomainBlockCoverage | undefined;
   onDecide: (decision: Decision, actions: BlockAction[]) => void;
 }
 
@@ -40,6 +48,7 @@ export function TrustActions({
   onScopeChange,
   canScopeDomain,
   parentCoverage,
+  domainCoverage,
   onDecide,
 }: TrustActionsProps) {
   const [blockOpen, setBlockOpen] = useState(false);
@@ -57,6 +66,10 @@ export function TrustActions({
     setActions((current) =>
       current.includes(id) ? current.filter((a) => a !== id) : [...current, id],
     );
+
+  // Observed domains the domain scope reaches BEYOND the one it is named after — the part of
+  // its breadth that is not self-evident from the label.
+  const extraDomains = (domainCoverage?.covered.length ?? 1) - 1;
 
   return (
     <div className="space-y-4">
@@ -80,7 +93,10 @@ export function TrustActions({
             disabled={!canScopeDomain}
             onChange={() => onScopeChange("domain")}
           />
-          Whole domain ({sender.domain})
+          {/* The subdomain count sits in the LABEL, not only in the panel below: this is the
+              most-used scope, and "Whole domain (x.com)" read as narrower than it enforces. */}
+          Whole domain ({sender.domain}
+          {extraDomains > 0 && ` + ${extraDomains} subdomain${extraDomains === 1 ? "" : "s"}`})
         </label>
         {parentCoverage !== undefined && (
           <label className="flex items-center gap-1 text-sm">
@@ -134,6 +150,47 @@ export function TrustActions({
           </p>
         </div>
       )}
+
+      {/* Same principle as the parent-rule panel above: a domain decision reaches the whole
+          subtree because that is what Gmail's `*@domain` matches (#210). Shown when there is
+          something to say — an observed subdomain it would catch, or one it would spare because
+          the user already decided it. Neither means the label already says everything. */}
+      {scope === "domain" &&
+        domainCoverage !== undefined &&
+        (domainCoverage.covered.length > 1 || domainCoverage.carvedOut.length > 0) && (
+          <div className="space-y-1 rounded-md bg-accent-soft px-3 py-3 text-sm text-accent-ink">
+            <p className="font-medium">
+              This covers every sender at {domainCoverage.domain} and below —{" "}
+              {domainCoverage.senderCount} seen so far:
+            </p>
+            <ul className="list-disc pl-5">
+              {domainCoverage.covered.map((d) => (
+                <li key={d.domain}>
+                  {d.domain} ({d.senderCount})
+                </li>
+              ))}
+            </ul>
+            {domainCoverage.carvedOut.length > 0 && (
+              <>
+                <p className="font-medium text-trust">
+                  Not these — you decided them separately, and they stay decided:
+                </p>
+                <ul className="list-disc pl-5 text-trust">
+                  {domainCoverage.carvedOut.map((d) => (
+                    <li key={d.domain}>
+                      {d.domain} ({d.senderCount})
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="text-xs">
+              Anything new under {domainCoverage.domain} is covered too, including subdomains that
+              have not written yet and so cannot be listed here. Decide one separately afterwards to
+              carve it back out.
+            </p>
+          </div>
+        )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="trust" onClick={() => onDecide("trust", [])}>

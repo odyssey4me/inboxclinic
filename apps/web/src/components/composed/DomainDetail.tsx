@@ -2,6 +2,7 @@
 import {
   applyDecision,
   computeTrustScore,
+  domainBlockCoverage,
   enforce,
   senderToSnapshot,
   simulateEnforcement,
@@ -37,6 +38,13 @@ export interface DomainDetailProps {
   allDomains?: Domain[];
   /** The domain's member senders (joined on `sender.domain`). */
   members: Sender[];
+  /**
+   * Every observed sender, so the breadth of this block can be stated before it is made.
+   * `members` cannot serve: it joins on the exact domain, while a domain block reaches the
+   * whole subtree (#210) — the senders it would additionally catch are precisely the ones
+   * `members` leaves out. Defaults to `members`, which understates rather than overstates.
+   */
+  allSenders?: Sender[];
   store: Store;
   gmail: GmailClient;
   online: boolean;
@@ -73,6 +81,7 @@ function averageScore(members: Sender[]): number | null {
 export function DomainDetail({
   domain,
   members,
+  allSenders,
   allDomains = [],
   store,
   gmail,
@@ -108,6 +117,14 @@ export function DomainDetail({
   const carvedOut = parentRule?.exceptionDomains.includes(domain.domain) ?? false;
   const governedByParent =
     parentRule !== undefined && parentRule.trustStatus !== "pending" && !carvedOut;
+
+  // What blocking this domain would actually reach, and which subdomains enforcement will
+  // spare because the user already decided them (#210).
+  const domainCoverage = domainBlockCoverage(
+    domain.domain,
+    allSenders ?? members,
+    allDomains.filter((d) => d.trustStatus === "trusted").map((d) => d.domain),
+  );
 
   const commit = async (decision: Decision, actions: BlockAction[]): Promise<void> => {
     setBusy(true);
@@ -253,6 +270,44 @@ export function DomainDetail({
               Not sure (defer)
             </Button>
           </div>
+          {/* Breadth before the decision, not after it: `*@domain` spans the subtree (#210),
+              so "Block domain" reaches senders this drawer never listed — `members` joins on
+              the exact domain, which is exactly the set that hides them. */}
+          {(domainCoverage.covered.length > 1 || domainCoverage.carvedOut.length > 0) && (
+            <div className="space-y-1 rounded-md bg-accent-soft px-3 py-3 text-sm text-accent-ink">
+              <p className="font-medium">
+                Blocking {domain.domain} also covers everything beneath it —{" "}
+                {domainCoverage.senderCount} sender
+                {domainCoverage.senderCount === 1 ? "" : "s"} seen so far:
+              </p>
+              <ul className="list-disc pl-5">
+                {domainCoverage.covered.map((d) => (
+                  <li key={d.domain}>
+                    {d.domain} ({d.senderCount})
+                  </li>
+                ))}
+              </ul>
+              {domainCoverage.carvedOut.length > 0 && (
+                <>
+                  <p className="font-medium text-trust">
+                    Not these — you decided them separately, and they stay decided:
+                  </p>
+                  <ul className="list-disc pl-5 text-trust">
+                    {domainCoverage.carvedOut.map((d) => (
+                      <li key={d.domain}>
+                        {d.domain} ({d.senderCount})
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <p className="text-xs">
+                Anything new under {domain.domain} is covered too, including subdomains that have
+                not written yet and so cannot be listed here. Decide one separately afterwards to
+                carve it back out.
+              </p>
+            </div>
+          )}
           <fieldset className="space-y-1">
             <legend className="text-xs text-muted">
               Blocking filters all new mail from {domain.domain}. Also apply to existing:

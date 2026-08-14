@@ -11,6 +11,8 @@ export {
   type CoveredDomain,
   type ParentDomainCoverage,
 } from "./domains/parentDomainCoverage";
+export { domainBlockCoverage, type DomainBlockCoverage } from "./domains/domainBlockCoverage";
+export { inDomainSubtree, isSubdomainOf } from "./domains/subtree";
 export { trustTier, type TrustTier, type TrustTierName, type TrustTierColour } from "./trust/tiers";
 
 // Provider-client port (Gmail).

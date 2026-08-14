@@ -208,6 +208,19 @@ senders together. The keep/defer split removes today's dismiss ambiguity.
 > rule. The filter compiler (#185) and the opt-in UX (#186) follow; #185 should be planned
 > against the #210 finding that `*@domain` already spans subdomains in Gmail's matching, which
 > narrows what the compiler still has to add.
+>
+> **Breadth statement for ordinary domain decisions (#210).** Point 6's principle — state what a
+> rule covers *before* it is made — now applies to the plain **domain** scope too, since
+> `*@domain` reaches the subtree. `domainBlockCoverage` computes it, and both decision surfaces
+> show it: the scope label carries the subdomain count (`Whole domain (monzo.com + 2
+> subdomains)`), and selecting the scope lists the domains covered, the senders seen at each, and
+> the subdomains enforcement will **spare** because the user decided them separately.
+>
+> It is deliberately **narrower than `parentDomainCoverage`**, which also lists prefix-sharing
+> siblings (`apple.com.au`). That breadth is evidence about the **bare** `from:<domain>`
+> criterion a parent rule compiles to (#181); the `*@domain` form measured in #210 spanned the
+> subtree only. Listing siblings for a plain domain block would assert a reach nothing has shown,
+> and a warning that overstates is one users learn to skip.
 
 **Context:** One organisation often sends from many subdomains of a single registrable domain —
 `news.example.com`, `mail.example.com`, `t.example.com`, `email.mkt.example.com`. Today each is a
@@ -639,6 +652,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-14 | **Decision 9 — the breadth statement extends to ordinary domain decisions (#210).** `*@domain` spans the subtree, so "Whole domain" was a decision that reached senders the user never named and said nothing about it. Point 6's state-it-before-deciding principle now covers the plain domain scope: the scope label carries the subdomain count, and selecting it lists the domains covered, the senders at each, and the subdomains enforcement will spare because they were separately decided. Computed by `domainBlockCoverage`, deliberately narrower than `parentDomainCoverage` — the latter's prefix-sharing siblings are evidence about the **bare** `from:<domain>` form (#181), and the `*@domain` form measured in #210 spanned the subtree only, so claiming siblings here would assert a reach nothing has shown. Panel appears when there is something to say (an observed subdomain caught, or one spared), never merely to restate the label. | Claude |
 | 2026-08-09 | **Decision 9 build 2/4 landed (#184):** `resolveEffectiveDecision` resolves the parent-domain rule across the ladder, broadest-first, each rule applying unless the narrower subject is carved out of it. Threaded through the effective-status helpers, `generatePrompts` and the Dashboard, which now share one resolution instead of hand-rolling it. On the write side, `applyDecision` records an address or subdomain decided under a broader rule as an exception **on that rule**, a parent decision covers the whole subtree rather than exact-name members, and batch apply order derives from `SCOPE_SPECIFICITY` so a new scope cannot be given an accidental order. | Claude |
 | 2026-08-09 | **Decision 9 PSL churn caveat (#183 review):** recorded that PRIVATE-section entries are company-submitted and can appear or disappear on a routine `tldts` bump, regrouping a standing `parentDomain` rule with no code change — accepted as the lesser risk, with the consequence that downstream builds must derive a rule's eTLD+1 on read rather than freeze it as a key. | Claude |
 | 2026-08-09 | **Decision 9 point 6 — a rule keeps explaining itself after the decision (#229):** breadth stated once, at the moment of deciding, leaves a subject met later showing a status nothing in the UI accounts for. A governed subject now names its rule wherever it is shown, and a carved-out one is offered the way back. Recorded that the weight differs by level — `DomainDetail` a panel, `SenderDetail` a single line — because making the carve-out at address scope is what the existing Trust/Block buttons already do, so duplicating it as a panel would put two differently-worded decision controls in the busiest drawer. | Claude |

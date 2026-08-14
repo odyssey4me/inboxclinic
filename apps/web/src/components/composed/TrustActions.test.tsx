@@ -196,3 +196,77 @@ describe("TrustActions — parent-domain scope (#186)", () => {
     expect(screen.queryByText(/NOT part of example\.com/)).not.toBeInTheDocument();
   });
 });
+
+describe("TrustActions — domain-scope breadth (#210)", () => {
+  const sender = makeSender({ id: "s", email: "promo@monzo.com", domain: "monzo.com" });
+
+  const coverage = {
+    domain: "monzo.com",
+    covered: [
+      { domain: "monzo.com", senderCount: 2 },
+      { domain: "ads.monzo.com", senderCount: 1 },
+    ],
+    carvedOut: [{ domain: "email.monzo.com", senderCount: 3 }],
+    senderCount: 3,
+  };
+
+  function renderWith(scope: DecisionScope, domainCoverage = coverage) {
+    render(
+      <TrustActions
+        sender={sender}
+        scope={scope}
+        onScopeChange={vi.fn()}
+        canScopeDomain
+        domainCoverage={domainCoverage}
+        onDecide={vi.fn()}
+      />,
+    );
+  }
+
+  it("names the extra subdomains in the scope label, before anything is selected", () => {
+    renderWith("address");
+
+    // The label is where a "whole domain" decision is actually chosen, and it read as narrower
+    // than it enforces. `*@monzo.com` spans the subtree, so the count belongs here, not only in
+    // a panel the user sees after committing to the scope.
+    expect(screen.getByLabelText(/Whole domain \(monzo\.com \+ 1 subdomain\)/)).toBeInTheDocument();
+  });
+
+  it("lists the subdomains the block would reach once the scope is selected", () => {
+    renderWith("domain");
+
+    expect(screen.getByText(/covers every sender at monzo\.com and below/)).toBeInTheDocument();
+    expect(screen.getByText(/ads\.monzo\.com \(1\)/)).toBeInTheDocument();
+  });
+
+  it("says which subdomains stay decided rather than silently omitting them", () => {
+    renderWith("domain");
+
+    // A carve-out is the user's own earlier decision surviving. Leaving it off the list would
+    // overstate the block; leaving it in the covered list would state the opposite of what
+    // enforcement does.
+    expect(screen.getByText(/you decided them separately/)).toBeInTheDocument();
+    expect(screen.getByText(/email\.monzo\.com \(3\)/)).toBeInTheDocument();
+  });
+
+  it("admits the reach is not enumerable in advance", () => {
+    renderWith("domain");
+
+    // Observed subdomains are a floor. A subdomain that has not written yet is covered anyway,
+    // which is exactly the leak #136 exists to close — so the copy must not read as a full list.
+    expect(screen.getByText(/have not written yet/)).toBeInTheDocument();
+  });
+
+  it("shows no panel when nothing under the domain has been seen", () => {
+    renderWith("domain", {
+      domain: "shop.com",
+      covered: [{ domain: "shop.com", senderCount: 2 }],
+      carvedOut: [],
+      senderCount: 2,
+    });
+
+    // Nothing observed below it means the panel would restate the label. The future-subdomain
+    // caveat still applies, but a panel that says only that is noise on the commonest action.
+    expect(screen.queryByText(/and below/)).not.toBeInTheDocument();
+  });
+});

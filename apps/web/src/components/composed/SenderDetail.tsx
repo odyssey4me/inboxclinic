@@ -4,6 +4,7 @@ import {
   defaultBlockActions,
   enforce,
   keyFor,
+  domainBlockCoverage,
   parentDomainCoverage,
   parentDomainRuleFor,
   simulateEnforcement,
@@ -110,6 +111,16 @@ export function SenderDetail({
     coverage.subtree.length > 1
       ? coverage
       : undefined;
+
+  // What the plain DOMAIN scope reaches. `*@domain` spans the subtree (#210), so this states
+  // the breadth before the decision instead of leaving it to be discovered from behaviour.
+  // Carve-outs are the subdomains already TRUSTED — the set `effectiveBlockedDomains` excludes,
+  // so the panel promises exactly what enforcement will do.
+  const domainCoverage = domainBlockCoverage(
+    sender.domain,
+    allSenders,
+    allDomains.filter((d) => d.trustStatus === "trusted").map((d) => d.domain),
+  );
 
   // The rule governing this sender from above, and whether it has already been carved out of
   // it — the answer to "why is this blocked when I never decided it?" (#229). Deliberately a
@@ -293,6 +304,7 @@ export function SenderDetail({
             onScopeChange={setScope}
             canScopeDomain
             parentCoverage={parentCoverage}
+            domainCoverage={domainCoverage}
             onDecide={onDecide}
           />
 

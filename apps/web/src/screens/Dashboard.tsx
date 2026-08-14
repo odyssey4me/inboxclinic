@@ -904,6 +904,7 @@ export function Dashboard({
       <DomainDetail
         domain={selectedDomain}
         members={selectedDomain !== null ? membersOf(selectedDomain) : []}
+        allSenders={senders}
         allDomains={domains}
         store={store}
         gmail={gmail}

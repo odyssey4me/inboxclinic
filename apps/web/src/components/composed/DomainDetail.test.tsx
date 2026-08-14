@@ -111,3 +111,51 @@ describe("DomainDetail — governed by a parent rule (#186)", () => {
     expect(screen.queryByText(/by the rule on/)).not.toBeInTheDocument();
   });
 });
+
+// Blocking a domain reaches its whole subtree, because that is what Gmail's `*@domain` matches
+// (#210). The drawer lists `members`, which joins on the exact domain — so the senders a block
+// would additionally catch are exactly the ones nothing on screen mentions.
+describe("DomainDetail — block breadth (#210)", () => {
+  const sender = (domain: string) => ({ domain }) as never;
+
+  function renderWithSenders(allSenders: { domain: string }[], allDomains: Domain[] = []) {
+    render(
+      <DomainDetail
+        domain={domainFixture("monzo.com")}
+        members={[]}
+        allSenders={allSenders as never}
+        allDomains={allDomains}
+        store={createInMemoryStore()}
+        gmail={new MockGmailClient()}
+        online={false}
+        onClose={vi.fn()}
+        onOpenSender={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+  }
+
+  it("states the subtree a block would cover, before it is made", () => {
+    renderWithSenders([sender("monzo.com"), sender("email.monzo.com")]);
+
+    expect(screen.getByText(/also covers everything beneath it/)).toBeInTheDocument();
+    expect(screen.getByText(/email\.monzo\.com \(1\)/)).toBeInTheDocument();
+  });
+
+  it("separates subdomains the user already decided, which enforcement spares", () => {
+    renderWithSenders(
+      [sender("monzo.com"), sender("email.monzo.com")],
+      [domainFixture("email.monzo.com", { trustStatus: "trusted", decisionScope: "domain" })],
+    );
+
+    // Same set `effectiveBlockedDomains` carves out — the panel must promise what enforcement
+    // will actually do, or it is a different kind of dishonest.
+    expect(screen.getByText(/you decided them separately/)).toBeInTheDocument();
+  });
+
+  it("stays quiet when the block reaches nothing beyond the domain itself", () => {
+    renderWithSenders([sender("monzo.com")]);
+
+    expect(screen.queryByText(/also covers everything beneath it/)).not.toBeInTheDocument();
+  });
+});
