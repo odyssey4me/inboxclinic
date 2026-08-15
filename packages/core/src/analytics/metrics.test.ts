@@ -114,7 +114,9 @@ describe("healthInputFromSenders", () => {
     // example.com is blocked at domain scope, which reaches its subtree (#210/#244) even though
     // email.example.com has no domain record and its sender is raw-pending.
     const senders = [senderBuilder("statements@email.example.com", { trustStatus: "pending" })];
-    const domains = [domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" })];
+    const domains = [
+      domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    ];
     expect(healthInputFromSenders(senders, domains)).toMatchObject({
       trusted: 0,
       blocked: 1,
