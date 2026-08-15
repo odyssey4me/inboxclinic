@@ -160,7 +160,7 @@ trust score, category, decided-via) on each decision.
 blocked newsletter becomes wanted; a trusted sender goes rogue).
 
 **Decision:** Any recorded decision can be **changed at any time** from a **Decisions** view,
-through either of two operations — decide/re-decide, and withdraw:
+through three operations — deciding, re-deciding, and withdrawing:
 
 - **Deciding and re-deciding** (`applyDecision`, unchanged) — the initial decision and any
   later change to it are the same call: it records a (new) decision for the subject, followed
