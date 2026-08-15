@@ -7,7 +7,7 @@ import {
   MockGmailClient,
 } from "@inboxclinic/core/testing";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 
@@ -121,20 +121,23 @@ describe("App", () => {
     expect((await screen.findAllByText("deals@retailco.com")).length).toBeGreaterThan(0);
   });
 
-  it("disconnect returns to the signed-out landing and is remembered", async () => {
+  it("signing out returns to the landing, revokes the grant, and is remembered", async () => {
     localStorage.clear();
+    const onSignOut = vi.fn();
     const { gmail, store, backup } = setup();
-    render(<App gmail={gmail} store={store} backup={backup} />);
+    render(<App gmail={gmail} store={store} backup={backup} onSignOut={onSignOut} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
     await screen.findAllByText("owner@gmail.com");
 
-    // Disconnect lives inside the sidebar-foot account menu; open it first.
+    // Sign out lives inside the sidebar-foot account menu; open it first.
     fireEvent.click(screen.getAllByText("owner@gmail.com")[0]!.closest("summary")!);
-    fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
     expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
     expect(localStorage.getItem("inboxclinic.signedOut")).toBe("1");
+    // The grant is revoked, not just forgotten — see design-gmail-integration.md D1.
+    expect(onSignOut).toHaveBeenCalledOnce();
     localStorage.clear();
   });
 

@@ -57,8 +57,8 @@ async function bootstrap(): Promise<void> {
         gmail={gmail}
         store={store}
         backup={backup}
-        onDisconnect={() => {
-          auth.forget();
+        onSignOut={() => {
+          void auth.signOut();
         }}
       />
     </StrictMode>,

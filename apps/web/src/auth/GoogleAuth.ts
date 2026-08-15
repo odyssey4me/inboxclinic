@@ -15,7 +15,7 @@
 import { GOOGLE_SCOPES } from "@inboxclinic/core";
 import type { AccessToken } from "@inboxclinic/core";
 
-import { requestAccessToken } from "./gis";
+import { requestAccessToken, revokeAccessToken } from "./gis";
 
 /** Attempt renewal this long before the token actually expires (`auth.renewLeadMs`). */
 const RENEW_LEAD_MS = 5 * 60 * 1000;
@@ -64,9 +64,27 @@ export class GoogleAuth {
     return this.token !== null && this.token.expiresAt > Date.now();
   }
 
-  /** Drop the in-memory token. Nothing is persisted, so this is the whole of sign-out. */
-  forget(): void {
+  /**
+   * Sign out: revoke the grant at Google, then drop the in-memory token.
+   *
+   * Dropping the token locally is not enough. The grant would survive, so the app would
+   * still appear in the user's Google Account permissions and the next sign-in would
+   * return a token silently — which is not what "sign out" means to anyone. Revoking
+   * makes the control do what its label says.
+   *
+   * Never rejects, and clears local state even when revocation fails: someone signing
+   * out must end up signed out, whatever Google's endpoint does.
+   */
+  async signOut(): Promise<void> {
+    const token = this.token;
     this.token = null;
+    if (token === null) return;
+    try {
+      await revokeAccessToken(token.value);
+    } catch {
+      // Offline, or GIS unreachable. The local credential is already gone; the grant
+      // outliving the session is exactly where things stood before revocation existed.
+    }
   }
 
   /** Take the grant with a visible consent prompt. This is sign-in. */

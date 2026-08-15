@@ -76,10 +76,22 @@ Three bounds on it:
   optimisation for the common case, never a correctness assumption — every caller must
   still handle `GmailAuthExpired`.
 
-**Sign-out drops the token.** The grant is shared and outlives any one screen, so
-"Disconnect" clears it explicitly and cancels any queued background work; otherwise a
-renewable credential — and a pending backup upload — would survive a session the user
-believes has ended.
+**Sign-out revokes the grant.** There is one account control — **Sign out** — and it
+calls `google.accounts.oauth2.revoke()`, drops the in-memory token, and cancels any
+queued background work. Dropping the token alone would not be sign-out: the grant would
+survive, the app would still appear in the user's Google Account permissions, and the
+next sign-in would return a token with no prompt at all.
+
+The cost is a consent screen on reconnect, which is acceptable because **lapse already
+covers the passive case** — a walked-away-from tab loses its credential within the hour
+with no dialog and no ceremony. That leaves sign-out with only the deliberate "I meant
+to end this" intent, where revoking is what the word means. Local decisions are kept
+either way; sign-out is not a delete.
+
+Revocation is **fire-and-forget from the UI's point of view**: the app returns to the
+landing immediately rather than awaiting a network call, and a failed revoke still
+clears local state. Someone who clicked *Sign out* must end up signed out whatever
+Google's endpoint does.
 
 **Rationale:** Eliminates credential custody (architecture.md §2). PKCE is the
 Google-recommended flow for browser apps. Silent renewal costs nothing in privacy
@@ -631,6 +643,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-15 | **Disconnect becomes Sign out, and revokes (#247).** One account control instead of a "Disconnect" that only dropped the token locally: it now calls `google.accounts.oauth2.revoke()`, so the grant stops surviving the session and the app leaves the user's Google Account permissions. The reconnect consent screen is an acceptable cost because the *passive* case is already handled by the attended-session lapse (Decision 1) — sign-out is left with only the deliberate intent, where revoking is what the word means. Revocation is fire-and-forget: local state clears even when the call fails, so a user who signed out is signed out regardless. | Claude |
 | 2026-08-15 | **`gmail.readonly` dropped from the grant.** `gmail.modify` already covers every read the app performs (`users.getProfile`, `messages.list`, `messages.get?format=metadata`, `history.list`), so once the tiers were gone `gmail.readonly` became a subset of a scope requested in the same prompt — a restricted-scope line on the consent screen buying no capability. It was meaningful only while it could be granted *alone*. Decision 2's table and the capability table now name `gmail.modify` for the read paths; CONTRIBUTING's scope smell gained the subset case. | Claude |
 | 2026-08-15 | **Decision 1 extended: silent token renewal.** With consent consolidated to sign-in, the remaining interruption was hourly token expiry. The app now attempts a silent GIS token request (`prompt: ""`) `auth.renewLeadMs` before expiry, falling back to a visible full-scope re-auth when it fails. It adds no privacy cost — no refresh token, no new scope, nothing persisted — but it is bounded to **attended sessions**: hidden tabs and sessions idle past `auth.idleCapMs` **lapse** with a typed `SessionLapsed` error rather than renewing *or* prompting, so a forgotten tab neither holds a live Gmail token nor throws a dialog at an absent user. No timer-driven path may prompt: the automatic backup checks for an existing grant first and skips otherwise. Sign-out drops the shared token and cancels any queued upload. Silent renewal depends on third-party cookies to `accounts.google.com` (blocked by default in Safari/Firefox), so it is an optimisation and every caller still handles `GmailAuthExpired`. | Claude |
 | 2026-08-15 | **Decision 2 replaced: one consent at sign-in, covering every scope.** Incremental scope tiers are gone. The app produced up to three consent screens in a session (read-only at sign-in, `gmail.modify`/`gmail.settings.basic` on first enforcement, `drive.file` on enabling backup), each interrupting a task the user had already committed to — and the delay protected nothing, since signing in to Inbox Clinic *is* the decision to let it modify the mailbox. All scopes, `drive.file` included, are now requested in a single grant; re-consent happens only on token expiry or revocation. Minimality moves from *when* to *what* (`gmail.modify` not `gmail.full`, `drive.file` not `drive`). Knock-ons: the capability table's Tier column becomes a scope column; `getAccessToken` re-authenticates with the full set so a session cannot silently narrow; `GmailScopeMissing` is now a declined-scope condition, not an escalation trigger; the prior-decisions pass (Decision 7) no longer forces a second prompt to read filters. Follows architecture.md v3.3 §6. | Claude |

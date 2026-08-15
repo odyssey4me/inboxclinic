@@ -63,3 +63,21 @@ export async function requestAccessToken(
     client.requestAccessToken(options.silent === true ? { prompt: "" } : undefined);
   });
 }
+
+/**
+ * Revoke `accessToken` and the grant behind it, so the app disappears from the user's
+ * Google Account permissions and the next sign-in asks again.
+ *
+ * Resolves even when revocation fails: the caller is signing the user out, and a
+ * network error at Google must not leave them apparently signed in. The local token is
+ * dropped regardless — the worst case is a grant that outlives the session, which is
+ * where it stood before this existed.
+ */
+export async function revokeAccessToken(accessToken: string): Promise<void> {
+  const oauth2 = await waitForGis();
+  return new Promise((resolve) => {
+    oauth2.revoke(accessToken, () => {
+      resolve();
+    });
+  });
+}

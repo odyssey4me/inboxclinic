@@ -3,11 +3,12 @@ import { GOOGLE_SCOPES } from "@inboxclinic/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GoogleAuth, SessionLapsedError } from "./GoogleAuth";
-import { requestAccessToken } from "./gis";
+import { requestAccessToken, revokeAccessToken } from "./gis";
 
-vi.mock("./gis", () => ({ requestAccessToken: vi.fn() }));
+vi.mock("./gis", () => ({ requestAccessToken: vi.fn(), revokeAccessToken: vi.fn() }));
 
 const mockRequest = vi.mocked(requestAccessToken);
+const mockRevoke = vi.mocked(revokeAccessToken);
 
 /** A GIS token response with a controllable lifetime. */
 function tokenResponse(expiresIn: number): google.accounts.oauth2.TokenResponse {
@@ -31,6 +32,8 @@ function setVisibility(state: DocumentVisibilityState): void {
 describe("GoogleAuth", () => {
   beforeEach(() => {
     mockRequest.mockReset();
+    mockRevoke.mockReset();
+    mockRevoke.mockResolvedValue(undefined);
     setVisibility("visible");
   });
 
@@ -147,15 +150,34 @@ describe("GoogleAuth", () => {
     expect(mockRequest).toHaveBeenCalledOnce();
   });
 
-  it("drops the token on sign-out", async () => {
+  it("revokes the grant and drops the token on sign-out", async () => {
     mockRequest.mockResolvedValue(tokenResponse(3600));
+    mockRevoke.mockResolvedValue(undefined);
     const auth = new GoogleAuth("client-id");
     await auth.authenticate();
     expect(auth.hasLiveGrant()).toBe(true);
 
-    auth.forget();
+    await auth.signOut();
 
+    // Dropping it locally is not sign-out: the grant would survive and the next sign-in
+    // would return a token with no prompt at all.
+    expect(mockRevoke).toHaveBeenCalledWith("token-3600");
     expect(auth.hasLiveGrant()).toBe(false);
+  });
+
+  it("still signs out when revocation fails", async () => {
+    mockRequest.mockResolvedValue(tokenResponse(3600));
+    mockRevoke.mockRejectedValue(new Error("offline"));
+    const auth = new GoogleAuth("client-id");
+    await auth.authenticate();
+
+    await expect(auth.signOut()).resolves.toBeUndefined();
+    expect(auth.hasLiveGrant()).toBe(false);
+  });
+
+  it("signing out without a session does not call revoke", async () => {
+    await new GoogleAuth("client-id").signOut();
+    expect(mockRevoke).not.toHaveBeenCalled();
   });
 
   it("collapses concurrent callers into a single prompt", async () => {

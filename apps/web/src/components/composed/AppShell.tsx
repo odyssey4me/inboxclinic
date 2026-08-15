@@ -31,7 +31,7 @@ export interface AppShellProps {
   /** One-line result of the most recent refresh (e.g. "3 new senders"), or null. */
   syncSummary: string | null;
   /** Forget the session and return to the landing (local data is kept). */
-  onDisconnect: () => void;
+  onSignOut: () => void;
   error: string | null;
   /** Demo mode: show the demo banner with an exit action. */
   demo?: boolean;
@@ -118,8 +118,8 @@ function ErrorLine({ error }: { error: string }) {
   );
 }
 
-/** The account block shared by both shells' account areas: identity, layout, disconnect. */
-function AccountControls({ email, onDisconnect }: { email: string; onDisconnect: () => void }) {
+/** The account block shared by both shells' account areas: identity, layout, sign-out. */
+function AccountControls({ email, onSignOut }: { email: string; onSignOut: () => void }) {
   return (
     <>
       <p className="truncate text-xs text-muted">
@@ -128,10 +128,10 @@ function AccountControls({ email, onDisconnect }: { email: string; onDisconnect:
       <LayoutSwitch />
       <button
         type="button"
-        onClick={onDisconnect}
+        onClick={onSignOut}
         className="block text-left text-xs font-medium text-muted underline-offset-2 hover:text-block hover:underline"
       >
-        Disconnect
+        Sign out
       </button>
     </>
   );
@@ -186,7 +186,7 @@ function MobileShell({
   refreshing,
   lastSyncedAt,
   syncSummary,
-  onDisconnect,
+  onSignOut,
   onOpenFeedback,
   error,
   demo,
@@ -213,7 +213,7 @@ function MobileShell({
                 </span>
               </summary>
               <div className="absolute right-0 z-10 mt-1 w-64 space-y-3 rounded-md border border-line bg-surface p-4 shadow-sm">
-                <AccountControls email={email} onDisconnect={onDisconnect} />
+                <AccountControls email={email} onSignOut={onSignOut} />
               </div>
             </details>
           </div>
@@ -269,7 +269,7 @@ function DesktopShell({
   refreshing,
   lastSyncedAt,
   syncSummary,
-  onDisconnect,
+  onSignOut,
   onOpenFeedback,
   error,
   demo,
@@ -316,7 +316,7 @@ function DesktopShell({
                 </span>
               </summary>
               <div className="mt-3 space-y-3">
-                <AccountControls email={email} onDisconnect={onDisconnect} />
+                <AccountControls email={email} onSignOut={onSignOut} />
               </div>
             </details>
           </div>

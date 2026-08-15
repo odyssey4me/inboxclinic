@@ -34,6 +34,12 @@ declare global {
     }
 
     function initTokenClient(config: TokenClientConfig): TokenClient;
+
+    /**
+     * Revoke a token and the grant behind it. `done` receives a status object we do
+     * not act on: sign-out clears local state either way (Decision 1).
+     */
+    function revoke(accessToken: string, done?: () => void): void;
   }
 
   interface Window {

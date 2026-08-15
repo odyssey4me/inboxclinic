@@ -30,7 +30,7 @@ const OFFLINE_NOTICE = "Offline — Gmail sync paused; local data is available."
 /** Waitlist form URL; falls back to the repo issues page when unconfigured at build time. */
 const REQUEST_ACCESS_URL =
   import.meta.env.VITE_REQUEST_ACCESS_URL ?? "https://github.com/odyssey4me/inboxclinic/issues";
-/** Set on Disconnect so the local-first auto-render stays signed out until the next sign-in. */
+/** Set on sign-out so the local-first auto-render stays signed out until the next sign-in. */
 const SIGNED_OUT_KEY = "inboxclinic.signedOut";
 
 type View = "dashboard" | "workflow" | "analytics" | "settings";
@@ -72,8 +72,8 @@ export interface AppProps {
   demo?: boolean;
   /** Pre-set signed-in identity (demo mode seeds this so the shell renders immediately). */
   initialEmail?: string | null;
-  /** Drop the shared OAuth grant on Disconnect. Absent in demo mode (no real grant). */
-  onDisconnect?: () => void;
+  /** Revoke and drop the shared OAuth grant on sign-out. Absent in demo (no real grant). */
+  onSignOut?: () => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -111,7 +111,7 @@ function AppInner({
   backup,
   demo = false,
   initialEmail = null,
-  onDisconnect,
+  onSignOut,
 }: AppProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -190,22 +190,23 @@ function AppInner({
     }
   }, [gmail, store]);
 
-  // Forget the session and return to the landing (local data is kept). The token is
-  // in-memory only, but it does have to be dropped: the shared grant outlives any one
-  // screen, stays renewable while the tab is active, and a queued automatic backup
-  // would otherwise upload after the user believed the session had ended. The flag
-  // stops the local-first auto-render below from signing back in until they return.
-  const disconnect = useCallback(() => {
+  // Sign out and return to the landing; local decisions are kept. The UI updates
+  // immediately and does not await `onSignOut` — revoking the grant is a network call,
+  // and a user who clicked "Sign out" should not watch a spinner (or stay apparently
+  // signed in if Google is unreachable). Cancelling the queued backup first stops an
+  // upload from outliving the session it was scheduled in. The flag stops the
+  // local-first auto-render below from signing straight back in.
+  const signOut = useCallback(() => {
     if (demo) {
       window.location.search = "";
       return;
     }
     cancelPendingBackup();
-    onDisconnect?.();
+    onSignOut?.();
     if (typeof localStorage !== "undefined") localStorage.setItem(SIGNED_OUT_KEY, "1");
     setEmail(null);
     goTo("/");
-  }, [demo, goTo, onDisconnect]);
+  }, [demo, goTo, onSignOut]);
 
   // Deep links to an unknown path fall back to the home surface (the SPA fallback in
   // apps/web/public/_redirects already serves index.html for any path).
@@ -336,7 +337,7 @@ function AppInner({
       refreshing={syncing}
       lastSyncedAt={lastSyncedAt}
       syncSummary={syncSummary}
-      onDisconnect={disconnect}
+      onSignOut={signOut}
       error={error}
       demo={demo}
       onExitDemo={() => {
