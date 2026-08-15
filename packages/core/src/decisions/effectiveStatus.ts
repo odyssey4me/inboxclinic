@@ -8,7 +8,7 @@
  */
 
 import { registrableDomain } from "../domains/registrableDomain";
-import { isSubdomainOf } from "../domains/subtree";
+import { inDomainSubtree, isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
 import type { Store } from "../store";
 import type { Domain, Sender, TrustStatus } from "../store/types";
@@ -197,27 +197,35 @@ export interface BlockedDomainTarget {
  */
 export async function effectiveBlockedDomains(store: Store): Promise<BlockedDomainTarget[]> {
   const domains = await store.domains.query({ trustStatus: "blocked" });
+  if (domains.length === 0) return [];
   const byKey = await domainRulesByKey(store);
+  // Every target needs the senders in the subtree beneath it, and each sender's status is the
+  // same answer whichever target is asking — so load once and resolve once, rather than a query
+  // and a ladder walk per domain per sender.
+  const senders = await store.senders.query({});
+  const senderById = new Map(senders.map((sender) => [sender.id, sender]));
+  // Resolve each sender against its OWN records — its exact-domain record and every rule
+  // covering it. A sender under a block is not necessarily AT the blocked domain: a block
+  // covers its subtree, so resolving against the blocked domain as if it were the sender's
+  // exact domain would read the wrong record's status, scope and exception list (#244).
+  const blockedSenders = senders.filter(
+    (sender) =>
+      effectiveSenderStatus(
+        sender,
+        byKey.get(keyFor(sender.domain)),
+        coveringRulesFor(sender.domain, byKey),
+      ) === "blocked",
+  );
+  const blockedSenderIds = new Set(blockedSenders.map((sender) => sender.id));
+
   const targets: BlockedDomainTarget[] = [];
   for (const domain of domains) {
     const excludeAddresses: string[] = [];
     for (const email of domain.exceptionAddresses) {
-      const sender = await store.senders.get(keyFor(email));
-      if (sender === undefined) continue;
-      // Resolve each exception against its OWN records — its exact-domain record and every rule
-      // covering it, this block included. An exception is no longer necessarily an address AT
-      // this domain: a block covers its subtree, so a sender trusted at a subdomain records its
-      // carve-out here too (#244). Resolving those against `domain` as if it were their exact
-      // domain would read the wrong record's status, scope and exception list.
-      if (
-        effectiveSenderStatus(
-          sender,
-          byKey.get(keyFor(sender.domain)),
-          coveringRulesFor(sender.domain, byKey),
-        ) !== "blocked"
-      ) {
-        excludeAddresses.push(email);
-      }
+      const sender = senderById.get(keyFor(email));
+      // An exception is no longer necessarily an address at this domain either — a sender
+      // trusted at a subdomain records its carve-out on the block covering it (#244).
+      if (sender !== undefined && !blockedSenderIds.has(sender.id)) excludeAddresses.push(email);
     }
     // A domain block reaches the whole subtree (#210), so it also covers subdomains that are
     // their own `Domain` records carrying their own decisions. Carve out the ones the user has
@@ -234,13 +242,14 @@ export async function effectiveBlockedDomains(store: Store): Promise<BlockedDoma
       .sort();
     // The members the block still covers — the enumerate fallback's input when the carve-out
     // grows past what one filter's criteria can hold (#191).
-    const members = await store.senders.query({ domain: domain.domain });
-    const blockedMemberAddresses = members
-      .filter(
-        (sender) =>
-          effectiveSenderStatus(sender, domain, coveringRulesFor(sender.domain, byKey)) ===
-          "blocked",
-      )
+    //
+    // The whole SUBTREE, not an exact-name match, because that is what the block covers (#210).
+    // An exact-name query listed only the apex senders, so an overflowing domain compiled to a
+    // filter set that blocked none of its subdomains' mail going forward — while the sweep,
+    // which stays `*@domain` whatever form the filter takes, went on trashing that same mail.
+    // The block looked like it was working and had stopped (#249).
+    const blockedMemberAddresses = blockedSenders
+      .filter((sender) => inDomainSubtree(sender.domain, domain.domain))
       .map((sender) => sender.email);
     targets.push({ domain, excludeAddresses, excludeSubdomains, blockedMemberAddresses });
   }

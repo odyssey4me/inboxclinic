@@ -15,7 +15,7 @@ import { withCurrentFilterForm } from "./filterForm";
 import { planActions } from "./planActions";
 import { coveringRulesFor, effectiveSenderStatus } from "../decisions/effectiveStatus";
 import { registrableDomain } from "../domains/registrableDomain";
-import { isSubdomainOf } from "../domains/subtree";
+import { inDomainSubtree, isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import type {
@@ -247,9 +247,11 @@ export async function simulateEnforcement(
           // ...and the subdomains it no longer blocks either (#210).
           excludeSubdomains: prospectiveSubdomainExclusions(d),
           // The members the block still covers, so an overflowing carve-out previews the same
-          // enumerate fallback enforce would compile (#191).
-          blockedMemberAddresses: (sendersByDomain.get(d.domain.toLowerCase()) ?? [])
-            .filter((s) => !excluded.has(s.id))
+          // enumerate fallback enforce would compile (#191). The whole SUBTREE, as the block
+          // covers it and as `effectiveBlockedDomains` now lists it — an exact-name lookup
+          // previewed a smaller filter set than the apply would create (#249).
+          blockedMemberAddresses: senders
+            .filter((s) => inDomainSubtree(s.domain, d.domain) && !excluded.has(s.id))
             .map((s) => s.email),
         };
       });

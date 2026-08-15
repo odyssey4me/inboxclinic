@@ -250,6 +250,24 @@ describe("a domain-scope block covers its subtree (#210/#244)", () => {
     expect(await effectiveTrustedSenders(store)).toEqual([]);
   });
 
+  it("counts the whole subtree as members the block covers (#249)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(blockedDomain());
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("promo@example.com"));
+    await store.senders.put(senderBuilder("offers@email.example.com"));
+
+    // `blockedMemberAddresses` is what the enumerate fallback compiles when the carve-out
+    // overflows the criteria budget (#191). An exact-name member list would enumerate only the
+    // apex sender, so the overflowing domain would stop blocking its subdomains' mail — while
+    // the sweep, still `*@example.com`, went on trashing it.
+    const targets = await effectiveBlockedDomains(store);
+    expect(targets[0]?.blockedMemberAddresses.sort()).toEqual([
+      "offers@email.example.com",
+      "promo@example.com",
+    ]);
+  });
+
   it("does not reach a domain that merely shares a substring", async () => {
     const store = createInMemoryStore();
     // Named so both hazards are expressible in reserved names: `acme.test` blocked, with a

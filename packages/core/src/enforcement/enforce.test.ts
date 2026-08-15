@@ -241,6 +241,37 @@ describe("enforce", () => {
     expect(again.filtersDeleted).toBe(0);
   });
 
+  it("keeps blocking subdomain senders when the carve-out overflows to enumerate (#249)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("example.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        pendingActions: ["create_filter", "delete"],
+        exceptionAddresses: ["vip@example.com"],
+      }),
+    );
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("vip@example.com", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("promo@example.com"));
+    // Undecided, at an undecided subdomain — covered by the block only via the `*@` wildcard.
+    await store.senders.put(senderBuilder("offers@email.example.com"));
+    const gmail = new MockGmailClient([msgFrom("offers@email.example.com")]);
+
+    // A budget too small for the carve-out, so the domain degrades to the enumerate form: no
+    // `*@example.com` filter, one filter per still-blocked sender (#191).
+    const result = await enforce(gmail, store, { now: NOW, compile: { maxCriteriaChars: 10 } });
+
+    // The subdomain sender must be among them. Without it the block keeps sweeping this mail
+    // (the sweep stays `*@example.com` whatever form the filter takes) while blocking none of
+    // it going forward — so it looks like it is working and has stopped.
+    expect(gmail.createdFilters.map((f) => f.from).sort()).toEqual([
+      "offers@email.example.com",
+      "promo@example.com",
+    ]);
+    expect(result.messagesTrashed).toBe(1);
+  });
+
   it("is idempotent — a second run creates/deletes/modifies nothing", async () => {
     const store = createInMemoryStore();
     await store.senders.put(
@@ -372,7 +403,9 @@ describe("enforce", () => {
 
     expect(gmail.batchModifyCalls[0]?.edit).toEqual({ removeLabelIds: ["SPAM", "TRASH"] });
     expect(result.messagesRescued).toBe(1);
-    expect((await store.senders.get(senderBuilder("friend@good.test").id))?.spamMarkedCount).toBe(0);
+    expect((await store.senders.get(senderBuilder("friend@good.test").id))?.spamMarkedCount).toBe(
+      0,
+    );
   });
 
   it("does not rescue a domain-trusted sender that is an explicit block exception (#146)", async () => {
