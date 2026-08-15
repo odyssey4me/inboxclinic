@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-07-12
+> **Last Updated:** 2026-08-15
 
 ## Overview
 
@@ -159,17 +159,44 @@ trust score, category, decided-via) on each decision.
 **Context:** A trust/block/defer decision is not a one-off — a person changes their mind (a
 blocked newsletter becomes wanted; a trusted sender goes rogue).
 
-**Decision:** Any recorded decision can be **changed at any time** from a **Decisions** view.
-Re-deciding is the same `applyDecision(...)` over the store, followed by enforcement
-reconciliation: the durable blocked set is recomputed, so reversing a Block **removes** its
-native filter and reversing a Trust re-adds any warranted filter (enforcement is idempotent
-and reconciled from current state, not per-event — see design-gmail-integration.md Decision 5).
-A reversal may also **rescue affected mail from Trash** (Decision 7 and
-design-gmail-integration.md Decision 8).
+**Decision:** Any recorded decision can be **changed at any time** from a **Decisions** view,
+through either of two operations — decide/re-decide, and withdraw:
 
-**Rationale:** Trust is a living judgement; because filters already reconcile from the durable
-set on every sync, reversal needs no special path beyond re-recording the decision and offering
-to restore mail.
+- **Deciding and re-deciding** (`applyDecision`, unchanged) — the initial decision and any
+  later change to it are the same call: it records a (new) decision for the subject, followed
+  by enforcement reconciliation: the durable blocked set is recomputed, so reversing a Block
+  **removes** its native filter and reversing a Trust re-adds any warranted filter (enforcement
+  is idempotent and reconciled from current state, not per-event — see
+  design-gmail-integration.md Decision 5). A reversal may also **rescue affected mail from
+  Trash** (Decision 7 and design-gmail-integration.md Decision 8).
+- **Withdrawing** (`withdrawDecision`, #225) — a **third, distinct operation, not a variant of
+  re-deciding**: it clears the subject's own decision instead of replacing it, so the rule
+  above it (a domain or parent-domain rule) governs the subject again. The distinction is
+  load-bearing — without it, a subject decided individually can only be flipped between
+  trusted and blocked; it can never go back to simply *following* the broader rule, so the
+  natural sequence "trust this subdomain → later block the whole subtree → actually, include
+  that subdomain after all" would have no final step. Withdrawal always does **both** halves
+  together: it clears the subject's own decision record (`trustStatus`, `decisionScope`,
+  `decisionContext`, staged `pendingActions`) **and** removes the subject from every broader
+  rule's exception list (`exceptionAddresses[]` / `exceptionDomains[]`) it had carved out —
+  clearing only the record would leave an exception for a decision that no longer exists;
+  clearing only the exception would leave the subject overriding the rule it was meant to
+  rejoin. It generates **no prompt** (a subject a broader rule still covers is decided, just
+  not individually — prompting would re-ask a question the broader decision already answered,
+  #123; one that nothing covers becomes genuinely undecided and `generatePrompts` picks it up
+  on the next scan without any special-casing here) and writes **no history entry** (the
+  decision record is being cleared, so there is nothing left for an entry to describe). Like
+  `applyDecision`, it is **local-only** — the caller reconciles Gmail afterwards, since the
+  effective status can move in either direction. This is the "rejoin the rule" control
+  described in Decision 9 point 6, surfaced as a panel in `DomainDetail` and a line in
+  `SenderDetail`.
+
+**Rationale:** Trust is a living judgement. Because filters already reconcile from the durable
+set on every sync, re-deciding needs no special path beyond re-recording the decision and
+offering to restore mail. But re-deciding and withdrawing answer different questions — "what do
+I want instead?" versus "stop deciding this, let the rule above it apply" — and only a distinct
+operation keeps a subject from being trapped in individual decisions forever once it has made
+one.
 
 ### Decision 7: Impact preview & explicit confirmation before applying
 
@@ -692,6 +719,7 @@ unchanged** — only the execution location (server → device) and the interfac
 |------|--------|--------|
 | 2026-08-15 | **Decision 9 — a parent rule spares only the subdomains it recorded (#250).** Enforcement was carving any raw-trusted subdomain out of a parent-domain block, contradicting this decision's own test that a parent rule outranks a subdomain trust it has not carved out. Decision 9 stands as written and the filter changed to match: the carve-out now follows `exceptionDomains`, keeping "the user carved this subdomain out of the rule" distinct from "this subdomain carries a trust decision predating the rule". `effectiveTrustedSenders` and `effectiveBlockedDomains(...).excludeSubdomains` are now asserted together so the two halves cannot drift apart again. | Claude |
 | 2026-08-15 | **Decision 2 — a domain-scope BLOCK is a broader rule over its whole subtree (#244).** `*@domain` reaches everything beneath the domain (#210), but neither the write side nor resolution modelled that: trusting `statements@email.example.com` under an `example.com` block recorded a carve-out nowhere, so the sweep and the filter went on trashing the sender the user had just protected, and `effectiveSenderStatus` reported it `trusted` while its mail was swept. `broaderRulesFor` now records the exception on **every** block covering the sender (each compiles to its own filter and its own sweep, so one carve-out is not enough), and the new `coveringRulesFor` returns the rules reaching a sender from above — parent-domain rules and domain-scope blocks alike — with `effectiveSenderStatus` applying the nearest one it is not carved out of. A domain-scope **trust** is deliberately not such a rule: it compiles to nothing, so it has no reach, and treating it as covering the subtree would have trust-rescue pull subtree mail out of Trash on no evidence. Chose this over carving out every trusted sender in the subtree (unbounded against the criteria budget, and would leave a subtree sender more protected than an apex one) and over letting an address decision decide its subdomain (would spare senders the user has never seen). `simulate.ts` now resolves the preview through the same two helpers over a prospective copy of the domain records, rather than re-deriving the ladder — the drift that #148/#161/#192/#222 each closed one site at a time. | Claude |
+| 2026-08-15 | **Decision 6 — document withdrawal as a third operation (#236).** `withdrawDecision` (#225, shipped in #226, referenced by Decision 9 point 6) had no home in this doc — only the module comment explained it. Extended Decision 6 to state that withdrawing is distinct from re-deciding: it clears the subject's own decision so the rule above it governs again, rather than recording a new decision, so a subject can return to *following* a broader rule instead of only ever being flipped between trusted and blocked. Documentation-only; no behaviour change — the operation has been implemented, tested, and surfaced in `DomainDetail` and `SenderDetail` since #229. | Claude |
 | 2026-08-14 | **Decision 9 — the breadth statement extends to ordinary domain decisions (#210).** `*@domain` spans the subtree, so "Whole domain" was a decision that reached senders the user never named and said nothing about it. Point 6's state-it-before-deciding principle now covers the plain domain scope: the scope label carries the subdomain count, and selecting it lists the domains covered, the senders at each, and the subdomains enforcement will spare because they were separately decided. Computed by `domainBlockCoverage`, deliberately narrower than `parentDomainCoverage` — the latter's prefix-sharing siblings are evidence about the **bare** `from:<domain>` form (#181), and the `*@domain` form measured in #210 spanned the subtree only, so claiming siblings here would assert a reach nothing has shown. Panel appears when there is something to say (an observed subdomain caught, or one spared), never merely to restate the label. | Claude |
 | 2026-08-09 | **Decision 9 build 2/4 landed (#184):** `resolveEffectiveDecision` resolves the parent-domain rule across the ladder, broadest-first, each rule applying unless the narrower subject is carved out of it. Threaded through the effective-status helpers, `generatePrompts` and the Dashboard, which now share one resolution instead of hand-rolling it. On the write side, `applyDecision` records an address or subdomain decided under a broader rule as an exception **on that rule**, a parent decision covers the whole subtree rather than exact-name members, and batch apply order derives from `SCOPE_SPECIFICITY` so a new scope cannot be given an accidental order. | Claude |
 | 2026-08-09 | **Decision 9 PSL churn caveat (#183 review):** recorded that PRIVATE-section entries are company-submitted and can appear or disappear on a routine `tldts` bump, regrouping a standing `parentDomain` rule with no code change — accepted as the lesser risk, with the consequence that downstream builds must derive a rule's eTLD+1 on read rather than freeze it as a key. | Claude |
