@@ -278,12 +278,50 @@ them continuously (architecture.md §6):
    stayed blocked. Subdomain wildcards count against the criteria budget like any other term,
    so they can trigger the same enumerate fallback (point 8, #191).
 
+10. **What `from:` actually matches, measured (#252, 2026-08-15).** Four properties, probed
+   read-only against a real account with `./scripts/qa-gmail-probe.py psl`. They constrain
+   which criterion form a rule may safely use:
+
+   - **Domain matching is label-anchored, not substring.** `from:rospect.co.uk` returned
+     **nothing** while `from:prospect.co.uk` returned 113 messages. The dot-boundary model
+     `domains/subtree.ts` implements is therefore the same one Gmail applies — a block cannot
+     sweep a lookalike that merely shares a suffix string.
+   - **A rule keyed on a registrable domain stays inside it.** `from:prospect.co.uk` returned
+     one host, though 31 distinct tenants under `co.uk` had mail in the same mailbox. The
+     criterion the compiler emits does not cross a public-suffix boundary.
+   - **A bare `from:<token>` also matches the DISPLAY NAME.** `from:prospect` returned
+     `autoresponder@rightmove.com`, where that token appears nowhere in the address. Only the
+     display name is left to have matched it.
+   - **`*@<domain>` is anchored to the domain and does not.** `from:*@prospect.co.uk` returned
+     only `prospect.co.uk`. For a *full domain* token the two forms agreed everywhere tested
+     (`rightmove.com`, `vodafone.co.uk`, `co.uk`, `com`, `net`) — the difference shows only
+     when the token can appear somewhere other than the domain.
+
+   The last two matter for the **parent-domain** form below, which is bare by construction:
+   a bare `from:<eTLD+1>` matches mail whose *display name* contains that domain, catching
+   an impersonator (arguably wanted) but also a legitimate aggregator whose newsletter is
+   titled after the domain (not wanted). `*@<eTLD+1>` carries no such property, and since
+   #210 established that `*@domain` spans the subtree too, the reason for preferring the bare
+   form no longer holds. **Not changed here** — see #257.
+
+   A query for a *bare public suffix* sweeps every tenant beneath it (`from:*@com` reached 70
+   distinct organisations). That is not reachable by any compiled rule — `registrableDomain`
+   returns null for a public suffix, asserted across all 10,231 rules by
+   `realSuffixes.analysis.test.ts` — but it measures what misconfiguring `allowPrivateDomains`
+   would cost.
+
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
 
-> **Parent-domain filter form (#136, ratified — #181 spike verified 2026-07-19).** A parent-domain
-> rule (design-trust-decisions.md Decision 9) compiles to a **single bare-domain criterion
-> `from:<eTLD+1>`** (no `*@` anchor). #181 confirmed on a real account: `from:apple.com` matched
+> **Parent-domain filter form (#136, ratified — #181 spike verified 2026-07-19).**
+> **Its premise is now contested — see #257 before building #185.** The bare form was chosen
+> because `*@domain` was believed to be an *exact* match that could not reach subdomains, which
+> #210 disproved; and point 10 measured that a bare criterion additionally matches the sender's
+> **display name**, which `*@` does not. Both facts point at `*@<eTLD+1>`. Recorded here rather
+> than re-decided, since no parent rule can be created by a user yet.
+>
+> A parent-domain rule (design-trust-decisions.md Decision 9) compiles to a **single bare-domain
+> criterion `from:<eTLD+1>`** (no `*@` anchor). #181 confirmed on a real account: `from:apple.com` matched
 > `@apple.com` **and every subdomain** (`id.apple.com`, `email.apple.com`, …), with no incidental
 > over-match, and a subdomain query (`from:id.apple.com`) is a **precise subset** — so the parent
 > filter covers current *and future* subdomains and an excepted subdomain carves out cleanly via
@@ -658,6 +696,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-15 | **Decision 5 point 10 — what `from:` actually matches, measured (#252).** Read-only probe against a real account: domain matching is **label-anchored, not substring** (`from:rospect.co.uk` returned nothing where `from:prospect.co.uk` returned 113 messages), so the dot-boundary model in `domains/subtree.ts` is the one Gmail applies; a rule keyed on a registrable domain **stays inside it** (`from:prospect.co.uk` returned one host though 31 tenants under `co.uk` had mail); a bare `from:<token>` **also matches the display name** (`from:prospect` returned `autoresponder@rightmove.com`, where the token is nowhere in the address); and `*@<domain>` is anchored to the domain and does not. For full-domain tokens the two forms agreed everywhere tested, so the difference is latent rather than observed — but the parent-domain form is bare by construction, so it inherits it, which is now #257. Also measured: a query for a bare public suffix sweeps every tenant beneath it (`from:*@com` reached 70 organisations), unreachable by any compiled rule but a measure of what misconfiguring `allowPrivateDomains` would cost. | Claude |
 | 2026-08-15 | **Decision 5 point 9 — which subdomains a block spares depends on its scope (#250).** The carve-out read raw `trustStatus` for every blocked target, so a **parentDomain** rule spared a subdomain carrying an older trust it had never carved out — while `effectiveSenderStatus` reported that subdomain's senders as blocked, per Decision 9's "the parent rule is the later, broader word". Status said blocked, the filter and the sweep spared the mail: the #244 divergence pointing the other way. A parentDomain rule now carves out only the subdomains in its own `exceptionDomains`, which `applyDomainDecision` already writes when a subdomain is decided under the rule; **domain**-scope behaviour from #210/#244 is unchanged. Chose this over making a trusted subdomain step aside from a parent rule too, which would have been simpler to state but reverses Decision 9 and re-opens part of the future-subdomain leak #136 exists to close. | Claude |
 | 2026-08-15 | **Decision 5 point 2 — the exact-domain enumerate form covers the subtree (#249).** The overflow spec said an exact-domain rule has "no sub-structure to keep" and enumerated one filter per still-blocked observed sender *at that domain* — a premise point 9 had already disproved: `*@domain` spans the subtree. So an overflowing domain compiled to a filter set that blocked none of its subdomains' mail going forward, while the sweep — which stays `*@domain` whatever form the filter takes — went on trashing that same mail. The block looked like it was working and had stopped. `blockedMemberAddresses` is now the whole subtree's still-blocked senders (`inDomainSubtree`), in `effectiveBlockedDomains` and in the `simulate` mirror. Still bounded by observed senders, and the "covers what has been seen so far" caveat is unchanged. | Claude |
 | 2026-08-15 | **Disconnect becomes Sign out, and revokes (#247).** One account control instead of a "Disconnect" that only dropped the token locally: it now calls `google.accounts.oauth2.revoke()`, so the grant stops surviving the session and the app leaves the user's Google Account permissions. The reconnect consent screen is an acceptable cost because the *passive* case is already handled by the attended-session lapse (Decision 1) — sign-out is left with only the deliberate intent, where revoking is what the word means. Revocation is fire-and-forget: local state clears even when the call fails, so a user who signed out is signed out regardless. | Claude |
