@@ -95,6 +95,32 @@ describe("healthInputFromSenders", () => {
       pending: 0,
     });
   });
+
+  it("counts a sender covered by a parent-domain rule as decided, not pending (#251)", () => {
+    // example.com carries a parentDomain-scope block; news.example.com has no domain record of
+    // its own, and its sender is still raw-pending — only the covering rule makes it decided.
+    const senders = [senderBuilder("promo@news.example.com", { trustStatus: "pending" })];
+    const domains = [
+      domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "parentDomain" }),
+    ];
+    expect(healthInputFromSenders(senders, domains)).toMatchObject({
+      trusted: 0,
+      blocked: 1,
+      pending: 0,
+    });
+  });
+
+  it("counts a sender under a domain-scope block's subtree as decided, not pending (#244, #251)", () => {
+    // example.com is blocked at domain scope, which reaches its subtree (#210/#244) even though
+    // email.example.com has no domain record and its sender is raw-pending.
+    const senders = [senderBuilder("statements@email.example.com", { trustStatus: "pending" })];
+    const domains = [domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" })];
+    expect(healthInputFromSenders(senders, domains)).toMatchObject({
+      trusted: 0,
+      blocked: 1,
+      pending: 0,
+    });
+  });
 });
 
 describe("estimatedTimeSaved", () => {

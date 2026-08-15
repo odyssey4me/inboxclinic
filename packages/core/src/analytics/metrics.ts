@@ -6,7 +6,7 @@
  * are the coverage-gated logic the Analytics view renders; the UI re-derives nothing.
  */
 
-import { effectiveSenderStatus } from "../decisions/effectiveStatus";
+import { coveringRulesFor, effectiveSenderStatus } from "../decisions/effectiveStatus";
 import { keyFor } from "../keys";
 import type { Domain, Sender, SenderCategory, TrustStatus } from "../store/types";
 
@@ -68,7 +68,9 @@ export function inboxHealthScore(input: InboxHealthInput): number {
 /**
  * Build the health input from a sender set (mean read rate over those that have one).
  * Counts resolve EFFECTIVE status against `domains`, so a sender overridden by its domain's
- * decision is counted by its effective trust — not its raw address status (#146).
+ * decision is counted by its effective trust — not its raw address status (#146) — and against
+ * the rules covering it from above (a parent-domain rule or an ancestor domain block), so a
+ * sender decided one level up is counted as decided rather than pending (#251).
  */
 export function healthInputFromSenders(senders: Sender[], domains: Domain[]): InboxHealthInput {
   const byKey = new Map(domains.map((d) => [keyFor(d.domain), d]));
@@ -78,7 +80,11 @@ export function healthInputFromSenders(senders: Sender[], domains: Domain[]): In
   let readSum = 0;
   let readCount = 0;
   for (const sender of senders) {
-    const status = effectiveSenderStatus(sender, byKey.get(keyFor(sender.domain)));
+    const status = effectiveSenderStatus(
+      sender,
+      byKey.get(keyFor(sender.domain)),
+      coveringRulesFor(sender.domain, byKey),
+    );
     if (status === "trusted") trusted += 1;
     else if (status === "blocked") blocked += 1;
     else pending += 1;
