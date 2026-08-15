@@ -2,7 +2,7 @@
 
 > **Status:** Approved
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-08-15
 
 This roadmap defines the build path for the **client-only, local-first PWA**
 (see [architecture.md](architecture.md)). It supersedes
@@ -36,6 +36,7 @@ changes before implementing — design-doc changes are major changes). All docs 
 | M6 Analytics | design-frontend.md (analytics views) |
 | M7 Backup & restore | design-backup-restore.md, design-local-store-schema.md |
 | M8 Access & release | design-frontend.md (settings) |
+| M9 Consolidated consent | design-gmail-integration.md (Decisions 1–2), design-backup-restore.md (Decisions 2 & 4) |
 
 ---
 
@@ -106,21 +107,22 @@ empty static PWA shell.
 - README: hosted + **self-host** instructions; `odyssey4me/inboxclinic` remote.
 - **Exit:** a fresh fork can build, deploy, and onboard allowlisted users.
 
-### M9 — Consolidated consent & default-on backup — 🚧 IN PROGRESS
+### M9 — Consolidated consent & default-on backup — ✅ COMPLETE
 **Goal:** ask for permission once, and protect the user's decisions without being asked.
-**Review first:** [design-gmail-integration.md](design-gmail-integration.md) Decision 2,
-[design-backup-restore.md](design-backup-restore.md) Decisions 2 & 4.
-- Replace incremental scope tiers with a **single grant at sign-in** covering
+- Incremental scope tiers replaced by a **single grant at sign-in** covering
   `gmail.modify`, `gmail.settings.basic`, and `drive.file` (architecture v3.3 §6).
-  `gmail.readonly` is dropped — a subset of `gmail.modify` in the same grant buys
-  nothing. Remove the scope-escalation machinery; one token, shared by the Gmail and
-  Drive adapters.
+  `gmail.readonly` dropped — a subset of `gmail.modify` in the same grant buys nothing.
+  Scope-escalation machinery removed; one token, shared by the Gmail and Drive adapters.
 - Re-authentication on token expiry requests the **same full set**, so a session cannot
-  silently come back narrower than it started.
+  silently come back narrower than it started. Silent renewal (GIS `prompt: ""`) removes
+  the hourly interruption, bounded to **attended sessions**: a hidden or idle session
+  lapses rather than renewing *or* prompting, and no timer-driven path may prompt.
+- **Sign out** replaces "Disconnect" and **revokes** the grant, so the credential does
+  not outlive the session the user ended.
 - Backup **on by default** (architecture v3.3 §5/§8), backing up automatically and
   best-effort after a decision batch (debounced), with "Back up now" retained.
 - **Exit:** a full session — sign in, scan, decide, enforce, back up — shows the user
-  exactly **one** consent screen.
+  exactly **one** consent screen (asserted in `consolidatedConsent.test.ts`).
 
 ---
 
