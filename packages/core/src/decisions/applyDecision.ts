@@ -26,6 +26,7 @@
 import { recordDailyAnalytics } from "../analytics/record";
 import { computeTrustScore } from "../scoring/trustScore";
 import { registrableDomain } from "../domains/registrableDomain";
+import { isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
 import { SCOPE_SPECIFICITY } from "./resolveEffectiveDecision";
 import { senderToSnapshot } from "../scoring/senderSnapshot";
@@ -112,12 +113,16 @@ async function deferPrompt(store: Store, id: string, now: number): Promise<boole
 }
 
 /**
- * The broader rules currently covering a sender domain: its own record when domain-scoped,
- * and the registrable domain's record when that carries a parent-domain rule.
+ * The broader rules currently covering a sender domain: its own record when domain-scoped, the
+ * registrable domain's record when that carries a parent-domain rule, and any **domain-scope
+ * block above it in the subtree**.
  *
- * A narrower decision made under either must be recorded as an exception on it, or the
+ * A narrower decision made under any of them must be recorded as an exception on it, or the
  * broader rule silently overrides the decision the user just made — the failure #167 fixed
  * for domains, which a parent rule reintroduces one level up.
+ *
+ * Every level is written, not just the nearest: each blocked domain compiles to its own filter
+ * and its own sweep, so a sender excepted from only some of them is still trashed by the rest.
  */
 async function broaderRulesFor(store: Store, senderDomain: string): Promise<Domain[]> {
   const rules: Domain[] = [];
@@ -135,6 +140,19 @@ async function broaderRulesFor(store: Store, senderDomain: string): Promise<Doma
   if (registrable !== null && keyFor(registrable) !== keyFor(senderDomain)) {
     const parent = await store.domains.get(keyFor(registrable));
     if (parent?.decisionScope === "parentDomain") rules.push(parent);
+  }
+
+  // A domain-scope BLOCK reaches its whole subtree, because `*@domain` is not an exact match
+  // (#210, measured). So it is a broader rule over senders at its subdomains too, even where
+  // those subdomains are undecided records of their own — and without this, trusting
+  // `statements@email.monzo.com` under a `monzo.com` block recorded no carve-out anywhere,
+  // and the sweep and the filter went on trashing the sender the user had just protected
+  // (#244). A domain-scope *trust* is not such a rule: it compiles to nothing, so there is no
+  // reach to carve out of.
+  for (const blocked of await store.domains.query({ trustStatus: "blocked" })) {
+    if (blocked.decisionScope === "domain" && isSubdomainOf(senderDomain, blocked.domain)) {
+      rules.push(blocked);
+    }
   }
   return rules;
 }

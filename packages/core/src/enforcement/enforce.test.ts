@@ -2,6 +2,8 @@
 import { describe, expect, it } from "vitest";
 
 import { enforce, reconcileNativeFilters, FILTER_SYNC_KEY } from "./enforce";
+import { applyDecision } from "../decisions/applyDecision";
+import { keyFor } from "../keys";
 import {
   createInMemoryStore,
   domainBuilder,
@@ -184,6 +186,56 @@ describe("enforce", () => {
     expect(result.messagesTrashed).toBe(2);
 
     // Idempotent: the wildcard exclusion round-trips through the filter read-back.
+    const again = await enforce(gmail, store, { now: NOW });
+    expect(again.filtersCreated).toBe(0);
+    expect(again.filtersDeleted).toBe(0);
+  });
+
+  it("spares a trusted sender at an undecided subdomain of a blocked domain (#244)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("example.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        pendingActions: ["create_filter", "delete"],
+      }),
+    );
+    // The subdomain itself was never decided — so the block still covers it, and only the one
+    // address the user explicitly trusts below is carved out.
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("statements@email.example.com"));
+    await store.senders.put(senderBuilder("offers@email.example.com"));
+
+    // The decision goes through `applyDecision`, because the gap this covers is in the RECORDING:
+    // the block covers the subtree, so trusting an address under it has to be written back as an
+    // exception on the block. Seeding `exceptionAddresses` by hand would test the carve-out that
+    // already worked and miss the bug entirely.
+    await applyDecision(store, {
+      subjectId: keyFor("statements@email.example.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    const gmail = new MockGmailClient([
+      msgFrom("promo@example.com"),
+      msgFrom("statements@email.example.com"),
+      msgFrom("offers@email.example.com"),
+    ]);
+
+    const result = await enforce(gmail, store, { now: NOW });
+
+    expect(gmail.createdFilters).toEqual<FilterSpec[]>([
+      {
+        from: "*@example.com",
+        excludeFrom: "statements@email.example.com",
+        addLabelIds: ["TRASH"],
+        removeLabelIds: ["INBOX"],
+      },
+    ]);
+    // The apex and the undecided subdomain's other sender are swept; the trusted address is not.
+    expect(result.messagesTrashed).toBe(2);
+
     const again = await enforce(gmail, store, { now: NOW });
     expect(again.filtersCreated).toBe(0);
     expect(again.filtersDeleted).toBe(0);

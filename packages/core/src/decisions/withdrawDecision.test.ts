@@ -165,6 +165,33 @@ describe("withdrawDecision", () => {
     expect((await store.domains.get(keyFor("example.com")))?.exceptionAddresses).toEqual([]);
   });
 
+  it("clears a carve-out held by a domain block covering the subtree (#244)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    // Undecided, so the carve-out lives only on the block above it — nowhere else to look.
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("statements@email.example.com"));
+    await applyDecision(store, {
+      subjectId: keyFor("statements@email.example.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    const result = await withdrawDecision(store, {
+      subjectId: keyFor("statements@email.example.com"),
+      scope: "address",
+    });
+
+    // The sender falls back under the block it was carved out of, and the carve-out goes with
+    // the decision — leaving it would spare a sender that no longer has a decision to spare.
+    expect(result.clearedExceptionsOn).toEqual(["example.com"]);
+    expect((await store.domains.get(keyFor("example.com")))?.exceptionAddresses).toEqual([]);
+    expect(result.status).toBe("blocked");
+  });
+
   it("throws for a subject that does not exist", async () => {
     const store = createInMemoryStore();
     await expect(

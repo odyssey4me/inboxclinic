@@ -143,15 +143,17 @@ describe("parent-domain rules (#184)", () => {
     expect(await effectiveBlockedSenders(store)).toEqual([]);
   });
 
-  it("ignores a same-name record that is NOT scoped to the subtree", async () => {
+  it("does not let a domain-scope TRUST reach the subtree", async () => {
     const store = createInMemoryStore();
-    // A decision about example.com itself, not a rule over everything beneath it.
+    // A trust about example.com itself. Unlike a block it compiles to no rule at all, so it has
+    // no reach to model — and treating it as covering the subtree would have trust-rescue pull
+    // subtree mail back out of Trash on no evidence.
     await store.domains.put(
-      domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+      domainBuilder("example.com", { trustStatus: "trusted", decisionScope: "domain" }),
     );
     await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
 
-    expect(await effectiveBlockedSenders(store)).toEqual([]);
+    expect(await effectiveTrustedSenders(store)).toEqual([]);
   });
 
   it("outranks an already-decided APEX sender's own decision via effectiveBlockedDomains (#222)", async () => {
@@ -166,5 +168,99 @@ describe("parent-domain rules (#184)", () => {
     expect(targets).toHaveLength(1);
     expect(targets[0]?.excludeAddresses).toEqual([]);
     expect(targets[0]?.blockedMemberAddresses).toEqual(["ceo@example.com"]);
+  });
+});
+
+describe("a domain-scope block covers its subtree (#210/#244)", () => {
+  /** `example.com` blocked as an exact-domain decision — the shape #244 is about. */
+  const blockedDomain = (overrides: Partial<Domain> = {}): Domain =>
+    domainBuilder("example.com", {
+      trustStatus: "blocked",
+      decisionScope: "domain",
+      ...overrides,
+    });
+
+  it("covers a sender at an undecided subdomain, as the filter and the sweep do", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(blockedDomain());
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    // Trusted before the block, and never recorded as an exception to it — so the later,
+    // broader decision is the one that stands, exactly as it does for an apex sender (#222).
+    await store.senders.put(
+      senderBuilder("statements@email.example.com", { trustStatus: "trusted" }),
+    );
+
+    expect(await effectiveTrustedSenders(store)).toEqual([]);
+  });
+
+  it("steps aside for an address it records as an exception", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      blockedDomain({ exceptionAddresses: ["statements@email.example.com"] }),
+    );
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    await store.senders.put(
+      senderBuilder("statements@email.example.com", { trustStatus: "trusted" }),
+    );
+
+    const trusted = await effectiveTrustedSenders(store);
+    expect(trusted.map((s) => s.email)).toEqual(["statements@email.example.com"]);
+
+    // ...and that exception reaches the filter and the sweep as a carve-out term.
+    const targets = await effectiveBlockedDomains(store);
+    expect(targets[0]?.excludeAddresses).toEqual(["statements@email.example.com"]);
+  });
+
+  it("steps aside for a subdomain separately trusted, matching the `*@sub` carve-out", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(blockedDomain());
+    await store.domains.put(
+      domainBuilder("email.example.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    await store.senders.put(
+      senderBuilder("statements@email.example.com", { trustStatus: "pending" }),
+    );
+
+    // Enforcement carves the subdomain out as `*@email.example.com`, so the status has to agree
+    // — reading this sender as blocked while its mail is spared is the divergence #244 closes.
+    const trusted = await effectiveTrustedSenders(store);
+    expect(trusted.map((s) => s.email)).toEqual(["statements@email.example.com"]);
+    expect((await effectiveBlockedDomains(store))[0]?.excludeSubdomains).toEqual([
+      "email.example.com",
+    ]);
+  });
+
+  it("resolves the nearest block the sender is not excepted from", async () => {
+    const store = createInMemoryStore();
+    // Excepted from the nearer block, but the broader one was decided later and never carved
+    // this sender out — so it still covers it, and its filter still sweeps the mail.
+    await store.domains.put(blockedDomain());
+    await store.domains.put(
+      domainBuilder("email.example.com", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["statements@email.example.com"],
+      }),
+    );
+    await store.senders.put(
+      senderBuilder("statements@email.example.com", { trustStatus: "trusted" }),
+    );
+
+    expect(await effectiveTrustedSenders(store)).toEqual([]);
+  });
+
+  it("does not reach a domain that merely shares a suffix", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(blockedDomain());
+    // Neither is under `example.com`: one is a longer registrable domain, the other a
+    // spoofable substring match. The boundary is a label, never a substring.
+    await store.senders.put(senderBuilder("promo@example.com.au", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("promo@notexample.com", { trustStatus: "trusted" }));
+
+    const trusted = await effectiveTrustedSenders(store);
+    expect(trusted.map((s) => s.email).sort()).toEqual([
+      "promo@example.com.au",
+      "promo@notexample.com",
+    ]);
   });
 });

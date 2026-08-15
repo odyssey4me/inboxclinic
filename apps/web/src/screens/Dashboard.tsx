@@ -2,6 +2,7 @@
 import {
   applyDecision,
   computeTrustScore,
+  coveringRulesFor,
   enforce,
   learnPriorDecisions,
   effectiveSenderStatus,
@@ -229,10 +230,11 @@ export function Dashboard({
   // sender's registrable domain rather than an exact name match.
   const domainsByKey = useMemo(() => new Map(domains.map((d) => [keyFor(d.domain), d])), [domains]);
 
-  // A domain-scope decision covers its members (design-trust-decisions.md Decision 2), and a
-  // parent-domain rule covers a whole subtree (Decision 9), without rewriting their sender
-  // records — so resolve each sender's *effective* status for the sender surface, or a
-  // sender covered by either would still read "pending" here.
+  // A domain-scope decision covers its members, and a domain-scope BLOCK covers its whole
+  // subtree (design-trust-decisions.md Decision 2); a parent-domain rule covers a subtree by
+  // design (Decision 9). None of them rewrite their sender records, so resolve each sender's
+  // *effective* status for the sender surface, or a sender covered by any of them would still
+  // read "pending" here.
   const effectiveStatusById = useMemo(() => {
     const map = new Map<string, TrustStatus>();
     for (const s of senders) {
@@ -241,7 +243,7 @@ export function Dashboard({
         effectiveSenderStatus(
           s,
           domainsByKey.get(keyFor(s.domain)),
-          parentDomainRuleFor(s.domain, domainsByKey),
+          coveringRulesFor(s.domain, domainsByKey),
         ),
       );
     }

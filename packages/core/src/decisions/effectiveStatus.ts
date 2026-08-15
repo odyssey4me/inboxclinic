@@ -45,28 +45,82 @@ export function parentDomainRuleFor(
   return rule?.decisionScope === "parentDomain" ? rule : undefined;
 }
 
+/** How many dot-separated labels a host has — the depth that orders ancestors by nearness. */
+const labelCount = (host: string): number => host.split(".").length;
+
 /**
- * The effective trust status of a sender, resolving the parent-domain rule, the exact-domain
- * override, and address exceptions (design-trust-decisions.md Decisions 2 and 9).
+ * Every rule that covers `senderDomain` **from above**, nearest ancestor first.
+ *
+ * Two kinds of record reach into a subtree, and a sender can sit under both:
+ *
+ * - a **parent-domain rule** on the registrable domain (Decision 9), which spans the subtree
+ *   by design; and
+ * - a **domain-scope block**, which spans it by consequence — `*@domain` is not an exact
+ *   match, so its filter and its sweep act on everything beneath it (#210, measured). A
+ *   domain-scope *trust* is deliberately not included: it compiles to no rule at all, so it
+ *   has no reach to model, and treating it as covering the subtree would have trust-rescue
+ *   pull subtree mail out of Trash on no evidence.
+ *
+ * Sorted by label depth so the **nearest** rule is considered first — most-specific-wins,
+ * the same ordering `SCOPE_SPECIFICITY` encodes across scopes.
+ */
+export function coveringRulesFor(
+  senderDomain: string,
+  domainsByKey: ReadonlyMap<string, DomainRule>,
+): DomainRule[] {
+  const rules: DomainRule[] = [];
+  const parentRule = parentDomainRuleFor(senderDomain, domainsByKey);
+  if (parentRule !== undefined) rules.push(parentRule);
+  for (const candidate of domainsByKey.values()) {
+    if (
+      candidate.decisionScope === "domain" &&
+      candidate.trustStatus === "blocked" &&
+      isSubdomainOf(senderDomain, candidate.domain)
+    ) {
+      rules.push(candidate);
+    }
+  }
+  return rules.sort((a, b) => labelCount(b.domain) - labelCount(a.domain));
+}
+
+/**
+ * The effective trust status of a sender, resolving the rules covering it from above, the
+ * exact-domain override, and address exceptions (design-trust-decisions.md Decisions 2 and 9).
+ *
+ * `coveringRules` come from `coveringRulesFor`, nearest first. The applicable one is the
+ * nearest the sender is **not** carved out of: a user who is excepted from a subdomain's block
+ * is still covered by a separate block on the domain above it, and resolving only the nearest
+ * would report that sender as trusted while the broader filter went on trashing its mail.
  */
 export function effectiveSenderStatus(
   sender: Pick<Sender, "email" | "trustStatus">,
   domain: DomainRule | undefined,
-  parentRule?: DomainRule | undefined,
+  coveringRules: readonly DomainRule[] = [],
 ): TrustStatus {
-  // The parent rule steps aside when this sender, or its exact domain, is carved out of it.
-  const exceptedFromParent =
-    parentRule !== undefined &&
-    (parentRule.exceptionAddresses.includes(sender.email) ||
-      (domain !== undefined && parentRule.exceptionDomains.includes(domain.domain)));
+  // A covering rule steps aside when this sender, or its exact domain, is carved out of it.
+  const isExcepted = (rule: DomainRule): boolean =>
+    rule.exceptionAddresses.includes(sender.email) ||
+    (domain !== undefined &&
+      (rule.exceptionDomains.includes(domain.domain) ||
+        // A domain-scope block also steps aside for a subdomain the user separately decided to
+        // TRUST — nothing records that as an `exceptionDomains` entry, but enforcement carves
+        // it out of the block all the same, as a `*@sub.domain` term (#210). Resolving it any
+        // other way would have the status disagree with the filter and the sweep.
+        (rule.decisionScope === "domain" &&
+          domain.trustStatus === "trusted" &&
+          isSubdomainOf(domain.domain, rule.domain))));
+
+  // The nearest rule that still claims this sender; failing that the nearest one, so a sender
+  // excepted from every rule resolves exactly as it did when there was only ever one.
+  const applicable = coveringRules.find((rule) => !isExcepted(rule)) ?? coveringRules[0];
 
   return resolveEffectiveDecision({
     addressStatus: nonPending(sender.trustStatus),
     addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
     domainStatus: domain ? nonPending(domain.trustStatus) : null,
     domainScope: domain?.decisionScope ?? null,
-    parentDomainStatus: parentRule ? nonPending(parentRule.trustStatus) : null,
-    parentDomainIsException: exceptedFromParent,
+    parentDomainStatus: applicable ? nonPending(applicable.trustStatus) : null,
+    parentDomainIsException: applicable !== undefined && isExcepted(applicable),
   }).status;
 }
 
@@ -89,11 +143,8 @@ export async function effectiveBlockedSenders(store: Store): Promise<Sender[]> {
   const byKey = await domainRulesByKey(store);
   return blocked.filter(
     (s) =>
-      effectiveSenderStatus(
-        s,
-        byKey.get(keyFor(s.domain)),
-        parentDomainRuleFor(s.domain, byKey),
-      ) === "blocked",
+      effectiveSenderStatus(s, byKey.get(keyFor(s.domain)), coveringRulesFor(s.domain, byKey)) ===
+      "blocked",
   );
 }
 
@@ -109,11 +160,8 @@ export async function effectiveTrustedSenders(store: Store): Promise<Sender[]> {
   const byKey = await domainRulesByKey(store);
   return all.filter(
     (s) =>
-      effectiveSenderStatus(
-        s,
-        byKey.get(keyFor(s.domain)),
-        parentDomainRuleFor(s.domain, byKey),
-      ) === "trusted",
+      effectiveSenderStatus(s, byKey.get(keyFor(s.domain)), coveringRulesFor(s.domain, byKey)) ===
+      "trusted",
   );
 }
 
@@ -152,13 +200,22 @@ export async function effectiveBlockedDomains(store: Store): Promise<BlockedDoma
   const byKey = await domainRulesByKey(store);
   const targets: BlockedDomainTarget[] = [];
   for (const domain of domains) {
-    // Members resolve against the parent rule too: a sender the parent trusts is not blocked
-    // by this domain's rule, and must be carved out of the filter like any other exception.
-    const parentRule = parentDomainRuleFor(domain.domain, byKey);
     const excludeAddresses: string[] = [];
     for (const email of domain.exceptionAddresses) {
       const sender = await store.senders.get(keyFor(email));
-      if (sender !== undefined && effectiveSenderStatus(sender, domain, parentRule) !== "blocked") {
+      if (sender === undefined) continue;
+      // Resolve each exception against its OWN records — its exact-domain record and every rule
+      // covering it, this block included. An exception is no longer necessarily an address AT
+      // this domain: a block covers its subtree, so a sender trusted at a subdomain records its
+      // carve-out here too (#244). Resolving those against `domain` as if it were their exact
+      // domain would read the wrong record's status, scope and exception list.
+      if (
+        effectiveSenderStatus(
+          sender,
+          byKey.get(keyFor(sender.domain)),
+          coveringRulesFor(sender.domain, byKey),
+        ) !== "blocked"
+      ) {
         excludeAddresses.push(email);
       }
     }
@@ -179,7 +236,11 @@ export async function effectiveBlockedDomains(store: Store): Promise<BlockedDoma
     // grows past what one filter's criteria can hold (#191).
     const members = await store.senders.query({ domain: domain.domain });
     const blockedMemberAddresses = members
-      .filter((sender) => effectiveSenderStatus(sender, domain, parentRule) === "blocked")
+      .filter(
+        (sender) =>
+          effectiveSenderStatus(sender, domain, coveringRulesFor(sender.domain, byKey)) ===
+          "blocked",
+      )
       .map((sender) => sender.email);
     targets.push({ domain, excludeAddresses, excludeSubdomains, blockedMemberAddresses });
   }

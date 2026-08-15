@@ -11,7 +11,7 @@
  * (`prompt.id === sender.id`) so re-running a scan upserts rather than duplicates.
  */
 
-import { effectiveSenderStatus, parentDomainRuleFor } from "../decisions/effectiveStatus";
+import { coveringRulesFor, effectiveSenderStatus } from "../decisions/effectiveStatus";
 import { keyFor } from "../keys";
 import {
   emptyDecisionHistory,
@@ -45,10 +45,13 @@ export function generatePrompts(senders: Sender[], options: GeneratePromptsOptio
 
   const undecided = senders.filter((sender) => {
     const domain = domainsByKey.get(keyFor(sender.domain));
-    // A sender covered by a parent-domain rule is already decided, and prompting for it would
-    // ask the user to re-answer a question they answered for the whole subtree (#123/#184).
-    const parentRule = parentDomainRuleFor(sender.domain, domainsByKey);
-    return effectiveSenderStatus(sender, domain, parentRule) === "pending";
+    // A sender covered by a rule from above — a parent-domain rule, or a domain block whose
+    // subtree it sits in (#210/#244) — is already decided, and prompting for it would ask the
+    // user to re-answer a question they answered for the whole subtree (#123/#184).
+    return (
+      effectiveSenderStatus(sender, domain, coveringRulesFor(sender.domain, domainsByKey)) ===
+      "pending"
+    );
   });
   const prioritised = prioritisePrompts(undecided.map(senderToSnapshot), history, now);
 

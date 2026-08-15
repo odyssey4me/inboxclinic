@@ -26,7 +26,7 @@ import {
   isBlockFilter,
   parseFilterSubjects,
 } from "../enforcement/filterShape";
-import { effectiveSenderStatus, parentDomainRuleFor } from "./effectiveStatus";
+import { coveringRulesFor, effectiveSenderStatus, parentDomainRuleFor } from "./effectiveStatus";
 import { keyFor } from "../keys";
 import type { GmailClient } from "../ports/GmailClient";
 import { extractSenders } from "../senders/extract";
@@ -82,7 +82,7 @@ export async function learnPriorDecisions(
           effectiveSenderStatus(
             s,
             domainsByKey.get(keyFor(s.domain)),
-            parentDomainRuleFor(s.domain, domainsByKey),
+            coveringRulesFor(s.domain, domainsByKey),
           ) !== "pending",
       )
       .map((s) => s.id),

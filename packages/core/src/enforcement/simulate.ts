@@ -13,7 +13,7 @@
 import { compileFilters, exclusionTerms, reconcileFilters } from "./compileFilters";
 import { withCurrentFilterForm } from "./filterForm";
 import { planActions } from "./planActions";
-import { resolveEffectiveDecision } from "../decisions/resolveEffectiveDecision";
+import { coveringRulesFor, effectiveSenderStatus } from "../decisions/effectiveStatus";
 import { registrableDomain } from "../domains/registrableDomain";
 import { isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
@@ -72,8 +72,6 @@ export async function simulateEnforcement(
   const domains = await store.domains.query({});
   const senderById = new Map(senders.map((s) => [s.id, s]));
   const domainById = new Map(domains.map((d) => [d.id, d]));
-  const domainByName = new Map(domains.map((d) => [d.domain.toLowerCase(), d]));
-  const domainByKey = new Map(domains.map((d) => [d.id, d]));
   const sendersByDomain = new Map<string, Sender[]>();
   for (const sender of senders) {
     const key = sender.domain.toLowerCase();
@@ -97,34 +95,6 @@ export async function simulateEnforcement(
     else senderStatus.set(decision.subjectId, next);
   }
 
-  // Addresses this batch's own address-scope decisions would record as exceptions on their
-  // domain: applyDecision.ts adds a sender to `exceptionAddresses` on any non-no-op address
-  // decision under a domain-scoped domain (#161). Keyed by lowercased domain. Defer is excluded —
-  // it leaves the subject undecided and records no exception at all (#195).
-  const batchExceptionsByDomain = new Map<string, string[]>();
-  for (const decision of decisions) {
-    if (decision.scope !== "address" || decision.decision === "defer") continue;
-    const sender = senderById.get(decision.subjectId);
-    if (sender === undefined) continue;
-    const key = sender.domain.toLowerCase();
-    batchExceptionsByDomain.set(key, [...(batchExceptionsByDomain.get(key) ?? []), sender.email]);
-  }
-
-  // Exceptions this batch would record on ANY broader rule. `applyDecision` writes a narrower
-  // decision into every broader rule covering it — the exact domain AND the registrable
-  // domain's parent rule — so the preview has to model the same, or a "block the parent, keep
-  // this one" batch previews the opposite of what applying it does.
-  const batchAddressExceptionIds = new Set<string>();
-  const batchDomainExceptionNames = new Set<string>();
-  for (const decision of decisions) {
-    if (decision.decision === "defer") continue;
-    if (decision.scope === "address") batchAddressExceptionIds.add(decision.subjectId);
-    else if (decision.scope === "domain") {
-      const domain = domainById.get(decision.subjectId);
-      if (domain !== undefined) batchDomainExceptionNames.add(domain.domain.toLowerCase());
-    }
-  }
-
   /** The prospective decision scope of a domain record — a previewed decision sets it. */
   const prospectiveScope = (domain: Domain): DecisionScope | null => {
     const previewed = decisions.find(
@@ -133,47 +103,96 @@ export async function simulateEnforcement(
     return previewed?.scope ?? domain.decisionScope;
   };
 
-  /**
-   * The parent-domain rule covering a sender, under PROSPECTIVE scope — so a rule this batch
-   * is about to create counts, exactly as it will once applied.
-   */
-  const parentRuleFor = (senderDomain: string): Domain | undefined => {
-    const registrable = registrableDomain(senderDomain);
-    if (registrable === null || keyFor(registrable) === keyFor(senderDomain)) return undefined;
-    const rule = domainByKey.get(keyFor(registrable));
-    return rule !== undefined && prospectiveScope(rule) === "parentDomain" ? rule : undefined;
+  // Exceptions this batch would record. `applyDecision` writes a narrower decision into every
+  // broader rule covering it — the exact domain, the registrable domain's parent rule, and any
+  // domain-scope block whose subtree the sender sits in (#244) — so the preview has to model
+  // the same, or a "block the domain, keep this one" batch previews the opposite of what
+  // applying it does (#161). Defer is excluded: it leaves the subject undecided and records no
+  // exception at all (#195). Keyed by domain key, as `broaderRulesFor` resolves them.
+  const batchExceptionsByDomain = new Map<string, string[]>();
+  const addException = (domainName: string, email: string): void => {
+    const key = keyFor(domainName);
+    batchExceptionsByDomain.set(key, [...(batchExceptionsByDomain.get(key) ?? []), email]);
   };
+  // Subdomains this batch would carve out of a parent-domain rule, as `applyDomainDecision` does.
+  const batchExceptionDomains = new Map<string, string[]>();
 
-  /** The parent-rule half of a resolver input, prospective statuses and exceptions included. */
-  const parentFields = (
-    sender: Sender,
-  ): { parentDomainStatus: TrustStatus | null; parentDomainIsException: boolean } => {
-    const parent = parentRuleFor(sender.domain);
-    if (parent === undefined) return { parentDomainStatus: null, parentDomainIsException: false };
-    const status = domainStatus.get(parent.id) ?? parent.trustStatus;
-    const senderDomain = sender.domain.toLowerCase();
-    return {
-      parentDomainStatus: status === "pending" ? null : status,
-      parentDomainIsException:
-        parent.exceptionAddresses.some((email) => keyFor(email) === sender.id) ||
-        batchAddressExceptionIds.has(sender.id) ||
-        parent.exceptionDomains.some((name) => name.toLowerCase() === senderDomain) ||
-        batchDomainExceptionNames.has(senderDomain),
-    };
+  /**
+   * Every domain record with this batch's effects folded in — prospective status, scope and
+   * exception lists. Built once and fed to the same `coveringRulesFor`/`effectiveSenderStatus`
+   * the Apply path uses, rather than re-deriving the ladder here: every consumer that
+   * re-derived it inline drifted, and each place that forgot a level silently disagreed with
+   * Apply.
+   */
+  const prospectiveDomainsByKey = new Map<string, Domain>();
+  const refreshProspectiveDomains = (): void => {
+    prospectiveDomainsByKey.clear();
+    for (const domain of domains) {
+      const key = keyFor(domain.domain);
+      prospectiveDomainsByKey.set(key, {
+        ...domain,
+        trustStatus: domainStatus.get(domain.id) ?? domain.trustStatus,
+        decisionScope: prospectiveScope(domain),
+        exceptionAddresses: [
+          ...domain.exceptionAddresses,
+          ...(batchExceptionsByDomain.get(key) ?? []),
+        ],
+        exceptionDomains: [...domain.exceptionDomains, ...(batchExceptionDomains.get(key) ?? [])],
+      });
+    }
   };
+  // Seeded without the batch's exceptions so `broaderRulesFor`'s inputs — the prospective
+  // statuses and scopes — are in place before the exceptions those rules receive are resolved.
+  refreshProspectiveDomains();
+
+  for (const decision of decisions) {
+    if (decision.decision === "defer") continue;
+    if (decision.scope === "address") {
+      const sender = senderById.get(decision.subjectId);
+      if (sender === undefined) continue;
+      const exact = prospectiveDomainsByKey.get(keyFor(sender.domain));
+      if (exact?.decisionScope === "domain" || exact?.decisionScope === "parentDomain") {
+        addException(exact.domain, sender.email);
+      }
+      for (const rule of coveringRulesFor(sender.domain, prospectiveDomainsByKey)) {
+        addException(rule.domain, sender.email);
+      }
+    } else if (decision.scope === "domain") {
+      // A domain decision under a distinct parent-domain rule carves that subdomain out of it.
+      const domain = domainById.get(decision.subjectId);
+      if (domain === undefined) continue;
+      const registrable = registrableDomain(domain.domain);
+      if (registrable === null || keyFor(registrable) === keyFor(domain.domain)) continue;
+      const parent = prospectiveDomainsByKey.get(keyFor(registrable));
+      if (parent?.decisionScope !== "parentDomain") continue;
+      const key = keyFor(parent.domain);
+      batchExceptionDomains.set(key, [...(batchExceptionDomains.get(key) ?? []), domain.domain]);
+    }
+  }
+  refreshProspectiveDomains();
+
+  /**
+   * A sender's effective status under the previewed decisions — the whole ladder, resolved by
+   * the same helper Apply uses, over the prospective records.
+   */
+  const prospectiveStatusOf = (sender: Sender): TrustStatus =>
+    effectiveSenderStatus(
+      { email: sender.email, trustStatus: senderStatus.get(sender.id) ?? sender.trustStatus },
+      prospectiveDomainsByKey.get(keyFor(sender.domain)),
+      coveringRulesFor(sender.domain, prospectiveDomainsByKey),
+    );
 
   // A (prospectively) blocked domain's trusted exception addresses — the ones whose effective
   // status is no longer blocked. Excluded from both the domain's `*@domain` filter (#145) and
-  // its existing-mail sweep (#151), so the preview matches what enforce actually does.
-  // Only ever called on a domain that is (prospectively) blocked; a blocked domain is always
-  // domain-scoped (applyDecision.ts writes `decisionScope: "domain"` with the block), so the
-  // `domainStatus/domainScope` here are that known state rather than re-derived per call. The
-  // exception set is the PROSPECTIVE one — stored exceptions plus any this batch would add (#161).
+  // its existing-mail sweep (#151), so the preview matches what enforce actually does. The
+  // exception set is the PROSPECTIVE one — stored exceptions plus any this batch would add
+  // (#161) — and it can hold addresses at the block's SUBDOMAINS, not only at the domain
+  // itself, since the block covers the subtree (#244).
   const prospectiveDomainExclusions = (domain: Domain): string[] => {
+    const prospective = prospectiveDomainsByKey.get(keyFor(domain.domain));
     const seen = new Set<string>();
     const exceptions: string[] = [];
-    const batch = batchExceptionsByDomain.get(domain.domain.toLowerCase()) ?? [];
-    for (const email of [...domain.exceptionAddresses, ...batch]) {
+    for (const email of prospective?.exceptionAddresses ?? domain.exceptionAddresses) {
       const key = keyFor(email);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -181,63 +200,8 @@ export async function simulateEnforcement(
     }
     return exceptions.filter((email) => {
       const s = senderById.get(keyFor(email));
-      if (s === undefined) return false;
-      const addr = senderStatus.get(s.id) ?? s.trustStatus;
-      return (
-        resolveEffectiveDecision({
-          addressStatus: addr === "pending" ? null : addr,
-          addressIsException: true,
-          domainStatus: "blocked",
-          domainScope: "domain",
-          ...parentFields(s),
-        }).status !== "blocked"
-      );
+      return s !== undefined && prospectiveStatusOf(s) !== "blocked";
     });
-  };
-
-  // Whether a (prospectively) trusted domain's member ends up effectively trusted — the same
-  // resolution `effectiveTrustedSenders` performs at Apply time (#146). An exception address
-  // keeps its own address decision, so a member the batch blocks in the same breath is not
-  // swept up by the domain trust. Only ever called on a domain the batch trusts at domain
-  // scope, so `domainStatus/domainScope` are that known state rather than re-derived.
-  const prospectivelyTrustedMember = (sender: Sender, domain: Domain): boolean => {
-    const batch = batchExceptionsByDomain.get(domain.domain.toLowerCase()) ?? [];
-    const isException = [...domain.exceptionAddresses, ...batch].some(
-      (email) => keyFor(email) === sender.id,
-    );
-    const addressStatus = senderStatus.get(sender.id) ?? sender.trustStatus;
-    return (
-      resolveEffectiveDecision({
-        addressStatus: addressStatus === "pending" ? null : addressStatus,
-        addressIsException: isException,
-        domainStatus: "trusted",
-        domainScope: "domain",
-        ...parentFields(sender),
-      }).status === "trusted"
-    );
-  };
-
-  /**
-   * A sender's effective status under the previewed decisions — the whole ladder, resolved
-   * once. Extracted because every consumer that re-derived it inline drifted: each had to
-   * remember the parent half, and each place that forgot silently disagreed with Apply.
-   */
-  const prospectiveStatusOf = (sender: Sender): TrustStatus => {
-    const domain = domainByName.get(sender.domain.toLowerCase());
-    const addressStatus = senderStatus.get(sender.id) ?? sender.trustStatus;
-    const domainStat = domain ? (domainStatus.get(domain.id) ?? domain.trustStatus) : "pending";
-    return resolveEffectiveDecision({
-      addressStatus: addressStatus === "pending" ? null : addressStatus,
-      addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
-      domainStatus: domainStat === "pending" ? null : domainStat,
-      // The real prospective scope (stored or previewed) rather than an assumed `"domain"` —
-      // a domain that IS its own registrable domain can carry the rule at `"parentDomain"`
-      // scope instead, and resolveEffectiveDecision only overrides an already-decided address
-      // for the scope it actually sees (#222).
-      domainScope:
-        domainStat === "pending" || domain === undefined ? null : prospectiveScope(domain),
-      ...parentFields(sender),
-    }).status;
   };
 
   /** The senders a parent-domain decision covers — the whole subtree, by registrable domain. */
@@ -364,8 +328,11 @@ export async function simulateEnforcement(
               if (prospectiveStatusOf(sender) === "trusted") rescueSenderIds.add(sender.id);
             }
           } else {
+            // An exception address keeps its own address decision, so a member the batch blocks
+            // in the same breath is not swept up by the domain trust — the same resolution
+            // `effectiveTrustedSenders` performs at Apply time (#146).
             for (const sender of sendersByDomain.get(domain.domain.toLowerCase()) ?? []) {
-              if (prospectivelyTrustedMember(sender, domain)) rescueSenderIds.add(sender.id);
+              if (prospectiveStatusOf(sender) === "trusted") rescueSenderIds.add(sender.id);
             }
           }
         }

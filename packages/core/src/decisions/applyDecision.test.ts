@@ -502,6 +502,77 @@ describe("parent-domain scope (#184)", () => {
     expect(domain?.exceptionAddresses).toContain("someone@example.com");
   });
 
+  it("records an address decided under a domain BLOCK covering its subtree (#244)", async () => {
+    const store = createInMemoryStore();
+    // An exact-domain block, not a parent rule — but `*@example.com` is not an exact match, so
+    // its filter and its sweep reach the whole subtree (#210). That makes it a broader rule
+    // over this sender, and the carve-out has to land on it.
+    await store.domains.put(
+      domainFix("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    // The sender's own subdomain is still undecided, so it holds no rule to carve out of.
+    await store.domains.put(domainFix("email.example.com"));
+    await store.senders.put(senderFix("statements@email.example.com"));
+
+    await applyDecision(store, {
+      subjectId: keyFor("statements@email.example.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    const blocked = await store.domains.get(keyFor("example.com"));
+    expect(blocked?.exceptionAddresses).toContain("statements@email.example.com");
+    // Nothing is written to the undecided subdomain — it carries no decision to except from.
+    const subdomain = await store.domains.get(keyFor("email.example.com"));
+    expect(subdomain?.exceptionAddresses).toEqual([]);
+  });
+
+  it("records the carve-out on EVERY block covering the sender, not just the nearest (#244)", async () => {
+    const store = createInMemoryStore();
+    // Two blocks, each compiling to its own filter and its own sweep. An exception on only one
+    // of them leaves the other trashing the mail the user just protected.
+    await store.domains.put(
+      domainFix("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    await store.domains.put(
+      domainFix("email.example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    await store.senders.put(senderFix("statements@email.example.com"));
+
+    await applyDecision(store, {
+      subjectId: keyFor("statements@email.example.com"),
+      scope: "address",
+      decision: "trust",
+      now: NOW,
+    });
+
+    expect((await store.domains.get(keyFor("example.com")))?.exceptionAddresses).toContain(
+      "statements@email.example.com",
+    );
+    expect((await store.domains.get(keyFor("email.example.com")))?.exceptionAddresses).toContain(
+      "statements@email.example.com",
+    );
+  });
+
+  it("records nothing on a domain-scope TRUST above the sender (#244)", async () => {
+    const store = createInMemoryStore();
+    // A trust compiles to no rule at all, so it has no subtree reach to be carved out of.
+    await store.domains.put(
+      domainFix("example.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    await store.senders.put(senderFix("statements@email.example.com"));
+
+    await applyDecision(store, {
+      subjectId: keyFor("statements@email.example.com"),
+      scope: "address",
+      decision: "block",
+      now: NOW,
+    });
+
+    expect((await store.domains.get(keyFor("example.com")))?.exceptionAddresses).toEqual([]);
+  });
+
   it("records a subdomain decided under a parent rule as an exception to it", async () => {
     const store = await seedSubtree();
 

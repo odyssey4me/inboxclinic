@@ -162,7 +162,11 @@ export {
   type WithdrawDecisionResult,
 } from "./decisions/withdrawDecision";
 // Effective-status resolution across the specificity ladder (address → domain → parentDomain).
-export { effectiveSenderStatus, parentDomainRuleFor } from "./decisions/effectiveStatus";
+export {
+  coveringRulesFor,
+  effectiveSenderStatus,
+  parentDomainRuleFor,
+} from "./decisions/effectiveStatus";
 
 // Learn prior "no" decisions from existing Gmail state (filters + read-weighted Spam/Trash).
 export {

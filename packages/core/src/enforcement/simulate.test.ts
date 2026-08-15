@@ -204,6 +204,42 @@ describe("simulateEnforcement", () => {
     expect(impact.messagesToDelete).toBe(2);
   });
 
+  it("spares a trusted sender at an undecided subdomain of the blocked domain (#244)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(
+      domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    // Undecided, so the block covers it — all but the one address decided below.
+    await store.domains.put(domainBuilder("email.example.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("statements@email.example.com"));
+    await store.senders.put(senderBuilder("offers@email.example.com"));
+    const gmail = new MockGmailClient([
+      msgFrom("promo@example.com"),
+      msgFrom("statements@email.example.com"),
+      msgFrom("offers@email.example.com"),
+    ]);
+
+    // Blocked already, and the trust previewed on top — the ordering the preview has to model,
+    // since the exception this would record lands on the block covering the subtree, not on
+    // the sender's own (undecided) subdomain record.
+    const impact = await simulateEnforcement(gmail, store, [
+      {
+        subjectId: keyFor("statements@email.example.com"),
+        scope: "address",
+        decision: "trust",
+      },
+      {
+        subjectId: keyFor("example.com"),
+        scope: "domain",
+        decision: "block",
+        actions: ["create_filter", "delete"],
+      },
+    ]);
+
+    // The apex and the subdomain's undecided sender; NOT the one being trusted in the same batch.
+    expect(impact.messagesToDelete).toBe(2);
+  });
+
   it("classifies archive vs delete from the staged actions", async () => {
     const store = createInMemoryStore();
     await store.senders.put(senderBuilder("a@x.com"));

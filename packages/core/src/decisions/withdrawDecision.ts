@@ -31,7 +31,7 @@
 
 import { registrableDomain } from "../domains/registrableDomain";
 import { keyFor } from "../keys";
-import { effectiveSenderStatus, parentDomainRuleFor } from "./effectiveStatus";
+import { coveringRulesFor, effectiveSenderStatus, parentDomainRuleFor } from "./effectiveStatus";
 import type { Store } from "../store";
 import type { DecisionScope, Domain, TrustStatus } from "../store/types";
 
@@ -109,13 +109,14 @@ export async function withdrawDecision(
       });
     }
 
-    // Its own domain record, and the registrable domain's rule, can each hold a carve-out.
-    // `parentDomainRuleFor` narrows to the fields precedence reads, so the full record is
-    // taken from the map to write back — a partial one would drop everything else on it.
-    const parentRule = parentDomainRuleFor(sender.domain, byKey);
+    // Its own domain record, and every rule covering it from above, can each hold a carve-out —
+    // `applyDecision` writes the exception to all of them, so withdrawing has to clear all of
+    // them, or a rule keeps sparing a sender whose decision is gone. `coveringRulesFor` narrows
+    // to the fields precedence reads, so the full record is taken from the map to write back —
+    // a partial one would drop everything else on it.
     const rules = [
       byKey.get(keyFor(sender.domain)),
-      parentRule === undefined ? undefined : byKey.get(keyFor(parentRule.domain)),
+      ...coveringRulesFor(sender.domain, byKey).map((rule) => byKey.get(keyFor(rule.domain))),
     ];
     for (const rule of rules) {
       if (rule === undefined) continue;
@@ -128,7 +129,7 @@ export async function withdrawDecision(
     const status = effectiveSenderStatus(
       { email: sender.email, trustStatus: "pending" },
       fresh.get(keyFor(sender.domain)),
-      parentDomainRuleFor(sender.domain, fresh),
+      coveringRulesFor(sender.domain, fresh),
     );
     return { status, clearedExceptionsOn, withdrawn: hadDecision };
   }
