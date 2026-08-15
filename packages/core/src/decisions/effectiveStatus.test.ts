@@ -4,11 +4,14 @@ import { describe, expect, it } from "vitest";
 import { createInMemoryStore, domainBuilder, senderBuilder } from "../testing";
 import type { Domain } from "../store/types";
 import {
+  coveringRulesFor,
   effectiveBlockedDomains,
   effectiveBlockedSenders,
   effectiveSenderStatus,
   effectiveTrustedSenders,
+  resolveSenderGovernance,
 } from "./effectiveStatus";
+import { keyFor } from "../keys";
 
 describe("effectiveSenderStatus", () => {
   it("returns the raw status when there is no domain override", () => {
@@ -57,6 +60,78 @@ describe("effectiveSenderStatus", () => {
       exceptionAddresses: ["ceo@example.com"],
     });
     expect(effectiveSenderStatus(s, d)).toBe("trusted");
+  });
+});
+
+describe("resolveSenderGovernance — naming the rule, not just the status (#238)", () => {
+  /** The ladder as the UI gets it: every domain record, keyed, then the covering rules. */
+  const govern = (sender: Parameters<typeof resolveSenderGovernance>[0], domains: Domain[]) => {
+    const byKey = new Map(domains.map((d) => [keyFor(d.domain), d]));
+    const senderDomain = sender.email.slice(sender.email.indexOf("@") + 1);
+    return resolveSenderGovernance(
+      sender,
+      byKey.get(keyFor(senderDomain)),
+      coveringRulesFor(senderDomain, byKey),
+    );
+  };
+
+  it("names the block covering a sender from ABOVE, which nothing keyed on the parent rule finds", () => {
+    // The case #244 created and this refactor exists to pick up: `example.com` is scoped
+    // `domain`, so `parentDomainRuleFor` returns undefined for it and the old hand-derived
+    // ladder named no rule at all — beside a status badge reading blocked.
+    const result = govern(senderBuilder("statements@email.example.com"), [
+      domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+      domainBuilder("email.example.com", { trustStatus: "pending" }),
+    ]);
+
+    expect(result.status).toBe("blocked");
+    expect(result.governingRule?.domain).toBe("example.com");
+    expect(result.carvedOutOf).toBeUndefined();
+  });
+
+  it("names the sender's own domain rule when that is what decides it", () => {
+    const result = govern(senderBuilder("news@shop.test"), [
+      domainBuilder("shop.test", { trustStatus: "blocked", decisionScope: "domain" }),
+    ]);
+
+    expect(result.source).toBe("domain");
+    expect(result.governingRule?.domain).toBe("shop.test");
+  });
+
+  it("names no governing rule, but the rule it is carved out of, when its own decision stands", () => {
+    // Trusted under the block, so the carve-out was recorded — the sender's decision wins, and
+    // the panel's control is "rejoin that rule" rather than "this rule decides you".
+    const result = govern(senderBuilder("vip@shop.test", { trustStatus: "trusted" }), [
+      domainBuilder("shop.test", {
+        trustStatus: "blocked",
+        decisionScope: "domain",
+        exceptionAddresses: ["vip@shop.test"],
+      }),
+    ]);
+
+    expect(result.status).toBe("trusted");
+    expect(result.governingRule).toBeUndefined();
+    expect(result.carvedOutOf?.domain).toBe("shop.test");
+  });
+
+  it("names the broader rule still covering a sender excepted from the nearer one", () => {
+    // Excepted from `email.example.com`, but `example.com` was blocked later and never carved
+    // this sender out — so that is the rule to name, and resolving only the nearest would have
+    // named none while the broader filter went on trashing the mail.
+    const result = govern(
+      senderBuilder("statements@email.example.com", { trustStatus: "trusted" }),
+      [
+        domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+        domainBuilder("email.example.com", {
+          trustStatus: "blocked",
+          decisionScope: "domain",
+          exceptionAddresses: ["statements@email.example.com"],
+        }),
+      ],
+    );
+
+    expect(result.status).toBe("blocked");
+    expect(result.governingRule?.domain).toBe("example.com");
   });
 });
 

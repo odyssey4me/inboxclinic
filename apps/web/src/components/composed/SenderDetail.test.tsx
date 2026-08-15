@@ -116,6 +116,32 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     expect(screen.getByText(/no decision was made about this address on its own/i)).toBeVisible();
   });
 
+  it("names a domain block reaching down into its subtree, and says it reaches down (#238, #244)", () => {
+    const { store, gmail } = setup();
+    render(
+      <SenderDetail
+        sender={senderBuilder("statements@email.example.com")}
+        allDomains={[
+          // Scoped `domain`, not `parentDomain` — so `parentDomainRuleFor` finds nothing, and the
+          // hand-derived ladder this replaced named no rule beside a badge reading blocked.
+          domainBuilder("example.com", { trustStatus: "blocked", decisionScope: "domain" }),
+          domainBuilder("email.example.com", { trustStatus: "pending" }),
+        ]}
+        store={store}
+        gmail={gmail}
+        online
+        onClose={vi.fn()}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Blocked by the rule on/i)).toBeInTheDocument();
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    // Naming the rule is only half the answer — a sender at a subdomain also has to be told
+    // why a rule on the domain above it reaches them at all (#210's state-the-breadth rule).
+    expect(screen.getByText(/covers every domain beneath it/i)).toBeInTheDocument();
+  });
+
   it("states the breadth of a subtree rule reaching down from the registrable domain", () => {
     const { store, gmail } = setup();
     render(
@@ -141,7 +167,10 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     render(
       <SenderDetail
         // Trusted earlier, and NOT a recorded exception — so the later domain block wins.
-        sender={senderBuilder("old@shop.test", { trustStatus: "trusted", decisionScope: "address" })}
+        sender={senderBuilder("old@shop.test", {
+          trustStatus: "trusted",
+          decisionScope: "address",
+        })}
         allDomains={[
           domainBuilder("shop.test", { trustStatus: "blocked", decisionScope: "domain" }),
         ]}

@@ -166,6 +166,9 @@ export {
   coveringRulesFor,
   effectiveSenderStatus,
   parentDomainRuleFor,
+  resolveSenderGovernance,
+  type DomainRule,
+  type SenderGovernance,
 } from "./decisions/effectiveStatus";
 
 // Learn prior "no" decisions from existing Gmail state (filters + read-weighted Spam/Trash).
