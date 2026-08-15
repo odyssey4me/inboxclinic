@@ -20,6 +20,16 @@
  * So a rule the bundled snapshot does not recognise is *reported* (criterion 5: evidence, not
  * a verdict), and the invariants are asserted only over the rules it does. The report is the
  * finding: it measures how far the snapshot has drifted and which suffixes are missing.
+ *
+ * **Known divergence, not asserted here (#252).** Cross-checking `tldts` against an
+ * independent implementation of the PSL algorithm (`public_suffix_of` in
+ * scripts/qa-gmail-probe.py) over 9,376 hosts found three disagreements, all **nested
+ * wildcards**: the list carries both `*.r.cloud.int.apple` and `*.ap-north-1.r.cloud.int.apple`,
+ * so the first makes `ap-north-1.r.cloud.int.apple` a public suffix, but `tldts` stops at
+ * `int.apple` and reports `cloud.int.apple` as an ownable registrable domain. Left as a
+ * report rather than an assertion: it is a divergence between the library and the published
+ * list, so asserting it would fail on a correct-for-us build, and the affected names are one
+ * vendor's internal cloud infrastructure that will never appear as a mail sender.
  */
 
 import { describe, expect, it } from "vitest";

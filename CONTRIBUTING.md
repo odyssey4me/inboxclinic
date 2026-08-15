@@ -141,7 +141,18 @@ an access token (~1h, no refresh token), so nothing long-lived sits on disk.
 ./scripts/qa-gmail-probe.py discover    # find real subjects in the mailbox
 ./scripts/qa-gmail-probe.py search      # wildcard + subdomain + exclusion semantics
 ./scripts/qa-gmail-probe.py filters     # stored negatedQuery shape (read-only)
+./scripts/qa-gmail-probe.py psl         # does the matcher respect public-suffix boundaries?
 ./scripts/qa-gmail-probe.py revoke      # drop the credential when done
+```
+
+The `psl` probe needs the published Public Suffix List, which
+`./scripts/fetch-psl-corpus.sh` downloads to the gitignored `.local/` (never committed — it
+is real-world data about real domains). The same corpus feeds an **offline** replay of the
+whole list through the app's own eTLD+1 helpers, which needs no account at all:
+
+```bash
+./scripts/fetch-psl-corpus.sh
+INBOXCLINIC_PSL_CORPUS=$PWD/.local/psl.json npx vitest run --root packages/core realSuffixes
 ```
 
 Paste findings into the relevant issue as evidence — they date-stamp what Gmail did, which is

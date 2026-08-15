@@ -626,6 +626,140 @@ def cmd_search(args: argparse.Namespace) -> None:
             note("FAIL — the exclusion did NOT remove them.")
 
 
+# --- public-suffix probe (#252) --------------------------------------------------
+
+PSL_CORPUS = ".local/psl.json"
+
+
+def load_psl(path: str) -> tuple[set[str], set[str], set[str]]:
+    """The live list as three rule sets: normal, wildcard bases, exceptions.
+
+    Fetched by ./scripts/fetch-psl-corpus.sh, never committed — it is real-world data about
+    real domains, and the same corpus the offline replay spec uses.
+    """
+    if not os.path.exists(path):
+        fail(
+            f"no PSL corpus at {path}\n"
+            "       fetch it first:  ./scripts/fetch-psl-corpus.sh"
+        )
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    normal, wildcard, exception = set(), set(), set()
+    for entry in data["rules"]:
+        rule, kind = entry["rule"], entry["kind"]
+        if kind == "wildcard":
+            wildcard.add(rule[2:])
+        elif kind == "exception":
+            exception.add(rule[1:])
+        else:
+            normal.add(rule)
+    return normal, wildcard, exception
+
+
+def public_suffix_of(host: str, psl: tuple[set[str], set[str], set[str]]) -> str:
+    """The PSL algorithm: exceptions first, then the longest matching rule, else `*`.
+
+    Deliberately implemented here rather than shelling out to the app's `tldts`: this probe
+    asks whether GMAIL respects these boundaries, so it must read the boundaries from the
+    published list rather than from the same library whose behaviour is under discussion.
+    """
+    normal, wildcard, exception = psl
+    labels = host.strip().lower().rstrip(".").split(".")
+    for i in range(len(labels)):
+        candidate = ".".join(labels[i:])
+        # An exception rule means this name is registrable, so its suffix is one label up.
+        if candidate in exception:
+            return ".".join(labels[i + 1 :])
+        if candidate in normal:
+            return candidate
+        # `*.ck` makes every `<label>.ck` a suffix.
+        if i > 0 and ".".join(labels[i:]) in wildcard:
+            return ".".join(labels[i - 1 :])
+    return labels[-1]
+
+
+def registrable_of(host: str, psl: tuple[set[str], set[str], set[str]]) -> str | None:
+    """eTLD+1, or None when the host IS a public suffix (nothing to own)."""
+    suffix = public_suffix_of(host, psl)
+    if host.lower() == suffix:
+        return None
+    extra = host.lower()[: -(len(suffix) + 1)].split(".")
+    return f"{extra[-1]}.{suffix}"
+
+
+def cmd_psl(args: argparse.Namespace) -> None:
+    """Does Gmail's matcher respect Public Suffix List boundaries?
+
+    The app's decision model is PSL-aware on purpose: `allowPrivateDomains: true` makes
+    `alice.github.io` and `bob.github.io` different organisations, and Decision 9 names that
+    as exactly what a parent-domain rule must never get wrong. Gmail's matcher knows nothing
+    about the PSL — it matches labels. If `from:*@github.io` returns both tenants, a rule the
+    user pointed at THEIR tenant would reach every other tenant of that suffix.
+
+    Read-only throughout: every question here is answerable by observing search results, so
+    no write scope and no armed filters.
+    """
+    token = ensure_token(SCOPE_READ)
+    psl = load_psl(args.corpus)
+    normal, wildcard, _ = psl
+
+    print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
+    hosts = Counter(host_of(a) for a in sender_addresses(token, "newer_than:365d", args.sample))
+
+    # Group observed hosts by the suffix the PUBLISHED list says they sit under, keeping only
+    # suffixes with two or more distinct registrable domains beneath them: one tenant proves
+    # nothing, because a query for the suffix returning it is what a correct matcher does too.
+    tenants: dict[str, set[str]] = {}
+    for host in hosts:
+        suffix = public_suffix_of(host, psl)
+        registrable = registrable_of(host, psl)
+        if registrable is None:
+            continue
+        tenants.setdefault(suffix, set()).add(registrable)
+
+    subjects = [
+        (suffix, sorted(names))
+        for suffix, names in tenants.items()
+        if len(names) >= 2 and (suffix in normal or suffix.split(".", 1)[-1] in wildcard)
+    ]
+    # Ranked by how much evidence each can produce (criterion 6): more distinct tenants under
+    # one suffix means a clearer answer, and a multi-label suffix is the sharper test since a
+    # single-label TLD reaching across tenants would surprise nobody.
+    subjects.sort(key=lambda s: (len(s[1]), "." in s[0]), reverse=True)
+
+    if not subjects:
+        note("no suffix in this sample has two or more distinct domains beneath it —")
+        note("try a larger --sample; without two tenants the question cannot be answered.")
+        return
+
+    print("-- suffixes with two or more distinct registrable domains observed beneath them")
+    for suffix, names in subjects[: args.top]:
+        kind = "multi-label" if "." in suffix else "single-label"
+        note(f"{suffix}  ({kind}; {len(names)} tenants: {', '.join(names[:4])})")
+
+    for suffix, names in subjects[: args.top]:
+        print(f"\n== does a query for the SUFFIX {suffix} reach across its tenants? ==")
+        for form in (f"from:*@{suffix}", f"from:{suffix}"):
+            print(f"\n-- {form}")
+            got = Counter(host_of(a) for a in sender_addresses(token, form, args.sample))
+            if not got:
+                note("NO RESULTS — nothing matched. A literal `*` returns zero, like an empty")
+                note("mailbox, so this is not by itself evidence of a narrow match.")
+                continue
+            reached = {registrable_of(h, psl) for h in got} - {None}
+            for host, count in got.most_common(8):
+                note(f"{count}x {host}   (tenant: {registrable_of(host, psl)})")
+            if len(reached) > 1:
+                note("")
+                note(f"REACHED {len(reached)} DISTINCT TENANTS — the matcher does NOT respect")
+                note(f"this PSL boundary. A parent-domain rule on any one tenant of {suffix}")
+                note("would compile to a filter covering the others.")
+            else:
+                note("")
+                note("One tenant only — consistent with the boundary being respected, though")
+                note("not proof: the others may simply have sent nothing in the sample.")
+
+
 # The criteria fields `FilterSpec` represents; anything else makes a filter foreign to the
 # code being replayed. Mirrors MODELLED_CRITERIA in the browser adapter.
 MODELLED_CRITERIA = {"from", "negatedQuery"}
@@ -1301,6 +1435,12 @@ def main() -> None:
     limit.add_argument("--i-know", action="store_true")
     limit.add_argument("--domain")
     limit.set_defaults(func=cmd_limit)
+
+    psl = sub.add_parser("psl", help="does Gmail's matcher respect public-suffix boundaries?")
+    psl.add_argument("--sample", type=int, default=400)
+    psl.add_argument("--top", type=int, default=3, help="how many suffixes to probe")
+    psl.add_argument("--corpus", default=PSL_CORPUS, help="PSL corpus from fetch-psl-corpus.sh")
+    psl.set_defaults(func=cmd_psl)
 
     match = sub.add_parser("match", help="live filter matching: subdomains + exclusion (writes!)")
     match.add_argument("action", choices=["arm", "check", "disarm"])
