@@ -4,9 +4,10 @@ import {
   defaultBlockActions,
   enforce,
   keyFor,
+  coveringRulesFor,
   domainBlockCoverage,
   parentDomainCoverage,
-  parentDomainRuleFor,
+  resolveSenderGovernance,
   simulateEnforcement,
   withdrawDecision,
   type BlockAction,
@@ -127,42 +128,21 @@ export function SenderDetail({
   // it — the answer to "why is this blocked when I never decided it?" (#229). Deliberately a
   // single line rather than DomainDetail's panel: making the carve-out is what the Trust/Block
   // buttons below already do at address scope, so only *rejoining* needs a control of its own.
+  // `resolveSenderGovernance` is the one copy of the precedence ladder (#238) — it also picks up
+  // a domain-scope block's subtree reach via `coveringRulesFor` (#244), which a rule keyed only
+  // on `parentDomainRuleFor` would miss.
   const domainsByKey = new Map(allDomains.map((d) => [keyFor(d.domain), d]));
   const exactRule = domainsByKey.get(keyFor(sender.domain));
-  const parentRule = parentDomainRuleFor(sender.domain, domainsByKey);
-  // BROADEST first, each rule applying unless this sender is carved out of it — the order
-  // `resolveEffectiveDecision` walks, and the reason the panel can't just take the narrowest
-  // rule it finds. A subdomain decided BEFORE a subtree rule was made above it is never added
-  // to that rule's `exceptionDomains` (nothing carves out retroactively), so the parent governs
-  // — and naming the subdomain's own rule would state the opposite verdict to the status badge.
-  const exceptedFromParent =
-    parentRule !== undefined &&
-    (parentRule.exceptionAddresses.includes(sender.email) ||
-      parentRule.exceptionDomains.includes(sender.domain));
-  const governingRule =
-    parentRule !== undefined && parentRule.trustStatus !== "pending" && !exceptedFromParent
-      ? parentRule
-      : exactRule !== undefined &&
-          exactRule.trustStatus !== "pending" &&
-          !exactRule.exceptionAddresses.includes(sender.email)
-        ? exactRule
-        : undefined;
-  // Nothing governs it, but a rule records it as an exception: its own decision stands because
-  // it was carved out, which is what "follow the rule again" undoes. A recorded exception is the
-  // same marker enforcement reads. Broadest first again, since that is the rule being rejoined.
-  const carvedOutOf =
-    governingRule !== undefined
-      ? undefined
-      : [parentRule, exactRule].find(
-          (rule) =>
-            rule !== undefined &&
-            rule.trustStatus !== "pending" &&
-            rule.exceptionAddresses.includes(sender.email),
-        );
+  const { governingRule, carvedOutOf } = resolveSenderGovernance(
+    sender,
+    exactRule,
+    coveringRulesFor(sender.domain, domainsByKey),
+  );
   // A decision of its own that the governing rule overrides: made before the rule existed, since
   // deciding under one records the carve-out. Dormant, but it resurfaces if the rule is removed.
   const overriddenDecision = sender.trustStatus !== "pending" || sender.decisionScope !== null;
-  const ruleIsSubtree = governingRule !== undefined && governingRule === parentRule;
+  const ruleIsSubtree =
+    governingRule !== undefined && governingRule.decisionScope === "parentDomain";
 
   // The scope-toggle (single-sender domain) path always supplies concrete actions from
   // TrustActions; the fallback only fires for the address-scoped flagged batch.

@@ -12,13 +12,13 @@ import { inDomainSubtree, isSubdomainOf } from "../domains/subtree";
 import { keyFor } from "../keys";
 import type { Store } from "../store";
 import type { Domain, Sender, TrustStatus } from "../store/types";
-import { resolveEffectiveDecision } from "./resolveEffectiveDecision";
+import { resolveEffectiveDecision, type EffectiveDecision } from "./resolveEffectiveDecision";
 
 const nonPending = (status: TrustStatus): TrustStatus | null =>
   status === "pending" ? null : status;
 
 /** The fields of a `Domain` record the precedence rule reads. */
-type DomainRule = Pick<
+export type DomainRule = Pick<
   Domain,
   "domain" | "trustStatus" | "decisionScope" | "exceptionAddresses" | "exceptionDomains"
 >;
@@ -83,20 +83,43 @@ export function coveringRulesFor(
   return rules.sort((a, b) => labelCount(b.domain) - labelCount(a.domain));
 }
 
+/** What decides a sender, beyond the bare effective status (design-trust-decisions.md Decisions 2, 9). */
+export interface SenderGovernance {
+  status: TrustStatus;
+  source: EffectiveDecision["source"];
+  /**
+   * The rule actually deciding this sender — its exact-domain record when `source` is
+   * `"domain"`, the nearest un-excepted covering rule when `source` is `"parentDomain"`, and
+   * `undefined` when the sender's own decision stands (`source` `"address"` or `"none"`).
+   */
+  governingRule: DomainRule | undefined;
+  /**
+   * The rule this sender is recorded as an exception to, when one exists but nothing currently
+   * governs — i.e. the sender's own decision stands *because* it was carved out. Independent of
+   * `governingRule`: they answer different questions, and a sender can be excepted from one
+   * rule while still governed by another above it.
+   */
+  carvedOutOf: DomainRule | undefined;
+}
+
 /**
- * The effective trust status of a sender, resolving the rules covering it from above, the
- * exact-domain override, and address exceptions (design-trust-decisions.md Decisions 2 and 9).
+ * Resolve which rule governs a sender — and which, if any, it is carved out of — across the
+ * rules covering it from above, its exact-domain override, and address exceptions.
  *
  * `coveringRules` come from `coveringRulesFor`, nearest first. The applicable one is the
  * nearest the sender is **not** carved out of: a user who is excepted from a subdomain's block
  * is still covered by a separate block on the domain above it, and resolving only the nearest
  * would report that sender as trusted while the broader filter went on trashing its mail.
+ *
+ * This is the single copy of the precedence ladder for callers that need to *explain* a
+ * decision, not just apply it — `SenderDetail` (#238) names the governing rule instead of
+ * re-deriving the ladder locally.
  */
-export function effectiveSenderStatus(
+export function resolveSenderGovernance(
   sender: Pick<Sender, "email" | "trustStatus">,
   domain: DomainRule | undefined,
   coveringRules: readonly DomainRule[] = [],
-): TrustStatus {
+): SenderGovernance {
   // A covering rule steps aside when this sender, or its exact domain, is carved out of it.
   const isExcepted = (rule: DomainRule): boolean =>
     rule.exceptionAddresses.includes(sender.email) ||
@@ -114,14 +137,46 @@ export function effectiveSenderStatus(
   // excepted from every rule resolves exactly as it did when there was only ever one.
   const applicable = coveringRules.find((rule) => !isExcepted(rule)) ?? coveringRules[0];
 
-  return resolveEffectiveDecision({
+  const decision = resolveEffectiveDecision({
     addressStatus: nonPending(sender.trustStatus),
     addressIsException: domain?.exceptionAddresses.includes(sender.email) ?? false,
     domainStatus: domain ? nonPending(domain.trustStatus) : null,
     domainScope: domain?.decisionScope ?? null,
     parentDomainStatus: applicable ? nonPending(applicable.trustStatus) : null,
     parentDomainIsException: applicable !== undefined && isExcepted(applicable),
-  }).status;
+  });
+
+  const governingRule =
+    decision.source === "domain"
+      ? domain
+      : decision.source === "parentDomain"
+        ? (applicable ?? domain)
+        : undefined;
+
+  // Nothing governs it, but a rule records it as an exception: its own decision stands because
+  // it was carved out. Checked against the same two candidates the ladder itself walks —
+  // broadest (the applicable covering rule) then the exact-domain rule.
+  const carvedOutOf =
+    governingRule !== undefined
+      ? undefined
+      : [applicable, domain].find(
+          (rule): rule is DomainRule =>
+            rule !== undefined && rule.trustStatus !== "pending" && isExcepted(rule),
+        );
+
+  return { status: decision.status, source: decision.source, governingRule, carvedOutOf };
+}
+
+/**
+ * The effective trust status of a sender, resolving the rules covering it from above, the
+ * exact-domain override, and address exceptions (design-trust-decisions.md Decisions 2 and 9).
+ */
+export function effectiveSenderStatus(
+  sender: Pick<Sender, "email" | "trustStatus">,
+  domain: DomainRule | undefined,
+  coveringRules: readonly DomainRule[] = [],
+): TrustStatus {
+  return resolveSenderGovernance(sender, domain, coveringRules).status;
 }
 
 /** Every domain record keyed for lookup — both exact-domain and parent-domain rules. */
