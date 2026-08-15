@@ -725,7 +725,20 @@ def cmd_psl(args: argparse.Namespace) -> None:
     # Ranked by how much evidence each can produce (criterion 6): more distinct tenants under
     # one suffix means a clearer answer, and a multi-label suffix is the sharper test since a
     # single-label TLD reaching across tenants would surprise nobody.
-    subjects.sort(key=lambda s: (len(s[1]), "." in s[0]), reverse=True)
+    # Ranked by how much the answer can TELL us, not by how much mail there is. A bare
+    # public suffix is unownable by construction — `registrableDomain` returns None for it,
+    # so no rule the app compiles can ever be keyed on one — which makes `com` the least
+    # informative subject in the mailbox however many tenants sit under it. A PRIVATE-section
+    # suffix is the sharpest, since that is the boundary `allowPrivateDomains` exists to hold;
+    # a multi-label ICANN suffix next; single-label TLDs last.
+    with open(args.corpus, encoding="utf-8") as handle:
+        private_bases = {
+            r["rule"].lstrip("*.") for r in json.load(handle)["rules"] if r["section"] == "PRIVATE"
+        }
+    subjects.sort(
+        key=lambda s: (s[0] in private_bases, "." in s[0], len(s[1])),
+        reverse=True,
+    )
 
     if not subjects:
         note("no suffix in this sample has two or more distinct domains beneath it —")
@@ -739,9 +752,11 @@ def cmd_psl(args: argparse.Namespace) -> None:
 
     for suffix, names in subjects[: args.top]:
         print(f"\n== does a query for the SUFFIX {suffix} reach across its tenants? ==")
+        by_form: dict[str, Counter] = {}
         for form in (f"from:*@{suffix}", f"from:{suffix}"):
             print(f"\n-- {form}")
             got = Counter(host_of(a) for a in sender_addresses(token, form, args.sample))
+            by_form[form] = got
             if not got:
                 note("NO RESULTS — nothing matched. A literal `*` returns zero, like an empty")
                 note("mailbox, so this is not by itself evidence of a narrow match.")
@@ -751,13 +766,57 @@ def cmd_psl(args: argparse.Namespace) -> None:
                 note(f"{count}x {host}   (tenant: {registrable_of(host, psl)})")
             if len(reached) > 1:
                 note("")
-                note(f"REACHED {len(reached)} DISTINCT TENANTS — the matcher does NOT respect")
-                note(f"this PSL boundary. A parent-domain rule on any one tenant of {suffix}")
-                note("would compile to a filter covering the others.")
+                note(f"reached {len(reached)} distinct tenants — a query for this suffix sweeps")
+                note("across the boundary the PSL draws.")
+                note("This is SEVERITY, not a defect: the app cannot key a rule on a bare public")
+                note(f"suffix ({suffix} has no registrable domain), so no compiled filter looks")
+                note("like this. It measures what getting `allowPrivateDomains` wrong would cost.")
             else:
                 note("")
                 note("One tenant only — consistent with the boundary being respected, though")
                 note("not proof: the others may simply have sent nothing in the sample.")
+
+        # `*@X` vs bare `X`. Decision 9 contrasts the two as different forms with different
+        # reach, and design-gmail-integration.md Decision 5 point 9 builds the domain-block
+        # model on `*@domain` specifically. If they return the same set, `*@` is contributing
+        # nothing and both are matching the domain token — which would explain every
+        # measurement to date, #210's included, without any wildcard being involved.
+        wild, bare = by_form.get(f"from:*@{suffix}"), by_form.get(f"from:{suffix}")
+        if wild is not None and bare is not None:
+            print(f"\n-- `*@{suffix}` vs bare `{suffix}`")
+            if wild == bare:
+                note(f"IDENTICAL result sets ({sum(wild.values())} messages, {len(wild)} hosts).")
+                note("On this subject `*@` changes nothing — consistent with it being inert")
+                note("rather than a wildcard operator.")
+            else:
+                only_wild = sorted(set(wild) - set(bare))[:5]
+                only_bare = sorted(set(bare) - set(wild))[:5]
+                note(f"DIFFERENT — only `*@`: {only_wild or 'none'}; only bare: {only_bare or 'none'}")
+                note("The two forms are distinct, as Decision 9 assumes.")
+
+        # The question that IS about a rule the app can actually emit. A parent-domain rule is
+        # keyed on the REGISTRABLE domain, never on the suffix — so what matters is whether a
+        # query for one tenant stays inside that tenant, or leaks to its siblings under the
+        # same suffix. A leak here would mean a rule the user aimed at their own domain
+        # reaching a stranger's.
+        tenant = names[0]
+        siblings = set(names[1:])
+        print(f"\n-- from:{tenant} — does a rule keyed on ONE tenant stay inside it?")
+        got = Counter(host_of(a) for a in sender_addresses(token, f"from:{tenant}", args.sample))
+        leaked = {registrable_of(h, psl) for h in got} & siblings
+        for host, count in got.most_common(6):
+            note(f"{count}x {host}   (tenant: {registrable_of(host, psl)})")
+        if leaked:
+            note("")
+            note(f"LEAKED to {len(leaked)} sibling tenant(s): {', '.join(sorted(leaked)[:5])}")
+            note("A parent-domain rule would reach domains the user never decided on.")
+        elif got:
+            note("")
+            note(f"Stayed within {tenant} — the rule form the app compiles does not cross")
+            note(f"the {suffix} boundary, on this evidence.")
+        else:
+            note("")
+            note("NO RESULTS — inconclusive; nothing matched this form at all.")
 
 
 # The criteria fields `FilterSpec` represents; anything else makes a filter foreign to the
