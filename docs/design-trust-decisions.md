@@ -93,10 +93,15 @@ which together are just this decision applied consistently one level down:
   to model. Treating it as covering the subtree would have trust-rescue pull subtree mail back
   out of Trash on no evidence.
 
-A block also steps aside for a **subdomain** the user separately trusted, which is not recorded
-in `exceptionDomains` but is carved out of the compiled filter as a `*@sub.domain` term
-(design-gmail-integration.md Decision 5 point 9). Resolution reads that carve-out the same way,
-so the status and the filter cannot disagree about who is covered.
+A **domain**-scope block also steps aside for a **subdomain** the user separately trusted, which
+is not recorded in `exceptionDomains` but is carved out of the compiled filter as a
+`*@sub.domain` term (design-gmail-integration.md Decision 5 point 9). Resolution reads that
+carve-out the same way, so the status and the filter cannot disagree about who is covered.
+
+A **parent-domain** rule does not: Decision 9 makes it the later, broader word over a subdomain
+trust it has not carved out, so it spares only the subdomains in its own `exceptionDomains`
+(#250). The two scopes differ because the questions differ — nothing carves out retroactively,
+so a subdomain trusted *before* a rule was made above it was never carved out of that rule.
 
 **Rationale:** Matches the user's mental model ("block everything from this domain") while
 still allowing fine-grained exceptions. Resolution is a pure precedence rule (see
@@ -685,6 +690,7 @@ unchanged** — only the execution location (server → device) and the interfac
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-15 | **Decision 9 — a parent rule spares only the subdomains it recorded (#250).** Enforcement was carving any raw-trusted subdomain out of a parent-domain block, contradicting this decision's own test that a parent rule outranks a subdomain trust it has not carved out. Decision 9 stands as written and the filter changed to match: the carve-out now follows `exceptionDomains`, keeping "the user carved this subdomain out of the rule" distinct from "this subdomain carries a trust decision predating the rule". `effectiveTrustedSenders` and `effectiveBlockedDomains(...).excludeSubdomains` are now asserted together so the two halves cannot drift apart again. | Claude |
 | 2026-08-15 | **Decision 2 — a domain-scope BLOCK is a broader rule over its whole subtree (#244).** `*@domain` reaches everything beneath the domain (#210), but neither the write side nor resolution modelled that: trusting `statements@email.example.com` under an `example.com` block recorded a carve-out nowhere, so the sweep and the filter went on trashing the sender the user had just protected, and `effectiveSenderStatus` reported it `trusted` while its mail was swept. `broaderRulesFor` now records the exception on **every** block covering the sender (each compiles to its own filter and its own sweep, so one carve-out is not enough), and the new `coveringRulesFor` returns the rules reaching a sender from above — parent-domain rules and domain-scope blocks alike — with `effectiveSenderStatus` applying the nearest one it is not carved out of. A domain-scope **trust** is deliberately not such a rule: it compiles to nothing, so it has no reach, and treating it as covering the subtree would have trust-rescue pull subtree mail out of Trash on no evidence. Chose this over carving out every trusted sender in the subtree (unbounded against the criteria budget, and would leave a subtree sender more protected than an apex one) and over letting an address decision decide its subdomain (would spare senders the user has never seen). `simulate.ts` now resolves the preview through the same two helpers over a prospective copy of the domain records, rather than re-deriving the ladder — the drift that #148/#161/#192/#222 each closed one site at a time. | Claude |
 | 2026-08-14 | **Decision 9 — the breadth statement extends to ordinary domain decisions (#210).** `*@domain` spans the subtree, so "Whole domain" was a decision that reached senders the user never named and said nothing about it. Point 6's state-it-before-deciding principle now covers the plain domain scope: the scope label carries the subdomain count, and selecting it lists the domains covered, the senders at each, and the subdomains enforcement will spare because they were separately decided. Computed by `domainBlockCoverage`, deliberately narrower than `parentDomainCoverage` — the latter's prefix-sharing siblings are evidence about the **bare** `from:<domain>` form (#181), and the `*@domain` form measured in #210 spanned the subtree only, so claiming siblings here would assert a reach nothing has shown. Panel appears when there is something to say (an observed subdomain caught, or one spared), never merely to restate the label. | Claude |
 | 2026-08-09 | **Decision 9 build 2/4 landed (#184):** `resolveEffectiveDecision` resolves the parent-domain rule across the ladder, broadest-first, each rule applying unless the narrower subject is carved out of it. Threaded through the effective-status helpers, `generatePrompts` and the Dashboard, which now share one resolution instead of hand-rolling it. On the write side, `applyDecision` records an address or subdomain decided under a broader rule as an exception **on that rule**, a parent decision covers the whole subtree rather than exact-name members, and batch apply order derives from `SCOPE_SPECIFICITY` so a new scope cannot be given an accidental order. | Claude |

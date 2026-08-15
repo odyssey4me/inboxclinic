@@ -227,16 +227,32 @@ export async function effectiveBlockedDomains(store: Store): Promise<BlockedDoma
       // trusted at a subdomain records its carve-out on the block covering it (#244).
       if (sender !== undefined && !blockedSenderIds.has(sender.id)) excludeAddresses.push(email);
     }
-    // A domain block reaches the whole subtree (#210), so it also covers subdomains that are
-    // their own `Domain` records carrying their own decisions. Carve out the ones the user has
-    // separately decided to TRUST. A `pending` subdomain is deliberately NOT carved out: no
-    // decision has been made about it, so the block covers it — a breadth that is stated at
-    // decision time rather than discovered afterwards. A `blocked` subdomain needs no
-    // carve-out, being blocked either way.
+    // A block reaches the whole subtree (#210), so it also covers subdomains that are their own
+    // `Domain` records carrying their own decisions. Which of those it steps aside for depends
+    // on the scope of the rule doing the blocking, and the two are not the same question (#250):
+    //
+    // - **`domain`** — a subdomain the user separately decided to TRUST. A `pending` one is
+    //   deliberately NOT carved out: no decision has been made about it, so the block covers
+    //   it, a breadth stated at decision time rather than discovered afterwards. A `blocked`
+    //   one needs no carve-out, being blocked either way.
+    // - **`parentDomain`** — only a subdomain recorded in this rule's `exceptionDomains`, which
+    //   `applyDomainDecision` writes when a subdomain is decided *under* the rule. Decision 9
+    //   is explicit that a parent rule is the later, broader word over a subdomain trust it has
+    //   not carved out, and `effectiveSenderStatus` resolves it that way. Reading raw trust
+    //   status here instead spared that subdomain's mail while every other surface reported it
+    //   blocked — the same divergence #244 closed, pointing the other way.
+    //
+    // "The user carved this subdomain out of the rule" and "this subdomain happens to carry a
+    // trust decision predating the rule" are different facts, and nothing carves out
+    // retroactively.
+    const carvesOutSubdomain = (candidate: Domain): boolean =>
+      domain.decisionScope === "parentDomain"
+        ? domain.exceptionDomains.includes(candidate.domain) && candidate.trustStatus !== "blocked"
+        : candidate.trustStatus === "trusted";
     const excludeSubdomains = [...byKey.values()]
       .filter(
         (candidate) =>
-          isSubdomainOf(candidate.domain, domain.domain) && candidate.trustStatus === "trusted",
+          isSubdomainOf(candidate.domain, domain.domain) && carvesOutSubdomain(candidate),
       )
       .map((candidate) => candidate.domain)
       .sort();

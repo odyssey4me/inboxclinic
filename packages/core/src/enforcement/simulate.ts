@@ -209,23 +209,32 @@ export async function simulateEnforcement(
     senders.filter((s) => registrableDomain(s.domain) === domain.domain.toLowerCase());
 
   /**
-   * Subdomains under a (prospectively) blocked domain that the user has separately decided to
-   * TRUST — carved out of both its filter and its sweep, mirroring `effectiveBlockedDomains`.
+   * Subdomains a (prospectively) blocked domain steps aside for — carved out of both its filter
+   * and its sweep, mirroring `effectiveBlockedDomains`.
    *
-   * A domain block spans the subtree (#210), so without this the preview would count mail the
-   * apply is going to spare, and overstate the block by exactly the subdomains the user
-   * protected. Reads the prospective status, so a subdomain trusted earlier in this same batch
-   * already counts as decided.
+   * A block spans the subtree (#210), so without this the preview would count mail the apply is
+   * going to spare, and overstate the block by exactly the subdomains the user protected. Which
+   * subdomains those are depends on the rule's scope (#250): a **domain** block spares one the
+   * user separately trusted; a **parentDomain** rule spares only one it records in
+   * `exceptionDomains`, since Decision 9 makes the parent rule the later, broader word over a
+   * subdomain trust it has not carved out.
+   *
+   * Reads the prospective records, so a subdomain trusted — or carved out — earlier in this same
+   * batch already counts.
    */
-  const prospectiveSubdomainExclusions = (domain: Domain): string[] =>
-    domains
-      .filter(
-        (d) =>
-          isSubdomainOf(d.domain, domain.domain) &&
-          (domainStatus.get(d.id) ?? d.trustStatus) === "trusted",
-      )
+  const prospectiveSubdomainExclusions = (domain: Domain): string[] => {
+    const rule = prospectiveDomainsByKey.get(keyFor(domain.domain));
+    return domains
+      .filter((d) => {
+        if (!isSubdomainOf(d.domain, domain.domain)) return false;
+        const status = domainStatus.get(d.id) ?? d.trustStatus;
+        return rule?.decisionScope === "parentDomain"
+          ? rule.exceptionDomains.includes(d.domain) && status !== "blocked"
+          : status === "trusted";
+      })
       .map((d) => d.domain)
       .sort();
+  };
 
   // 1. Native filters — reconcile the *prospective* blocked set against Gmail's filters.
   let filtersToCreate = 0;

@@ -157,6 +157,37 @@ describe("parent-domain rules (#184)", () => {
     expect(await effectiveTrustedSenders(store)).toEqual([]);
   });
 
+  it("does not carve out a subdomain trust it never recorded as an exception (#250)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(parentRule());
+    // Trusted before the parent rule existed, so nothing carved it out — Decision 9 makes the
+    // rule the later, broader word, and `effectiveTrustedSenders` says so above.
+    await store.domains.put(
+      domainBuilder("news.example.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
+
+    // Both halves asserted together: reading raw trust status here spared this subdomain's mail
+    // while every other surface reported it blocked, and only asserting one half let them drift.
+    expect(await effectiveTrustedSenders(store)).toEqual([]);
+    expect((await effectiveBlockedDomains(store))[0]?.excludeSubdomains).toEqual([]);
+  });
+
+  it("carves out a subdomain it DOES record as an exception (#250)", async () => {
+    const store = createInMemoryStore();
+    await store.domains.put(parentRule({ exceptionDomains: ["news.example.com"] }));
+    await store.domains.put(
+      domainBuilder("news.example.com", { trustStatus: "trusted", decisionScope: "domain" }),
+    );
+    await store.senders.put(senderBuilder("promo@news.example.com", { trustStatus: "pending" }));
+
+    const trusted = await effectiveTrustedSenders(store);
+    expect(trusted.map((s) => s.email)).toEqual(["promo@news.example.com"]);
+    expect((await effectiveBlockedDomains(store))[0]?.excludeSubdomains).toEqual([
+      "news.example.com",
+    ]);
+  });
+
   it("outranks an already-decided APEX sender's own decision via effectiveBlockedDomains (#222)", async () => {
     const store = createInMemoryStore();
     // example.com IS its own registrable domain, so its subtree rule lives on this same

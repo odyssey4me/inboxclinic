@@ -252,12 +252,25 @@ them continuously (architecture.md §6):
    the existing-mail sweep therefore act on the subtree.
 
    Because a subdomain is its own `Domain` record with its own `trustStatus`, a block would
-   otherwise override a decision the user explicitly made about it. So every subdomain the user
-   has separately decided to **trust** is carved out of the same `negatedQuery` as a wildcard
-   term — `from:(*@email.monzo.com OR alice@monzo.com)`. Gmail accepts that form, and it
-   measurably removed the excluded subdomain's mail (8 → 0, #210). A **pending** subdomain is
-   *not* carved out: no decision has been made about it, so the block covers it, and that
-   breadth is stated at decision time rather than discovered afterwards.
+   otherwise override a decision the user explicitly made about it. So a spared subdomain is
+   carved out of the same `negatedQuery` as a wildcard term —
+   `from:(*@email.monzo.com OR alice@monzo.com)`. Gmail accepts that form, and it measurably
+   removed the excluded subdomain's mail (8 → 0, #210).
+
+   **Which subdomains are spared depends on the scope of the rule doing the blocking** (#250),
+   because the two scopes answer different questions:
+
+   - **`domain`** — every subdomain the user separately decided to **trust**. A **pending** one
+     is *not* carved out: no decision has been made about it, so the block covers it, and that
+     breadth is stated at decision time rather than discovered afterwards.
+   - **`parentDomain`** — only a subdomain recorded in that rule's `exceptionDomains`, which
+     `applyDomainDecision` writes when a subdomain is decided *under* the rule.
+     design-trust-decisions.md Decision 9 makes a parent rule the later, broader word over a
+     subdomain trust it has not carved out, and resolution treats it that way; reading raw trust
+     status here spared that subdomain's mail while every other surface reported it blocked.
+
+   Nothing carves out retroactively, so "the user carved this subdomain out of the rule" and
+   "this subdomain carries a trust decision predating the rule" stay distinct facts.
 
    The carve-out terms are built **once** (`exclusionTerms`) and used for both the filter's
    `negatedQuery` and the sweep's `excludeFrom`. If those two disagreed, a sender would either
@@ -645,6 +658,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-15 | **Decision 5 point 9 — which subdomains a block spares depends on its scope (#250).** The carve-out read raw `trustStatus` for every blocked target, so a **parentDomain** rule spared a subdomain carrying an older trust it had never carved out — while `effectiveSenderStatus` reported that subdomain's senders as blocked, per Decision 9's "the parent rule is the later, broader word". Status said blocked, the filter and the sweep spared the mail: the #244 divergence pointing the other way. A parentDomain rule now carves out only the subdomains in its own `exceptionDomains`, which `applyDomainDecision` already writes when a subdomain is decided under the rule; **domain**-scope behaviour from #210/#244 is unchanged. Chose this over making a trusted subdomain step aside from a parent rule too, which would have been simpler to state but reverses Decision 9 and re-opens part of the future-subdomain leak #136 exists to close. | Claude |
 | 2026-08-15 | **Decision 5 point 2 — the exact-domain enumerate form covers the subtree (#249).** The overflow spec said an exact-domain rule has "no sub-structure to keep" and enumerated one filter per still-blocked observed sender *at that domain* — a premise point 9 had already disproved: `*@domain` spans the subtree. So an overflowing domain compiled to a filter set that blocked none of its subdomains' mail going forward, while the sweep — which stays `*@domain` whatever form the filter takes — went on trashing that same mail. The block looked like it was working and had stopped. `blockedMemberAddresses` is now the whole subtree's still-blocked senders (`inDomainSubtree`), in `effectiveBlockedDomains` and in the `simulate` mirror. Still bounded by observed senders, and the "covers what has been seen so far" caveat is unchanged. | Claude |
 | 2026-08-15 | **Disconnect becomes Sign out, and revokes (#247).** One account control instead of a "Disconnect" that only dropped the token locally: it now calls `google.accounts.oauth2.revoke()`, so the grant stops surviving the session and the app leaves the user's Google Account permissions. The reconnect consent screen is an acceptable cost because the *passive* case is already handled by the attended-session lapse (Decision 1) — sign-out is left with only the deliberate intent, where revoking is what the word means. Revocation is fire-and-forget: local state clears even when the call fails, so a user who signed out is signed out regardless. | Claude |
 | 2026-08-15 | **`gmail.readonly` dropped from the grant.** `gmail.modify` already covers every read the app performs (`users.getProfile`, `messages.list`, `messages.get?format=metadata`, `history.list`), so once the tiers were gone `gmail.readonly` became a subset of a scope requested in the same prompt — a restricted-scope line on the consent screen buying no capability. It was meaningful only while it could be granted *alone*. Decision 2's table and the capability table now name `gmail.modify` for the read paths; CONTRIBUTING's scope smell gained the subset case. | Claude |
