@@ -703,6 +703,23 @@ def cmd_psl(args: argparse.Namespace) -> None:
     psl = load_psl(args.corpus)
     normal, wildcard, _ = psl
 
+    # A named subject skips discovery entirely — three queries instead of a sampling pass plus
+    # three per subject, and it can be pointed at structure the sample will not surface (a
+    # PRIVATE-suffix tenant with siblings, say, which a mailbox may hold none of). Same shape
+    # as `search --domain` and `match --domain`: explicit when you know, discovered when you
+    # do not, never baked in.
+    if args.domain is not None:
+        suffix = public_suffix_of(args.domain, psl)
+        registrable = registrable_of(args.domain, psl)
+        if registrable is None:
+            fail(
+                f"{args.domain} IS a public suffix ({suffix}) — nothing can be keyed on it,\n"
+                "       so there is no rule to test. Give a domain BENEATH a suffix."
+            )
+        print(f"== {args.domain} — suffix {suffix}, tenant {registrable} ==")
+        subjects = [(suffix, [registrable])]
+        return probe_subjects(token, args, psl, subjects)
+
     print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
     hosts = Counter(host_of(a) for a in sender_addresses(token, "newer_than:365d", args.sample))
 
@@ -750,6 +767,19 @@ def cmd_psl(args: argparse.Namespace) -> None:
         kind = "multi-label" if "." in suffix else "single-label"
         note(f"{suffix}  ({kind}; {len(names)} tenants: {', '.join(names[:4])})")
 
+    probe_subjects(token, args, psl, subjects)
+
+def probe_subjects(
+    token: str,
+    args: argparse.Namespace,
+    psl: tuple[set[str], set[str], set[str]],
+    subjects: list[tuple[str, list[str]]],
+) -> None:
+    """Run the three queries per subject and report what each reached.
+
+    Shared by both modes so a named subject and a discovered one are asked exactly the same
+    questions — the discovery pass only decides *which* subjects, never how they are judged.
+    """
     for suffix, names in subjects[: args.top]:
         print(f"\n== does a query for the SUFFIX {suffix} reach across its tenants? ==")
         by_form: dict[str, Counter] = {}
@@ -799,8 +829,12 @@ def cmd_psl(args: argparse.Namespace) -> None:
         # query for one tenant stays inside that tenant, or leaks to its siblings under the
         # same suffix. A leak here would mean a rule the user aimed at their own domain
         # reaching a stranger's.
+        # Siblings from what the SUFFIX queries actually returned, not from the sample: a
+        # named subject has no sample, and the query's own results are the better evidence in
+        # either case — they are the tenants Gmail itself put under this suffix.
+        observed = {registrable_of(h, psl) for got in by_form.values() for h in got} - {None}
         tenant = names[0]
-        siblings = set(names[1:])
+        siblings = (observed | set(names)) - {tenant}
         print(f"\n-- from:{tenant} — does a rule keyed on ONE tenant stay inside it?")
         got = Counter(host_of(a) for a in sender_addresses(token, f"from:{tenant}", args.sample))
         leaked = {registrable_of(h, psl) for h in got} & siblings
@@ -817,6 +851,7 @@ def cmd_psl(args: argparse.Namespace) -> None:
         else:
             note("")
             note("NO RESULTS — inconclusive; nothing matched this form at all.")
+
 
 
 # The criteria fields `FilterSpec` represents; anything else makes a filter foreign to the
@@ -1496,6 +1531,7 @@ def main() -> None:
     limit.set_defaults(func=cmd_limit)
 
     psl = sub.add_parser("psl", help="does Gmail's matcher respect public-suffix boundaries?")
+    psl.add_argument("--domain", help="test ONE host (skips the mailbox sample)")
     psl.add_argument("--sample", type=int, default=400)
     psl.add_argument("--top", type=int, default=3, help="how many suffixes to probe")
     psl.add_argument("--corpus", default=PSL_CORPUS, help="PSL corpus from fetch-psl-corpus.sh")
