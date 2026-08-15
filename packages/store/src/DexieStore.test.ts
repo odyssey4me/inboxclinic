@@ -328,3 +328,42 @@ describe("schema upgrade v1 → v2 (#183)", () => {
     expect(domain?.totalEmails).toBe(3);
   });
 });
+
+describe("schema upgrade v2 → v3 (#208)", () => {
+  it("backfills enumeratedDomains on filterSyncState written before the field existed", async () => {
+    const name = `upgrade-db-${dbSeq}`;
+
+    // A database as v2 left it: a filterSyncState row with no `enumeratedDomains` at all.
+    const v2 = new Dexie(name);
+    v2.version(1).stores({ domains: "id, trustStatus, updatedAt", filterSyncState: "key" });
+    v2.version(2)
+      .stores({ domains: "id, trustStatus, updatedAt", filterSyncState: "key" })
+      .upgrade((tx) =>
+        tx
+          .table<Domain>("domains")
+          .toCollection()
+          .modify((domain) => {
+            domain.exceptionDomains ??= [];
+          }),
+      );
+    await v2.table("filterSyncState").put({
+      key: "singleton",
+      lastSyncAt: 456,
+      totalFilters: 4,
+      managedFilterIds: ["filter-9"],
+    });
+    v2.close();
+
+    // Reopening through the current store runs the v3 upgrade.
+    const upgraded = new DexieStore(name);
+    const state = await upgraded.filterSync.get();
+    upgraded.close();
+
+    // The new field is a real empty array, not `undefined` behind an array-typed field…
+    expect(state?.enumeratedDomains).toEqual([]);
+    // …and the migration is a transform, so nothing else in the record is lost.
+    expect(state?.managedFilterIds).toEqual(["filter-9"]);
+    expect(state?.lastSyncAt).toBe(456);
+    expect(state?.totalFilters).toBe(4);
+  });
+});
