@@ -22,13 +22,13 @@ beforeEach(() => {
 function setup() {
   const gmail = new MockGmailClient(
     [
-      messageMetaBuilder({ headers: { from: "Jane <jane@acme.com>" } }),
+      messageMetaBuilder({ headers: { from: "Jane <jane@acme.test>" } }),
       messageMetaBuilder({
-        headers: { from: "news@promo.com", listUnsubscribe: "<mailto:u@promo.com>" },
+        headers: { from: "news@promo.test", listUnsubscribe: "<mailto:u@promo.test>" },
         labelIds: ["INBOX", "CATEGORY_PROMOTIONS"],
       }),
     ],
-    "owner@gmail.com",
+    "owner@example.com",
   );
   const store = createInMemoryStore();
   const backup = new MockBackupClient();
@@ -69,8 +69,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
     // sync-on-open runs incrementalSync (full scan on first run) without a manual click.
-    expect((await screen.findAllByText("jane@acme.com")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("news@promo.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("jane@acme.test")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("news@promo.test")).length).toBeGreaterThan(0);
 
     // The History-API marker is seeded so subsequent syncs are incremental.
     const profile = await store.profile.get();
@@ -84,7 +84,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
     // The email appears twice — the sidebar-foot account menu's closed summary and its
     // (unopened) panel — so match all rather than assuming a single node.
-    await screen.findAllByText("owner@gmail.com");
+    await screen.findAllByText("owner@example.com");
     const seededHistoryId = (await store.profile.get())?.lastHistoryId;
     expect(seededHistoryId).not.toBeNull();
 
@@ -117,8 +117,8 @@ describe("App", () => {
     // decisions surface defaults to the Pending tab; switch to All to see decided senders
     // (jane is seeded trusted, deals blocked).
     fireEvent.click(await screen.findByRole("tab", { name: /^all \(/i }));
-    expect((await screen.findAllByText("jane.cooper@gmail.com")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("deals@retailco.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("jane.cooper@example.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("deals@retailco.test")).length).toBeGreaterThan(0);
   });
 
   it("signing out returns to the landing, revokes the grant, and is remembered", async () => {
@@ -128,10 +128,10 @@ describe("App", () => {
     render(<App gmail={gmail} store={store} backup={backup} onSignOut={onSignOut} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
-    await screen.findAllByText("owner@gmail.com");
+    await screen.findAllByText("owner@example.com");
 
     // Sign out lives inside the sidebar-foot account menu; open it first.
-    fireEvent.click(screen.getAllByText("owner@gmail.com")[0]!.closest("summary")!);
+    fireEvent.click(screen.getAllByText("owner@example.com")[0]!.closest("summary")!);
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
     expect(screen.getByRole("button", { name: /sign in with google/i })).toBeInTheDocument();
@@ -147,13 +147,13 @@ describe("App", () => {
     render(<App gmail={gmail} store={store} backup={backup} />);
 
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
-    await screen.findAllByText("owner@gmail.com");
+    await screen.findAllByText("owner@example.com");
 
     // With no matchMedia (jsdom), Auto resolves to the desktop shell — a sidebar.
     expect(screen.getByRole("complementary")).toBeInTheDocument();
 
     // The layout switch lives inside the sidebar-foot account menu; open it first.
-    fireEvent.click(screen.getAllByText("owner@gmail.com")[0]!.closest("summary")!);
+    fireEvent.click(screen.getAllByText("owner@example.com")[0]!.closest("summary")!);
 
     // Pinning Mobile swaps to the single-column shell (no sidebar) and is persisted.
     fireEvent.click(screen.getByRole("button", { name: "Mobile" }));
@@ -169,11 +169,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign in with google/i }));
 
     // The email appears twice (account menu summary + panel), so match all.
-    expect((await screen.findAllByText("owner@gmail.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("owner@example.com")).length).toBeGreaterThan(0);
 
     // sync-on-open populates the senders table (no manual scan needed).
-    expect((await screen.findAllByText("jane@acme.com")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("news@promo.com")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("jane@acme.test")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("news@promo.test")).length).toBeGreaterThan(0);
     // The promotional sender is categorised from its CATEGORY_PROMOTIONS label.
     expect(screen.getByText("promotional")).toBeInTheDocument();
 

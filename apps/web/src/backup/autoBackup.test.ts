@@ -15,7 +15,7 @@ async function runDebounce(): Promise<void> {
 
 async function seeded(): Promise<Store> {
   const store = createInMemoryStore();
-  await store.senders.put(senderBuilder("a@x.com"));
+  await store.senders.put(senderBuilder("a@x.test"));
   return store;
 }
 

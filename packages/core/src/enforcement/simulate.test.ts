@@ -26,7 +26,7 @@ describe("estimateWeeklyVolume", () => {
 describe("simulateEnforcement", () => {
   it("counts a new block: creates a filter and trashes existing mail, no mutation", async () => {
     const store = createInMemoryStore();
-    const sender = senderBuilder("deals@retailco.com", { totalEmails: 5 });
+    const sender = senderBuilder("deals@retailco.test", { totalEmails: 5 });
     await store.senders.put(sender);
     const gmail = new MockGmailClient();
 
@@ -44,20 +44,20 @@ describe("simulateEnforcement", () => {
     // listMessageIdsForSender is queried for the count; no filters/labels were mutated.
     expect(gmail.createdFilters).toHaveLength(0);
     expect(gmail.batchModifyCalls).toHaveLength(0);
-    expect(gmail.senderQueries).toContain("deals@retailco.com");
+    expect(gmail.senderQueries).toContain("deals@retailco.test");
   });
 
   it("a prospective whole-domain trust drops a blocked member from the preview (#144)", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
-    await store.domains.put(domainBuilder("shop.com")); // domain undecided (pending)
+    await store.senders.put(senderBuilder("promo@shop.test", { trustStatus: "blocked" }));
+    await store.domains.put(domainBuilder("shop.test")); // domain undecided (pending)
     const gmail = new MockGmailClient();
 
     // As-is, the standing block would compile a filter...
     const before = await simulateEnforcement(gmail, store, []);
     // ...but previewing a whole-domain trust makes the member effectively trusted → no filter.
     const after = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("shop.com"), scope: "domain", decision: "trust" },
+      { subjectId: keyFor("shop.test"), scope: "domain", decision: "trust" },
     ]);
 
     expect(before.filtersToCreate).toBe(1);
@@ -67,21 +67,21 @@ describe("simulateEnforcement", () => {
   it("keeps a domain filter's exception carve-out in the preview, so it doesn't churn (#145)", async () => {
     const store = createInMemoryStore();
     await store.domains.put(
-      domainBuilder("shop.com", {
+      domainBuilder("shop.test", {
         trustStatus: "blocked",
         decisionScope: "domain",
-        exceptionAddresses: ["vip@shop.com"],
+        exceptionAddresses: ["vip@shop.test"],
       }),
     );
     await store.senders.put(
-      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+      senderBuilder("vip@shop.test", { trustStatus: "trusted", decisionScope: "address" }),
     );
     const gmail = new MockGmailClient();
     gmail.seedFilters([
       {
         id: "f1",
-        from: "*@shop.com",
-        excludeFrom: "vip@shop.com",
+        from: "*@shop.test",
+        excludeFrom: "vip@shop.test",
         addLabelIds: ["TRASH"],
         removeLabelIds: ["INBOX"],
       },
@@ -103,15 +103,15 @@ describe("simulateEnforcement", () => {
 
   it("reflects a batch address-trust as a new exception carve-out on a blocked domain (#161)", async () => {
     const store = createInMemoryStore();
-    // shop.com is already blocked at domain scope, with NO stored exceptions yet.
+    // shop.test is already blocked at domain scope, with NO stored exceptions yet.
     await store.domains.put(
-      domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+      domainBuilder("shop.test", { trustStatus: "blocked", decisionScope: "domain" }),
     );
-    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("promo@shop.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
     // The managed filter is the plain domain block, no carve-out.
     gmail.seedFilters([
-      { id: "f1", from: "*@shop.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "*@shop.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     await store.filterSync.put({
       key: "filterSyncState",
@@ -121,55 +121,55 @@ describe("simulateEnforcement", () => {
       enumeratedDomains: [],
     });
 
-    // Previewing "trust promo@shop.com" would (in the real apply) record it as a domain
+    // Previewing "trust promo@shop.test" would (in the real apply) record it as a domain
     // exception, so the desired filter gains a negatedQuery carve-out and the plain one is
     // replaced — the preview must reflect that, not read the stored (empty) exception set.
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("promo@shop.com"), scope: "address", decision: "trust" },
+      { subjectId: keyFor("promo@shop.test"), scope: "address", decision: "trust" },
     ]);
 
-    expect(impact.filtersToDelete).toBe(1); // the plain *@shop.com filter
-    expect(impact.filtersToCreate).toBe(1); // replaced by *@shop.com carrying the carve-out
+    expect(impact.filtersToDelete).toBe(1); // the plain *@shop.test filter
+    expect(impact.filtersToCreate).toBe(1); // replaced by *@shop.test carrying the carve-out
   });
 
   it("excludes a batch-trusted member from a same-batch domain block's message estimate (#161)", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("shop.com")); // pending; blocked in the batch below
-    await store.senders.put(senderBuilder("keep@shop.com", { trustStatus: "pending" }));
-    const gmail = new MockGmailClient([msgFrom("promo@shop.com"), msgFrom("keep@shop.com")]);
+    await store.domains.put(domainBuilder("shop.test")); // pending; blocked in the batch below
+    await store.senders.put(senderBuilder("keep@shop.test", { trustStatus: "pending" }));
+    const gmail = new MockGmailClient([msgFrom("promo@shop.test"), msgFrom("keep@shop.test")]);
 
     // "Block the domain but keep this sender" in one batch: the member becomes a domain
     // exception, so its existing mail is not swept. (The preview models this intended end
     // state; the real apply reaches it when the domain decision establishes domain scope.)
     const impact = await simulateEnforcement(gmail, store, [
       {
-        subjectId: keyFor("shop.com"),
+        subjectId: keyFor("shop.test"),
         scope: "domain",
         decision: "block",
         actions: ["create_filter", "delete"],
       },
-      { subjectId: keyFor("keep@shop.com"), scope: "address", decision: "trust" },
+      { subjectId: keyFor("keep@shop.test"), scope: "address", decision: "trust" },
     ]);
 
-    expect(impact.messagesToDelete).toBe(1); // only promo@shop.com; keep@shop.com is carved out
+    expect(impact.messagesToDelete).toBe(1); // only promo@shop.test; keep@shop.test is carved out
   });
 
   it("does not count a separately-trusted subdomain's mail in a domain block (#210)", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("monzo.com")); // pending; blocked in the batch below
+    await store.domains.put(domainBuilder("mybank.test")); // pending; blocked in the batch below
     await store.domains.put(
-      domainBuilder("email.monzo.com", { trustStatus: "trusted", decisionScope: "domain" }),
+      domainBuilder("email.mybank.test", { trustStatus: "trusted", decisionScope: "domain" }),
     );
-    await store.domains.put(domainBuilder("ads.monzo.com", { trustStatus: "pending" }));
+    await store.domains.put(domainBuilder("ads.mybank.test", { trustStatus: "pending" }));
     const gmail = new MockGmailClient([
-      msgFrom("promo@monzo.com"),
-      msgFrom("statements@email.monzo.com"),
-      msgFrom("offers@ads.monzo.com"),
+      msgFrom("promo@mybank.test"),
+      msgFrom("statements@email.mybank.test"),
+      msgFrom("offers@ads.mybank.test"),
     ]);
 
     const impact = await simulateEnforcement(gmail, store, [
       {
-        subjectId: keyFor("monzo.com"),
+        subjectId: keyFor("mybank.test"),
         scope: "domain",
         decision: "block",
         actions: ["create_filter", "delete"],
@@ -183,16 +183,16 @@ describe("simulateEnforcement", () => {
 
   it("counts an undecided subdomain's mail, since the block does cover it (#210)", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("monzo.com"));
-    await store.domains.put(domainBuilder("ads.monzo.com", { trustStatus: "pending" }));
+    await store.domains.put(domainBuilder("mybank.test"));
+    await store.domains.put(domainBuilder("ads.mybank.test", { trustStatus: "pending" }));
     const gmail = new MockGmailClient([
-      msgFrom("promo@monzo.com"),
-      msgFrom("offers@ads.monzo.com"),
+      msgFrom("promo@mybank.test"),
+      msgFrom("offers@ads.mybank.test"),
     ]);
 
     const impact = await simulateEnforcement(gmail, store, [
       {
-        subjectId: keyFor("monzo.com"),
+        subjectId: keyFor("mybank.test"),
         scope: "domain",
         decision: "block",
         actions: ["create_filter", "delete"],
@@ -242,8 +242,8 @@ describe("simulateEnforcement", () => {
 
   it("classifies archive vs delete from the staged actions", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("a@x.com"));
-    await store.senders.put(senderBuilder("b@y.com"));
+    await store.senders.put(senderBuilder("a@x.test"));
+    await store.senders.put(senderBuilder("b@y.test"));
     const gmail = new MockGmailClient();
     // Two messages each so the count is observable.
     gmail.seedInbox([
@@ -252,27 +252,27 @@ describe("simulateEnforcement", () => {
         threadId: "t1",
         labelIds: ["INBOX"],
         internalDate: 0,
-        headers: { from: "a@x.com" },
+        headers: { from: "a@x.test" },
       },
       {
         id: "2",
         threadId: "t2",
         labelIds: ["INBOX"],
         internalDate: 0,
-        headers: { from: "a@x.com" },
+        headers: { from: "a@x.test" },
       },
       {
         id: "3",
         threadId: "t3",
         labelIds: ["INBOX"],
         internalDate: 0,
-        headers: { from: "b@y.com" },
+        headers: { from: "b@y.test" },
       },
     ]);
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("a@x.com"), scope: "address", decision: "block", actions: ["archive"] },
-      { subjectId: keyFor("b@y.com"), scope: "address", decision: "block", actions: ["delete"] },
+      { subjectId: keyFor("a@x.test"), scope: "address", decision: "block", actions: ["archive"] },
+      { subjectId: keyFor("b@y.test"), scope: "address", decision: "block", actions: ["delete"] },
     ]);
 
     expect(impact.messagesToArchive).toBe(2);
@@ -282,10 +282,10 @@ describe("simulateEnforcement", () => {
   it("counts filters removed when reversing a block to trust", async () => {
     const store = createInMemoryStore();
     // A currently-blocked sender whose filter exists in Gmail.
-    await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@x.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "spam@x.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     // The filter was created by this app in an earlier run, so it's tracked as managed.
     await store.filterSync.put({
@@ -297,7 +297,7 @@ describe("simulateEnforcement", () => {
     });
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("spam@x.com"), scope: "address", decision: "trust" },
+      { subjectId: keyFor("spam@x.test"), scope: "address", decision: "trust" },
     ]);
 
     expect(impact.filtersToDelete).toBe(1);
@@ -308,10 +308,10 @@ describe("simulateEnforcement", () => {
   it("treats a defer on an already-decided sender as a no-op, not a reversal (#148)", async () => {
     const store = createInMemoryStore();
     // A currently-blocked sender whose managed filter exists in Gmail.
-    await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@x.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "spam@x.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     await store.filterSync.put({
       key: "filterSyncState",
@@ -324,7 +324,7 @@ describe("simulateEnforcement", () => {
     // Previewing "not sure" (defer) must leave the block intact — the real apply is a no-op,
     // so the preview must not show the filter being removed.
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("spam@x.com"), scope: "address", decision: "defer" },
+      { subjectId: keyFor("spam@x.test"), scope: "address", decision: "defer" },
     ]);
 
     expect(impact.filtersToDelete).toBe(0);
@@ -334,10 +334,10 @@ describe("simulateEnforcement", () => {
   it("treats a defer on an already-blocked domain as a no-op (#148)", async () => {
     const store = createInMemoryStore();
     // A currently-blocked domain whose managed wildcard filter exists in Gmail.
-    await store.domains.put(domainBuilder("promo.com", { trustStatus: "blocked" }));
+    await store.domains.put(domainBuilder("promo.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      { id: "d1", from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "d1", from: "*@promo.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     await store.filterSync.put({
       key: "filterSyncState",
@@ -348,7 +348,7 @@ describe("simulateEnforcement", () => {
     });
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("promo.com"), scope: "domain", decision: "defer" },
+      { subjectId: keyFor("promo.test"), scope: "domain", decision: "defer" },
     ]);
 
     expect(impact.filtersToDelete).toBe(0);
@@ -358,11 +358,11 @@ describe("simulateEnforcement", () => {
   it("previews a defer on a still-pending sender as no change (#148)", async () => {
     const store = createInMemoryStore();
     // Pending, no filter anywhere — a defer keeps it pending, so nothing is created or removed.
-    await store.senders.put(senderBuilder("maybe@x.com", { trustStatus: "pending" }));
+    await store.senders.put(senderBuilder("maybe@x.test", { trustStatus: "pending" }));
     const gmail = new MockGmailClient();
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("maybe@x.com"), scope: "address", decision: "defer" },
+      { subjectId: keyFor("maybe@x.test"), scope: "address", decision: "defer" },
     ]);
 
     expect(impact).toEqual({
@@ -381,7 +381,7 @@ describe("simulateEnforcement", () => {
     gmail.seedFilters([
       {
         id: "hand-made",
-        from: "oldjob@company.com",
+        from: "oldjob@company.test",
         addLabelIds: ["TRASH"],
         removeLabelIds: ["INBOX"],
       },
@@ -395,12 +395,12 @@ describe("simulateEnforcement", () => {
   it("counts spam-marked mail that a trust reversal would rescue", async () => {
     const store = createInMemoryStore();
     await store.senders.put(
-      senderBuilder("news@x.com", { trustStatus: "blocked", spamMarkedCount: 4 }),
+      senderBuilder("news@x.test", { trustStatus: "blocked", spamMarkedCount: 4 }),
     );
     const gmail = new MockGmailClient();
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("news@x.com"), scope: "address", decision: "trust" },
+      { subjectId: keyFor("news@x.test"), scope: "address", decision: "trust" },
     ]);
 
     expect(impact.messagesToRescue).toBe(4);
@@ -408,21 +408,21 @@ describe("simulateEnforcement", () => {
 
   it("counts every member a whole-domain trust would rescue (#192)", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("news.com"));
+    await store.domains.put(domainBuilder("news.test"));
     await store.senders.put(
-      senderBuilder("daily@news.com", { trustStatus: "blocked", spamMarkedCount: 3 }),
+      senderBuilder("daily@news.test", { trustStatus: "blocked", spamMarkedCount: 3 }),
     );
     await store.senders.put(
-      senderBuilder("weekly@news.com", { trustStatus: "pending", spamMarkedCount: 2 }),
+      senderBuilder("weekly@news.test", { trustStatus: "pending", spamMarkedCount: 2 }),
     );
     // A different domain's spam-marked mail is untouched by this decision.
     await store.senders.put(
-      senderBuilder("promo@shop.com", { trustStatus: "blocked", spamMarkedCount: 9 }),
+      senderBuilder("promo@shop.test", { trustStatus: "blocked", spamMarkedCount: 9 }),
     );
     const gmail = new MockGmailClient();
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("news.com"), scope: "domain", decision: "trust" },
+      { subjectId: keyFor("news.test"), scope: "domain", decision: "trust" },
     ]);
 
     // Both members become effectively trusted, so enforce would rescue 3 + 2 — the preview
@@ -432,21 +432,21 @@ describe("simulateEnforcement", () => {
 
   it("does not rescue a member the same batch blocks as an exception (#192)", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("news.com"));
+    await store.domains.put(domainBuilder("news.test"));
     await store.senders.put(
-      senderBuilder("daily@news.com", { trustStatus: "pending", spamMarkedCount: 3 }),
+      senderBuilder("daily@news.test", { trustStatus: "pending", spamMarkedCount: 3 }),
     );
     await store.senders.put(
-      senderBuilder("junk@news.com", { trustStatus: "pending", spamMarkedCount: 7 }),
+      senderBuilder("junk@news.test", { trustStatus: "pending", spamMarkedCount: 7 }),
     );
     const gmail = new MockGmailClient();
 
     // "Trust the domain, except this one sender": the address block is recorded as a domain
     // exception, so its mail stays where it is.
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("news.com"), scope: "domain", decision: "trust" },
+      { subjectId: keyFor("news.test"), scope: "domain", decision: "trust" },
       {
-        subjectId: keyFor("junk@news.com"),
+        subjectId: keyFor("junk@news.test"),
         scope: "address",
         decision: "block",
         actions: ["create_filter"],
@@ -458,15 +458,15 @@ describe("simulateEnforcement", () => {
 
   it("counts a sender covered by both an address and a domain trust once (#192)", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("news.com"));
+    await store.domains.put(domainBuilder("news.test"));
     await store.senders.put(
-      senderBuilder("daily@news.com", { trustStatus: "blocked", spamMarkedCount: 4 }),
+      senderBuilder("daily@news.test", { trustStatus: "blocked", spamMarkedCount: 4 }),
     );
     const gmail = new MockGmailClient();
 
     const impact = await simulateEnforcement(gmail, store, [
-      { subjectId: keyFor("news.com"), scope: "domain", decision: "trust" },
-      { subjectId: keyFor("daily@news.com"), scope: "address", decision: "trust" },
+      { subjectId: keyFor("news.test"), scope: "domain", decision: "trust" },
+      { subjectId: keyFor("daily@news.test"), scope: "address", decision: "trust" },
     ]);
 
     expect(impact.messagesToRescue).toBe(4);
@@ -476,25 +476,25 @@ describe("simulateEnforcement", () => {
     const store = createInMemoryStore();
     // A blocked domain with one trusted exception address carved out.
     await store.domains.put(
-      domainBuilder("shop.com", {
+      domainBuilder("shop.test", {
         trustStatus: "blocked",
         decisionScope: "domain",
-        exceptionAddresses: ["vip@shop.com"],
+        exceptionAddresses: ["vip@shop.test"],
       }),
     );
     await store.senders.put(
-      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+      senderBuilder("vip@shop.test", { trustStatus: "trusted", decisionScope: "address" }),
     );
     // Two messages from an ordinary domain member + one from the trusted exception.
     const gmail = new MockGmailClient([
-      msgFrom("promo@shop.com"),
-      msgFrom("promo@shop.com"),
-      msgFrom("vip@shop.com"),
+      msgFrom("promo@shop.test"),
+      msgFrom("promo@shop.test"),
+      msgFrom("vip@shop.test"),
     ]);
 
     const impact = await simulateEnforcement(gmail, store, [
       {
-        subjectId: keyFor("shop.com"),
+        subjectId: keyFor("shop.test"),
         scope: "domain",
         decision: "block",
         actions: ["create_filter", "delete"],
@@ -508,12 +508,12 @@ describe("simulateEnforcement", () => {
 
   it("previews a whole-domain block", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(domainBuilder("promo.com"));
+    await store.domains.put(domainBuilder("promo.test"));
     const gmail = new MockGmailClient();
 
     const impact = await simulateEnforcement(gmail, store, [
       {
-        subjectId: keyFor("promo.com"),
+        subjectId: keyFor("promo.test"),
         scope: "domain",
         decision: "block",
         actions: ["create_filter", "archive"],
@@ -521,7 +521,7 @@ describe("simulateEnforcement", () => {
     ]);
 
     expect(impact.filtersToCreate).toBe(1);
-    expect(gmail.senderQueries).toContain("*@promo.com");
+    expect(gmail.senderQueries).toContain("*@promo.test");
   });
 });
 

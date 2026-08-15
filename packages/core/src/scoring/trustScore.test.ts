@@ -6,8 +6,8 @@ import { computeTrustScore } from "./trustScore";
 
 function snap(overrides: Partial<SenderSnapshot> = {}): SenderSnapshot {
   return {
-    email: "a@b.com",
-    domain: "b.com",
+    email: "a@b.test",
+    domain: "b.test",
     category: "personal",
     totalEmails: 10,
     emails30d: 10,

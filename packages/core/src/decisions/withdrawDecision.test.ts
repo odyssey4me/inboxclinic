@@ -12,19 +12,19 @@ describe("withdrawDecision", () => {
   it("returns a sender to being governed by its domain's rule", async () => {
     const store = createInMemoryStore();
     await store.domains.put(
-      domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+      domainBuilder("shop.test", { trustStatus: "blocked", decisionScope: "domain" }),
     );
-    await store.senders.put(senderBuilder("vip@shop.com"));
+    await store.senders.put(senderBuilder("vip@shop.test"));
     // Trusting under a domain block records the carve-out that makes the exception real.
     await applyDecision(store, {
-      subjectId: keyFor("vip@shop.com"),
+      subjectId: keyFor("vip@shop.test"),
       scope: "address",
       decision: "trust",
       now: NOW,
     });
 
     const result = await withdrawDecision(store, {
-      subjectId: keyFor("vip@shop.com"),
+      subjectId: keyFor("vip@shop.test"),
       scope: "address",
     });
 
@@ -32,29 +32,29 @@ describe("withdrawDecision", () => {
     // be told to skip a sender that no longer claims an exemption.
     expect(result.withdrawn).toBe(true);
     expect(result.status).toBe("blocked");
-    expect(result.clearedExceptionsOn).toEqual(["shop.com"]);
-    const sender = await store.senders.get(keyFor("vip@shop.com"));
+    expect(result.clearedExceptionsOn).toEqual(["shop.test"]);
+    const sender = await store.senders.get(keyFor("vip@shop.test"));
     expect(sender?.trustStatus).toBe("pending");
     expect(sender?.decisionScope).toBeNull();
-    const domain = await store.domains.get(keyFor("shop.com"));
+    const domain = await store.domains.get(keyFor("shop.test"));
     expect(domain?.exceptionAddresses).toEqual([]);
   });
 
   it("clears staged block actions along with the decision", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@x.com"));
+    await store.senders.put(senderBuilder("spam@x.test"));
     await applyDecision(store, {
-      subjectId: keyFor("spam@x.com"),
+      subjectId: keyFor("spam@x.test"),
       scope: "address",
       decision: "block",
       actions: ["create_filter", "delete"],
       now: NOW,
     });
 
-    await withdrawDecision(store, { subjectId: keyFor("spam@x.com"), scope: "address" });
+    await withdrawDecision(store, { subjectId: keyFor("spam@x.test"), scope: "address" });
 
     // Left in place, the next enforce would carry out a block the user just stepped back from.
-    expect((await store.senders.get(keyFor("spam@x.com")))?.pendingActions).toEqual([]);
+    expect((await store.senders.get(keyFor("spam@x.test")))?.pendingActions).toEqual([]);
   });
 
   it("returns a subdomain to being governed by the parent rule it was carved out of", async () => {
@@ -104,16 +104,16 @@ describe("withdrawDecision", () => {
 
   it("leaves a subject genuinely undecided when nothing covers it", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("solo@x.com"));
+    await store.senders.put(senderBuilder("solo@x.test"));
     await applyDecision(store, {
-      subjectId: keyFor("solo@x.com"),
+      subjectId: keyFor("solo@x.test"),
       scope: "address",
       decision: "block",
       now: NOW,
     });
 
     const result = await withdrawDecision(store, {
-      subjectId: keyFor("solo@x.com"),
+      subjectId: keyFor("solo@x.test"),
       scope: "address",
     });
 
@@ -125,10 +125,10 @@ describe("withdrawDecision", () => {
 
   it("is a no-op on a subject that was never decided", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("never@x.com"));
+    await store.senders.put(senderBuilder("never@x.test"));
 
     const result = await withdrawDecision(store, {
-      subjectId: keyFor("never@x.com"),
+      subjectId: keyFor("never@x.test"),
       scope: "address",
     });
 
@@ -195,7 +195,7 @@ describe("withdrawDecision", () => {
   it("throws for a subject that does not exist", async () => {
     const store = createInMemoryStore();
     await expect(
-      withdrawDecision(store, { subjectId: keyFor("ghost@x.com"), scope: "address" }),
+      withdrawDecision(store, { subjectId: keyFor("ghost@x.test"), scope: "address" }),
     ).rejects.toThrow(/no sender/);
   });
 });

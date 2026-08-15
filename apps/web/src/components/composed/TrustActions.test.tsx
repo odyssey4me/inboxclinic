@@ -42,8 +42,8 @@ function makeSender(overrides: Partial<Sender>): Sender {
 // hasListUnsubscribe + promotional -> defaults to ["unsubscribe", "create_filter", "archive"].
 const senderA = makeSender({
   id: "a",
-  email: "news@promo.com",
-  domain: "promo.com",
+  email: "news@promo.test",
+  domain: "promo.test",
   category: "promotional",
   hasListUnsubscribe: true,
 });
@@ -51,8 +51,8 @@ const senderA = makeSender({
 // no list-unsubscribe + transactional -> defaults to ["create_filter"] only.
 const senderB = makeSender({
   id: "b",
-  email: "receipts@shop.com",
-  domain: "shop.com",
+  email: "receipts@shop.test",
+  domain: "shop.test",
   category: "transactional",
   hasListUnsubscribe: false,
 });
@@ -126,6 +126,9 @@ describe("TrustActions — parent-domain scope (#186)", () => {
       { domain: "example.com", senderCount: 1 },
       { domain: "news.example.com", senderCount: 2 },
     ],
+    // `com.au` is a real public suffix, and that is exactly what makes this a DIFFERENT
+    // registrable domain from example.com — no fictional suffix can stand in for it.
+    // eslint-disable-next-line local/no-real-domains -- real public suffix, see above
     siblings: [{ domain: "example.com.au", senderCount: 1 }],
     senderCount: 4,
   };
@@ -198,15 +201,15 @@ describe("TrustActions — parent-domain scope (#186)", () => {
 });
 
 describe("TrustActions — domain-scope breadth (#210)", () => {
-  const sender = makeSender({ id: "s", email: "promo@monzo.com", domain: "monzo.com" });
+  const sender = makeSender({ id: "s", email: "promo@mybank.test", domain: "mybank.test" });
 
   const coverage = {
-    domain: "monzo.com",
+    domain: "mybank.test",
     covered: [
-      { domain: "monzo.com", senderCount: 2 },
-      { domain: "ads.monzo.com", senderCount: 1 },
+      { domain: "mybank.test", senderCount: 2 },
+      { domain: "ads.mybank.test", senderCount: 1 },
     ],
-    carvedOut: [{ domain: "email.monzo.com", senderCount: 3 }],
+    carvedOut: [{ domain: "email.mybank.test", senderCount: 3 }],
     senderCount: 3,
   };
 
@@ -227,16 +230,16 @@ describe("TrustActions — domain-scope breadth (#210)", () => {
     renderWith("address");
 
     // The label is where a "whole domain" decision is actually chosen, and it read as narrower
-    // than it enforces. `*@monzo.com` spans the subtree, so the count belongs here, not only in
+    // than it enforces. `*@mybank.test` spans the subtree, so the count belongs here, not only in
     // a panel the user sees after committing to the scope.
-    expect(screen.getByLabelText(/Whole domain \(monzo\.com \+ 1 subdomain\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Whole domain \(mybank\.test \+ 1 subdomain\)/)).toBeInTheDocument();
   });
 
   it("lists the subdomains the block would reach once the scope is selected", () => {
     renderWith("domain");
 
-    expect(screen.getByText(/covers every sender at monzo\.com and below/)).toBeInTheDocument();
-    expect(screen.getByText(/ads\.monzo\.com \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/covers every sender at mybank\.test and below/)).toBeInTheDocument();
+    expect(screen.getByText(/ads\.mybank\.test \(1\)/)).toBeInTheDocument();
   });
 
   it("says which subdomains stay decided rather than silently omitting them", () => {
@@ -246,7 +249,7 @@ describe("TrustActions — domain-scope breadth (#210)", () => {
     // overstate the block; leaving it in the covered list would state the opposite of what
     // enforcement does.
     expect(screen.getByText(/you decided them separately/)).toBeInTheDocument();
-    expect(screen.getByText(/email\.monzo\.com \(3\)/)).toBeInTheDocument();
+    expect(screen.getByText(/email\.mybank\.test \(3\)/)).toBeInTheDocument();
   });
 
   it("admits the reach is not enumerable in advance", () => {
@@ -259,8 +262,8 @@ describe("TrustActions — domain-scope breadth (#210)", () => {
 
   it("shows no panel when nothing under the domain has been seen", () => {
     renderWith("domain", {
-      domain: "shop.com",
-      covered: [{ domain: "shop.com", senderCount: 2 }],
+      domain: "shop.test",
+      covered: [{ domain: "shop.test", senderCount: 2 }],
       carvedOut: [],
       senderCount: 2,
     });

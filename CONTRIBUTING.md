@@ -167,6 +167,16 @@ All-TypeScript: **ESLint + Prettier + `tsc` (strict)**, tested with **Vitest**. 
 the core (`packages/core`) framework-agnostic and pure where possible. No dead code or
 stale documentation (see [CLAUDE.md](CLAUDE.md)).
 
+**Test fixtures must use reserved domain names.** Anything standing in for real mail —
+unit tests, demo data, e2e specs — names domains with the RFC 2606 / RFC 6761 reserved
+names: `<anything>.test` (the whole TLD is reserved, so invent as many organisations as
+you need), `.example`, `.invalid`, `.localhost`, or `example.com` / `.net` / `.org`.
+Never a name someone could really own — not `monzo.com`, and not innocuous-looking ones
+like `shop.com` or `acme.com`, which are registered too. `npm run lint` enforces this via
+`local/no-real-domains`; if a fixture genuinely needs a real public suffix (a Public
+Suffix List test cannot use a fictional one), disable the rule on that line or file with
+the reason. See [docs/design-testing.md](docs/design-testing.md) Decision 5.
+
 **Dependencies — use the ecosystem.** Reach for a well-supported, replaceable library
 when it gives substantive benefit at acceptable risk and lock-in, rather than hand-rolling
 what a stable library does well (architecture.md §1, *Use the ecosystem*). Add it to the

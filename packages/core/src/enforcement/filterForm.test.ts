@@ -28,19 +28,19 @@ const compiled = (overflows: CompiledFilters["exceptionOverflows"]): CompiledFil
 
 describe("withCurrentFilterForm", () => {
   it("reads the persisted form so every compile site sees the same one", async () => {
-    const store = await storeEnumerating("shop.com");
+    const store = await storeEnumerating("shop.test");
 
     // The reason this is a shared helper and not four independent derivations: a preview that
     // compiles against a different form than the apply is the #192/#218/#221 failure mode.
-    expect(await withCurrentFilterForm(store)).toEqual({ enumeratedDomains: ["shop.com"] });
+    expect(await withCurrentFilterForm(store)).toEqual({ enumeratedDomains: ["shop.test"] });
   });
 
   it("keeps the caller's other compile options intact", async () => {
-    const store = await storeEnumerating("shop.com");
+    const store = await storeEnumerating("shop.test");
 
     expect(await withCurrentFilterForm(store, { maxCriteriaChars: 40 })).toEqual({
       maxCriteriaChars: 40,
-      enumeratedDomains: ["shop.com"],
+      enumeratedDomains: ["shop.test"],
     });
   });
 
@@ -51,7 +51,7 @@ describe("withCurrentFilterForm", () => {
   });
 
   it("lets an explicit form win, so tests and tooling can pin it", async () => {
-    const store = await storeEnumerating("shop.com");
+    const store = await storeEnumerating("shop.test");
 
     expect(await withCurrentFilterForm(store, { enumeratedDomains: [] })).toEqual({
       enumeratedDomains: [],
@@ -63,9 +63,9 @@ describe("enumeratedFormOf", () => {
   it("records the domains actually compiled in the enumerate form", () => {
     expect(
       enumeratedFormOf(
-        compiled([{ domain: "shop.com", strategy: "enumerate", exceptionCount: 100 }]),
+        compiled([{ domain: "shop.test", strategy: "enumerate", exceptionCount: 100 }]),
       ),
-    ).toEqual(["shop.com"]);
+    ).toEqual(["shop.test"]);
   });
 
   it("excludes a dropped block, which is a missing member list rather than a form", () => {
@@ -73,7 +73,7 @@ describe("enumeratedFormOf", () => {
     // nothing to do with its carve-out ever having been too long.
     expect(
       enumeratedFormOf(
-        compiled([{ domain: "shop.com", strategy: "dropped", exceptionCount: 100 }]),
+        compiled([{ domain: "shop.test", strategy: "dropped", exceptionCount: 100 }]),
       ),
     ).toEqual([]);
   });

@@ -12,8 +12,8 @@ const NOW = Date.now();
 async function seeded(): Promise<Store> {
   const store = createInMemoryStore();
   await store.senders.bulkPut([
-    senderBuilder("a@trusted.com", { trustStatus: "trusted", readRate: 1, category: "personal" }),
-    senderBuilder("b@spam.com", {
+    senderBuilder("a@trusted.test", { trustStatus: "trusted", readRate: 1, category: "personal" }),
+    senderBuilder("b@spam.test", {
       trustStatus: "blocked",
       readRate: 0,
       category: "promotional",
@@ -21,8 +21,8 @@ async function seeded(): Promise<Store> {
     }),
   ]);
   await store.domains.bulkPut([
-    domainBuilder("spam.com", { trustStatus: "blocked", totalEmails: 12 }),
-    domainBuilder("trusted.com", { trustStatus: "trusted", totalEmails: 4 }),
+    domainBuilder("spam.test", { trustStatus: "blocked", totalEmails: 12 }),
+    domainBuilder("trusted.test", { trustStatus: "trusted", totalEmails: 4 }),
   ]);
   await recordDailyAnalytics(store, NOW, {
     decisionsMade: 2,
@@ -44,7 +44,7 @@ describe("Analytics view", () => {
     // 30-day summary surfaces the recorded counters.
     expect(screen.getByText("Emails blocked")).toBeInTheDocument();
     expect(screen.getByText("Top blocked domains")).toBeInTheDocument();
-    expect(screen.getAllByText("spam.com").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("spam.test").length).toBeGreaterThan(0);
     // The first block earns an achievement badge.
     expect(screen.getByText(/First Block/)).toBeInTheDocument();
   });

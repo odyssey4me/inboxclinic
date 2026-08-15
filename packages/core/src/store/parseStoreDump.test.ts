@@ -46,7 +46,7 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
     ["a table with a primitive row", '{"senders":[1,2,3]}'],
     ["a table with an array row", '{"senders":[[]]}'],
     ["a table with a null row", '{"senders":[null]}'],
-    ["a row missing its primary key", '{"senders":[{"email":"x@y.com"}]}'],
+    ["a row missing its primary key", '{"senders":[{"email":"x@y.test"}]}'],
     ["a row with an empty-string key", '{"senders":[{"id":""}]}'],
   ])("rejects %s with InvalidBackupError", (_label, text) => {
     expect(() => parseStoreDump(encode(text))).toThrow(InvalidBackupError);
@@ -64,9 +64,9 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
 
   it("round-trips a real exportAll dump", async () => {
     const store = createInMemoryStore();
-    await store.senders.bulkPut([senderBuilder("a@x.com"), senderBuilder("b@y.com")]);
+    await store.senders.bulkPut([senderBuilder("a@x.test"), senderBuilder("b@y.test")]);
     const dump = parseStoreDump(await store.exportAll());
-    expect(dump.senders.map((s) => s.email).sort()).toEqual(["a@x.com", "b@y.com"]);
+    expect(dump.senders.map((s) => s.email).sort()).toEqual(["a@x.test", "b@y.test"]);
     expect(dump.prompts).toEqual([]);
   });
 
@@ -78,11 +78,11 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
       '{"senders":"oops"}',
       '{"senders":[42]}',
       // Shape-valid but a keyless row — rejected at the gate, NOT wiped-then-corrupted.
-      '{"senders":[{"email":"noid@x.com"}]}',
+      '{"senders":[{"email":"noid@x.test"}]}',
     ];
     for (const text of malformed) {
       const store = createInMemoryStore();
-      await store.senders.bulkPut([senderBuilder("keep@x.com")]);
+      await store.senders.bulkPut([senderBuilder("keep@x.test")]);
       const before = await store.exportAll();
       await expect(store.importAll(encode(text))).rejects.toBeInstanceOf(InvalidBackupError);
       // The seeded sender survives — the store was never wiped.
@@ -98,11 +98,11 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
       domains: [
         {
           id: "legacy",
-          domain: "shop.com",
+          domain: "shop.test",
           trustStatus: "blocked",
           senderCount: 1,
           totalEmails: 1,
-          exceptionAddresses: ["vip@shop.com"],
+          exceptionAddresses: ["vip@shop.test"],
           updatedAt: 0,
           trustDecidedAt: null,
           decisionScope: "domain",
@@ -116,7 +116,7 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
 
     expect(dump.domains[0]?.exceptionDomains).toEqual([]);
     // The rest of the record is untouched.
-    expect(dump.domains[0]?.exceptionAddresses).toEqual(["vip@shop.com"]);
+    expect(dump.domains[0]?.exceptionAddresses).toEqual(["vip@shop.test"]);
   });
 
   it("keeps a stored exceptionDomains list, and replaces a non-array one", async () => {
@@ -124,13 +124,13 @@ describe("parseStoreDump — fuzzing the restore/import boundary (#166)", () => 
       encode(
         JSON.stringify({
           domains: [
-            { id: "a", exceptionDomains: ["spam.shop.com"] },
+            { id: "a", exceptionDomains: ["spam.shop.test"] },
             { id: "b", exceptionDomains: "not-an-array" },
           ],
         }),
       ),
     );
-    expect(dump.domains[0]?.exceptionDomains).toEqual(["spam.shop.com"]);
+    expect(dump.domains[0]?.exceptionDomains).toEqual(["spam.shop.test"]);
     expect(dump.domains[1]?.exceptionDomains).toEqual([]);
   });
 

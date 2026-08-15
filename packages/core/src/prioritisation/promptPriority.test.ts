@@ -11,8 +11,8 @@ const DAY = 24 * 60 * 60 * 1000;
 
 function snap(overrides: Partial<SenderSnapshot> = {}): SenderSnapshot {
   return {
-    email: "a@b.com",
-    domain: "b.com",
+    email: "a@b.test",
+    domain: "b.test",
     category: "personal",
     totalEmails: 50,
     emails30d: 10,
@@ -84,28 +84,28 @@ describe("prioritisePrompts — batch grouping", () => {
   it("groups 3+ same-domain senders and reports the batch size", () => {
     const prompts = prioritisePrompts(
       [
-        snap({ email: "a@x.com", domain: "x.com" }),
-        snap({ email: "b@x.com", domain: "x.com" }),
-        snap({ email: "c@x.com", domain: "x.com" }),
+        snap({ email: "a@x.test", domain: "x.test" }),
+        snap({ email: "b@x.test", domain: "x.test" }),
+        snap({ email: "c@x.test", domain: "x.test" }),
       ],
       emptyDecisionHistory(),
       NOW,
     );
-    expect(prompts[0]?.batchGroupId).toBe("domain:x.com");
+    expect(prompts[0]?.batchGroupId).toBe("domain:x.test");
     expect(prompts[0]?.batchSize).toBe(3);
     // domainGrouping 0.4 (3+) + combinedVolume min(150/200,1)×0.4 = 0.3 → 0.7
     expect(prompts[0]?.components.batch).toBeCloseTo(0.7, 5);
   });
 
   it("leaves a lone sender unbatched", () => {
-    const [prompt] = prioritisePrompts([snap({ domain: "solo.com" })], emptyDecisionHistory(), NOW);
+    const [prompt] = prioritisePrompts([snap({ domain: "solo.test" })], emptyDecisionHistory(), NOW);
     expect(prompt?.batchGroupId).toBeNull();
     expect(prompt?.batchSize).toBe(1);
   });
 
   it("scales domain grouping with the cluster size (2 → 0.2, 5+ → 0.6)", () => {
     const pair = prioritisePrompts(
-      [snap({ email: "a@p.com", domain: "p.com" }), snap({ email: "b@p.com", domain: "p.com" })],
+      [snap({ email: "a@p.test", domain: "p.test" }), snap({ email: "b@p.test", domain: "p.test" })],
       emptyDecisionHistory(),
       NOW,
     );
@@ -114,7 +114,7 @@ describe("prioritisePrompts — batch grouping", () => {
     expect(pair[0]?.components.batch).toBeCloseTo(0.4, 5);
 
     const five = prioritisePrompts(
-      ["a", "b", "c", "d", "e"].map((u) => snap({ email: `${u}@q.com`, domain: "q.com" })),
+      ["a", "b", "c", "d", "e"].map((u) => snap({ email: `${u}@q.test`, domain: "q.test" })),
       emptyDecisionHistory(),
       NOW,
     );
@@ -154,14 +154,14 @@ describe("prioritisePrompts — score and ordering", () => {
   it("scales the weighted sum to 0–100 and sorts highest-first", () => {
     const prompts = prioritisePrompts(
       [
-        snap({ email: "low@quiet.com", domain: "quiet.com", totalEmails: 1, frequency: "rare" }),
-        snap({ email: "high@busy.com", domain: "busy.com", totalEmails: 100, frequency: "daily" }),
+        snap({ email: "low@quiet.test", domain: "quiet.test", totalEmails: 1, frequency: "rare" }),
+        snap({ email: "high@busy.test", domain: "busy.test", totalEmails: 100, frequency: "daily" }),
       ],
       emptyDecisionHistory(),
       NOW,
     );
-    expect(prompts[0]?.senderId).toBe(keyFor("high@busy.com"));
-    expect(prompts[1]?.senderId).toBe(keyFor("low@quiet.com"));
+    expect(prompts[0]?.senderId).toBe(keyFor("high@busy.test"));
+    expect(prompts[1]?.senderId).toBe(keyFor("low@quiet.test"));
     for (const prompt of prompts) {
       expect(prompt.priorityScore).toBeGreaterThanOrEqual(0);
       expect(prompt.priorityScore).toBeLessThanOrEqual(100);

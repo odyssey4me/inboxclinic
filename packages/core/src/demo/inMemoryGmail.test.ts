@@ -22,82 +22,82 @@ const matched = (client: MockGmailClient, from: string, excludeFrom?: string): P
 describe("MockGmailClient.listMessageIdsForSender", () => {
   it("spans the whole subtree for *@domain, as Gmail's matching does (#210)", async () => {
     const gmail = new MockGmailClient([
-      msgFrom("promo@ads.com"),
-      msgFrom("news@mail.ads.com"),
-      msgFrom("deep@a.b.ads.com"),
+      msgFrom("promo@ads.test"),
+      msgFrom("news@mail.ads.test"),
+      msgFrom("deep@a.b.ads.test"),
     ]);
 
-    expect(await matched(gmail, "*@ads.com")).toEqual([
-      "promo@ads.com",
-      "news@mail.ads.com",
-      "deep@a.b.ads.com",
+    expect(await matched(gmail, "*@ads.test")).toEqual([
+      "promo@ads.test",
+      "news@mail.ads.test",
+      "deep@a.b.ads.test",
     ]);
   });
 
   it("matches on a label boundary, so a lookalike domain is not swept", async () => {
     const gmail = new MockGmailClient([
-      msgFrom("real@ads.com"),
-      // Neither of these is under `ads.com`, though both contain it as a substring — the
+      msgFrom("real@ads.test"),
+      // Neither of these is under `ads.test`, though both contain it as a substring — the
       // failure mode of the `includes("@" + domain)` test this replaced.
-      msgFrom("other@notads.com"),
-      msgFrom("spoof@ads.com.evil.com"),
+      msgFrom("other@notads.test"),
+      msgFrom("spoof@ads.test.evil.test"),
     ]);
 
-    expect(await matched(gmail, "*@ads.com")).toEqual(["real@ads.com"]);
+    expect(await matched(gmail, "*@ads.test")).toEqual(["real@ads.test"]);
   });
 
   it("reads the address out of a display-name header", async () => {
-    const gmail = new MockGmailClient([msgFrom("Ads Team <promo@mail.ads.com>")]);
+    const gmail = new MockGmailClient([msgFrom("Ads Team <promo@mail.ads.test>")]);
 
-    expect(await matched(gmail, "*@ads.com")).toEqual(["Ads Team <promo@mail.ads.com>"]);
+    expect(await matched(gmail, "*@ads.test")).toEqual(["Ads Team <promo@mail.ads.test>"]);
   });
 
   it("carves out an excepted address without dropping the rest of the subtree (#145)", async () => {
     const gmail = new MockGmailClient([
-      msgFrom("promo@ads.com"),
-      msgFrom("vip@ads.com"),
-      msgFrom("news@mail.ads.com"),
+      msgFrom("promo@ads.test"),
+      msgFrom("vip@ads.test"),
+      msgFrom("news@mail.ads.test"),
     ]);
 
-    expect(await matched(gmail, "*@ads.com", "vip@ads.com")).toEqual([
-      "promo@ads.com",
-      "news@mail.ads.com",
+    expect(await matched(gmail, "*@ads.test", "vip@ads.test")).toEqual([
+      "promo@ads.test",
+      "news@mail.ads.test",
     ]);
   });
 
   it("carves out a whole subdomain when the exclusion is itself a wildcard (#210)", async () => {
     const gmail = new MockGmailClient([
-      msgFrom("promo@ads.com"),
-      msgFrom("news@mail.ads.com"),
-      msgFrom("alert@deep.mail.ads.com"),
-      msgFrom("other@shop.ads.com"),
+      msgFrom("promo@ads.test"),
+      msgFrom("news@mail.ads.test"),
+      msgFrom("alert@deep.mail.ads.test"),
+      msgFrom("other@shop.ads.test"),
     ]);
 
     // Gmail accepts `-from:(*@sub.domain)` and it measurably removed that subdomain's mail
     // (#210). The carve-out has to take the excluded subdomain's OWN subtree with it.
-    expect(await matched(gmail, "*@ads.com", "*@mail.ads.com")).toEqual([
-      "promo@ads.com",
-      "other@shop.ads.com",
+    expect(await matched(gmail, "*@ads.test", "*@mail.ads.test")).toEqual([
+      "promo@ads.test",
+      "other@shop.ads.test",
     ]);
   });
 
   it("combines address and subdomain carve-outs in one OR-joined exclusion", async () => {
     const gmail = new MockGmailClient([
-      msgFrom("promo@ads.com"),
-      msgFrom("vip@ads.com"),
-      msgFrom("news@mail.ads.com"),
-      msgFrom("keep@shop.ads.com"),
+      msgFrom("promo@ads.test"),
+      msgFrom("vip@ads.test"),
+      msgFrom("news@mail.ads.test"),
+      msgFrom("keep@shop.ads.test"),
     ]);
 
-    expect(await matched(gmail, "*@ads.com", "vip@ads.com OR *@mail.ads.com")).toEqual([
-      "promo@ads.com",
-      "keep@shop.ads.com",
+    expect(await matched(gmail, "*@ads.test", "vip@ads.test OR *@mail.ads.test")).toEqual([
+      "promo@ads.test",
+      "keep@shop.ads.test",
     ]);
   });
 
   it("matches an address-scope query against that address alone", async () => {
-    const gmail = new MockGmailClient([msgFrom("promo@ads.com"), msgFrom("news@mail.ads.com")]);
+    const gmail = new MockGmailClient([msgFrom("promo@ads.test"), msgFrom("news@mail.ads.test")]);
 
-    expect(await matched(gmail, "promo@ads.com")).toEqual(["promo@ads.com"]);
+    expect(await matched(gmail, "promo@ads.test")).toEqual(["promo@ads.test"]);
   });
 });

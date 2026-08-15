@@ -6,7 +6,7 @@ import { clearRecentErrors, latestError } from "../../reporting/recentErrors";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 function Boom(): never {
-  throw new Error("kaboom for news@retailco.com");
+  throw new Error("kaboom for news@retailco.test");
 }
 
 afterEach(() => {
@@ -39,6 +39,6 @@ describe("ErrorBoundary", () => {
     // The displayed message is redacted (the email is masked).
     expect(screen.getByText(/kaboom for \[email\]/)).toBeInTheDocument();
     // And it was captured to the recent-errors buffer for later reporting.
-    expect(latestError()?.message).toBe("kaboom for news@retailco.com");
+    expect(latestError()?.message).toBe("kaboom for news@retailco.test");
   });
 });

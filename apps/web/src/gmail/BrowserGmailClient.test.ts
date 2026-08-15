@@ -12,25 +12,25 @@ describe("toNativeFilter", () => {
   it("claims a filter the app itself would create — no unmodelled criteria", () => {
     const filter = toNativeFilter({
       id: "f1",
-      criteria: { from: "*@shop.com", negatedQuery: "from:(vip@shop.com)" },
+      criteria: { from: "*@shop.test", negatedQuery: "from:(vip@shop.test)" },
       action: { addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     });
 
     expect(filter.unmodelledCriteria).toBeUndefined();
     // …and the exclusion is unwrapped back to the spec form, so reconcile compares equal.
-    expect(filter.excludeFrom).toBe("vip@shop.com");
+    expect(filter.excludeFrom).toBe("vip@shop.test");
   });
 
   it("names the criteria it had to drop", () => {
     const filter = toNativeFilter({
       id: "f2",
-      criteria: { from: "news@shop.com", subject: "sale", to: "me@x.com" },
+      criteria: { from: "news@shop.test", subject: "sale", to: "me@x.test" },
       action: { addLabelIds: ["TRASH"] },
     });
 
     // Sorted, so the value is stable to compare and to read in a report.
     expect(filter.unmodelledCriteria).toEqual(["subject", "to"]);
-    expect(filter.from).toBe("news@shop.com");
+    expect(filter.from).toBe("news@shop.test");
     expect(filter.removeLabelIds).toEqual([]);
   });
 
@@ -41,7 +41,7 @@ describe("toNativeFilter", () => {
     const filter = toNativeFilter({
       id: "f3",
       criteria: {
-        from: "*@shop.com",
+        from: "*@shop.test",
         excludeChats: false,
         subject: "",
         hasAttachment: null,
@@ -56,7 +56,7 @@ describe("toNativeFilter", () => {
   it("still flags a field whose value does constrain matching", () => {
     const filter = toNativeFilter({
       id: "f4",
-      criteria: { from: "*@shop.com", excludeChats: true } as never,
+      criteria: { from: "*@shop.test", excludeChats: true } as never,
       action: { addLabelIds: ["TRASH"] },
     });
 

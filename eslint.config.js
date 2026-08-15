@@ -24,6 +24,24 @@ export default tseslint.config(
     },
   },
   {
+    // Fixture data must name no domain anyone could really own — see
+    // tools/eslint/no-real-domains.js and docs/design-testing.md.
+    files: [
+      "**/*.test.{ts,tsx}",
+      "**/*.spec.{ts,tsx}",
+      "packages/core/src/demo/**/*.ts",
+      "apps/web/e2e/**/*.ts",
+    ],
+    plugins: {
+      local: {
+        rules: { "no-real-domains": (await import("./tools/eslint/no-real-domains.js")).default },
+      },
+    },
+    rules: {
+      "local/no-real-domains": "error",
+    },
+  },
+  {
     files: ["**/*.config.{js,ts}", "**/vite.config.ts", "**/vitest.config.ts"],
     languageOptions: {
       globals: { ...globals.node },

@@ -71,12 +71,12 @@ describe("EnforcementSummary", () => {
       <EnforcementSummary
         result={baseResult({
           filtersCreated: 1,
-          exceptionOverflows: [{ domain: "shop.com", strategy: "enumerate", exceptionCount: 120 }],
+          exceptionOverflows: [{ domain: "shop.test", strategy: "enumerate", exceptionCount: 120 }],
         })}
       />,
     );
     // The whole point of the fix is that this narrowing is stated, not silently inferred.
-    const note = screen.getByText(/shop\.com has too many exceptions \(120\)/);
+    const note = screen.getByText(/shop\.test has too many exceptions \(120\)/);
     expect(note).toHaveTextContent("blocked sender by sender");
     expect(note).toHaveTextContent("senders it hasn't seen yet won't be covered");
     // A survivable caveat, not a failure — warning styling, not the block/error styling.
@@ -87,11 +87,11 @@ describe("EnforcementSummary", () => {
     render(
       <EnforcementSummary
         result={baseResult({
-          exceptionOverflows: [{ domain: "shop.com", strategy: "dropped", exceptionCount: 120 }],
+          exceptionOverflows: [{ domain: "shop.test", strategy: "dropped", exceptionCount: 120 }],
         })}
       />,
     );
-    const note = screen.getByText(/shop\.com has too many exceptions \(120\)/);
+    const note = screen.getByText(/shop\.test has too many exceptions \(120\)/);
     expect(note).toHaveTextContent("is not blocked");
     // Stronger styling than the enumerate caveat — this one means the block isn't in force.
     expect(note).toHaveClass("text-block");

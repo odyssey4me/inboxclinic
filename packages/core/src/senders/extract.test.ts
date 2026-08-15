@@ -14,9 +14,9 @@ import {
 
 describe("parseFromHeader", () => {
   it("parses a quoted display name with an angle-addr address", () => {
-    expect(parseFromHeader('"Acme Sales" <sales@acme.com>')).toEqual({
-      email: "sales@acme.com",
-      domain: "acme.com",
+    expect(parseFromHeader('"Acme Sales" <sales@acme.test>')).toEqual({
+      email: "sales@acme.test",
+      domain: "acme.test",
       displayName: "Acme Sales",
     });
   });
@@ -49,7 +49,7 @@ describe("parseFromHeader", () => {
     expect(parseFromHeader(undefined)).toBeNull();
     expect(parseFromHeader("   ")).toBeNull();
     expect(parseFromHeader("not-an-address")).toBeNull();
-    expect(parseFromHeader("@nope.com")).toBeNull();
+    expect(parseFromHeader("@nope.test")).toBeNull();
     expect(parseFromHeader("user@localhost")).toBeNull();
   });
 });
@@ -109,17 +109,17 @@ describe("extractSenders", () => {
 
   it("groups messages by sender and denormalises the domain", () => {
     const metas = [
-      messageMetaBuilder({ headers: { from: "Jane <jane@acme.com>" }, internalDate: 100 }),
-      messageMetaBuilder({ headers: { from: "jane@acme.com" }, internalDate: 300 }),
-      messageMetaBuilder({ headers: { from: "Bob <bob@other.com>" }, internalDate: 200 }),
+      messageMetaBuilder({ headers: { from: "Jane <jane@acme.test>" }, internalDate: 100 }),
+      messageMetaBuilder({ headers: { from: "jane@acme.test" }, internalDate: 300 }),
+      messageMetaBuilder({ headers: { from: "Bob <bob@other.test>" }, internalDate: 200 }),
     ];
 
     const { senders, domains } = extractSenders(metas, NOW);
 
-    const jane = senders.find((s) => s.email === "jane@acme.com");
+    const jane = senders.find((s) => s.email === "jane@acme.test");
     expect(jane).toMatchObject({
-      id: keyFor("jane@acme.com"),
-      domain: "acme.com",
+      id: keyFor("jane@acme.test"),
+      domain: "acme.test",
       displayName: "Jane",
       totalEmails: 2,
       trustStatus: "pending",
@@ -133,15 +133,15 @@ describe("extractSenders", () => {
 
   it("aggregates per-domain counts across senders", () => {
     const metas = [
-      messageMetaBuilder({ headers: { from: "a@shop.com" } }),
-      messageMetaBuilder({ headers: { from: "a@shop.com" } }),
-      messageMetaBuilder({ headers: { from: "b@shop.com" } }),
+      messageMetaBuilder({ headers: { from: "a@shop.test" } }),
+      messageMetaBuilder({ headers: { from: "a@shop.test" } }),
+      messageMetaBuilder({ headers: { from: "b@shop.test" } }),
     ];
 
     const { domains } = extractSenders(metas, NOW);
-    const shop = domains.find((d) => d.domain === "shop.com");
+    const shop = domains.find((d) => d.domain === "shop.test");
     expect(shop).toMatchObject({
-      id: keyFor("shop.com"),
+      id: keyFor("shop.test"),
       senderCount: 2,
       totalEmails: 3,
       exceptionAddresses: [],
@@ -150,9 +150,9 @@ describe("extractSenders", () => {
 
   it("ORs list-header signals across a sender's messages", () => {
     const metas = [
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
       messageMetaBuilder({
-        headers: { from: "news@promo.com", listUnsubscribe: "<mailto:unsub@promo.com>" },
+        headers: { from: "news@promo.test", listUnsubscribe: "<mailto:unsub@promo.test>" },
       }),
     ];
 
@@ -164,18 +164,18 @@ describe("extractSenders", () => {
   it("skips messages whose From cannot be parsed", () => {
     const metas = [
       messageMetaBuilder({ headers: { from: "garbage" } }),
-      messageMetaBuilder({ headers: { from: "ok@valid.com" } }),
+      messageMetaBuilder({ headers: { from: "ok@valid.test" } }),
     ];
 
     const { senders } = extractSenders(metas, NOW);
     expect(senders).toHaveLength(1);
-    expect(senders[0]?.email).toBe("ok@valid.com");
+    expect(senders[0]?.email).toBe("ok@valid.test");
   });
 
   it("backfills a display name from a later message when the first lacked one", () => {
     const metas = [
-      messageMetaBuilder({ headers: { from: "info@brand.com" } }),
-      messageMetaBuilder({ headers: { from: "Brand Team <info@brand.com>" } }),
+      messageMetaBuilder({ headers: { from: "info@brand.test" } }),
+      messageMetaBuilder({ headers: { from: "Brand Team <info@brand.test>" } }),
     ];
 
     const [sender] = extractSenders(metas).senders;
@@ -196,7 +196,7 @@ describe("frequencyFor", () => {
 
 describe("parseAuthResults", () => {
   it("reads SPF/DKIM/DMARC pass results", () => {
-    expect(parseAuthResults("mx.google.com; spf=pass; dkim=pass; dmarc=pass")).toEqual({
+    expect(parseAuthResults("mx.example.com; spf=pass; dkim=pass; dmarc=pass")).toEqual({
       spf: true,
       dkim: true,
       dmarc: true,
@@ -229,17 +229,17 @@ describe("extractSenders — trust signals", () => {
   it("derives readRate, starred/spam counts, recency buckets and frequency", () => {
     const metas = [
       messageMetaBuilder({
-        headers: { from: "s@x.com" },
+        headers: { from: "s@x.test" },
         labelIds: ["INBOX", "UNREAD"],
         internalDate: NOW - 5 * DAY,
       }),
       messageMetaBuilder({
-        headers: { from: "s@x.com" },
+        headers: { from: "s@x.test" },
         labelIds: ["INBOX", "STARRED"],
         internalDate: NOW - 40 * DAY,
       }),
       messageMetaBuilder({
-        headers: { from: "s@x.com" },
+        headers: { from: "s@x.test" },
         labelIds: ["INBOX", "SPAM"],
         internalDate: NOW - 200 * DAY,
       }),
@@ -259,11 +259,11 @@ describe("extractSenders — trust signals", () => {
   it("uses the most recent authenticated message's auth posture", () => {
     const metas = [
       messageMetaBuilder({
-        headers: { from: "a@y.com", authenticationResults: "spf=pass; dkim=pass; dmarc=pass" },
+        headers: { from: "a@y.test", authenticationResults: "spf=pass; dkim=pass; dmarc=pass" },
         internalDate: NOW - 10 * DAY,
       }),
       messageMetaBuilder({
-        headers: { from: "a@y.com", authenticationResults: "dmarc=fail" },
+        headers: { from: "a@y.test", authenticationResults: "dmarc=fail" },
         internalDate: NOW - 1 * DAY,
       }),
     ];

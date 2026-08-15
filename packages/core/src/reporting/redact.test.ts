@@ -25,7 +25,7 @@ describe("redact", () => {
   });
 
   it("masks email addresses", () => {
-    expect(redact("from:news@retailco.com bounced")).toBe("from:[email] bounced");
+    expect(redact("from:news@retailco.test bounced")).toBe("from:[email] bounced");
   });
 
   it("masks bearer and ya29 tokens", () => {

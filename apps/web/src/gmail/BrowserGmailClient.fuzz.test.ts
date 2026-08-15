@@ -33,14 +33,14 @@ describe("parseHeaders — fuzzing untrusted Gmail response headers (#166)", () 
 
   it("maps allowlisted headers, ignores prototype-named headers, and never pollutes the prototype", () => {
     const result = parseHeaders([
-      { name: "From", value: "a@b.com" },
+      { name: "From", value: "a@b.test" },
       { name: "List-Unsubscribe", value: "<https://u>" },
       { name: "__proto__", value: "polluted" },
       { name: "constructor", value: "polluted" },
       { name: "toString", value: "polluted" },
       { name: "X-Unknown-Header", value: "ignored" },
     ]);
-    expect(result.from).toBe("a@b.com");
+    expect(result.from).toBe("a@b.test");
     expect(result.listUnsubscribe).toBe("<https://u>");
     // No inherited-property key bled into the result, and Object.prototype is untouched.
     expect(Object.values(result)).not.toContain("polluted");

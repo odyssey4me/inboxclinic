@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+/* eslint-disable local/no-real-domains -- generates hosts under real public suffixes, which is the property being checked */
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 

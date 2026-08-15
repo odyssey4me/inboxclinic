@@ -21,7 +21,7 @@ interface Seeded {
 async function seededStore(froms: string[]): Promise<Seeded> {
   const gmail = new MockGmailClient(
     froms.map((from) => messageMetaBuilder({ headers: { from } })),
-    "owner@gmail.com",
+    "owner@example.com",
   );
   const store = createInMemoryStore();
   await runScan(gmail, store, { now: NOW });
@@ -34,7 +34,7 @@ const clickButton = async (name: RegExp): Promise<void> => {
 
 describe("TrustWorkflow", () => {
   it("walks Triage → Review → Execution, persists, and enforces in Gmail", async () => {
-    const { store, gmail } = await seededStore(["jane@acme.com", "news@promo.com"]);
+    const { store, gmail } = await seededStore(["jane@acme.test", "news@promo.test"]);
     const onDone = vi.fn();
     render(<TrustWorkflow store={store} gmail={gmail} onDone={onDone} />);
 
@@ -57,14 +57,14 @@ describe("TrustWorkflow", () => {
 
     // The block compiled into exactly one native Gmail filter (no live Google).
     expect(gmail.createdFilters).toEqual([
-      { from: "news@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { from: "news@promo.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     const sync = await store.filterSync.get();
     expect(sync?.totalFilters).toBe(1);
   });
 
   it("defers a sender: decays the prompt without resolving it and creates no filters", async () => {
-    const { store, gmail } = await seededStore(["solo@quiet.com"]);
+    const { store, gmail } = await seededStore(["solo@quiet.test"]);
     render(<TrustWorkflow store={store} gmail={gmail} onDone={vi.fn()} />);
 
     await clickButton(/defer/i);
@@ -80,7 +80,7 @@ describe("TrustWorkflow", () => {
   });
 
   it("decides a whole domain from the batch offer", async () => {
-    const { store, gmail } = await seededStore(["a@acme.com", "b@acme.com"]);
+    const { store, gmail } = await seededStore(["a@acme.test", "b@acme.test"]);
     const onDone = vi.fn();
     render(<TrustWorkflow store={store} gmail={gmail} onDone={onDone} />);
 
@@ -89,7 +89,7 @@ describe("TrustWorkflow", () => {
     await clickButton(/apply changes/i);
     await clickButton(/^done$/i);
 
-    const domain = await store.domains.get(keyFor("acme.com"));
+    const domain = await store.domains.get(keyFor("acme.test"));
     expect(domain?.trustStatus).toBe("trusted");
     expect(domain?.decisionScope).toBe("domain");
     const prompts = await store.prompts.query({});

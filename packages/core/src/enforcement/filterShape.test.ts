@@ -8,11 +8,11 @@ import { unwrapExcludeFrom } from "./filterShape";
 
 describe("unwrapExcludeFrom", () => {
   it("strips the from:(...) wrapper around a single address", () => {
-    expect(unwrapExcludeFrom("from:(vip@shop.com)")).toBe("vip@shop.com");
+    expect(unwrapExcludeFrom("from:(vip@shop.test)")).toBe("vip@shop.test");
   });
 
   it("strips the wrapper around an OR-combined exclusion", () => {
-    expect(unwrapExcludeFrom("from:(a@x.com OR b@x.com)")).toBe("a@x.com OR b@x.com");
+    expect(unwrapExcludeFrom("from:(a@x.test OR b@x.test)")).toBe("a@x.test OR b@x.test");
   });
 
   it("passes an undefined negatedQuery through unchanged", () => {
@@ -38,18 +38,18 @@ describe("unwrapExcludeFrom", () => {
   });
 
   it("does not unwrap an unbalanced parenthesis", () => {
-    expect(unwrapExcludeFrom("from:(a@x.com")).toBe("from:(a@x.com");
+    expect(unwrapExcludeFrom("from:(a@x.test")).toBe("from:(a@x.test");
   });
 
   it("does not unwrap a nested from: inside the parentheses", () => {
     // The regex is anchored and greedy, so a nested `from:(...)` is still captured whole —
     // this documents that behaviour rather than asserting a stricter parse nothing needs.
-    expect(unwrapExcludeFrom("from:(from:(a@x.com))")).toBe("from:(a@x.com)");
+    expect(unwrapExcludeFrom("from:(from:(a@x.test))")).toBe("from:(a@x.test)");
   });
 
   it("unwraps across embedded newlines", () => {
     // The `s` flag makes `.` match newlines; Gmail's own criteria don't carry them, but a
     // hand-edited filter could, and the shape should still round-trip.
-    expect(unwrapExcludeFrom("from:(a@x.com\nOR b@x.com)")).toBe("a@x.com\nOR b@x.com");
+    expect(unwrapExcludeFrom("from:(a@x.test\nOR b@x.test)")).toBe("a@x.test\nOR b@x.test");
   });
 });

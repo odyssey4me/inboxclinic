@@ -17,28 +17,28 @@ describe("learnPriorDecisions", () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
-      { id: "f2", from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "spam@x.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f2", from: "*@promo.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
       // A non-block filter (e.g. star/label) is ignored.
-      { id: "f3", from: "friend@y.com", addLabelIds: ["STARRED"], removeLabelIds: [] },
+      { id: "f3", from: "friend@y.test", addLabelIds: ["STARRED"], removeLabelIds: [] },
     ]);
 
     const out = await learnPriorDecisions(gmail, store, { now: NOW });
 
-    expect(out.map((s) => s.label).sort()).toEqual(["promo.com", "spam@x.com"]);
+    expect(out.map((s) => s.label).sort()).toEqual(["promo.test", "spam@x.test"]);
     expect(out.every((s) => s.reason === "filter")).toBe(true);
-    expect(out.find((s) => s.label === "promo.com")?.scope).toBe("domain");
+    expect(out.find((s) => s.label === "promo.test")?.scope).toBe("domain");
   });
 
   it("suggests blocks from spam-marked mail", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
-    gmail.seedInbox([msg("1", "junk@spam.com", ["SPAM", "UNREAD"])]);
+    gmail.seedInbox([msg("1", "junk@spam.test", ["SPAM", "UNREAD"])]);
 
     const out = await learnPriorDecisions(gmail, store, { now: NOW });
 
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ label: "junk@spam.com", reason: "spam" });
+    expect(out[0]).toMatchObject({ label: "junk@spam.test", reason: "spam" });
   });
 
   it("suggests binned mail only when it was unread (read-then-deleted is not a signal)", async () => {
@@ -46,15 +46,15 @@ describe("learnPriorDecisions", () => {
     const gmail = new MockGmailClient();
     gmail.seedInbox([
       // Unread-binned → block signal.
-      msg("1", "blast@ads.com", ["TRASH", "UNREAD"]),
-      msg("2", "blast@ads.com", ["TRASH", "UNREAD"]),
+      msg("1", "blast@ads.test", ["TRASH", "UNREAD"]),
+      msg("2", "blast@ads.test", ["TRASH", "UNREAD"]),
       // Read-then-deleted → normal triage, ignored.
-      msg("3", "digest@news.com", ["TRASH"]),
+      msg("3", "digest@news.test", ["TRASH"]),
     ]);
 
     const out = await learnPriorDecisions(gmail, store, { now: NOW });
 
-    expect(out.map((s) => s.label)).toEqual(["blast@ads.com"]);
+    expect(out.map((s) => s.label)).toEqual(["blast@ads.test"]);
     expect(out[0]?.reason).toBe("trash");
   });
 
@@ -62,16 +62,16 @@ describe("learnPriorDecisions", () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
     // An existing (undecided) sender that also has mail sitting in Trash, mostly unread.
-    await store.senders.put(senderBuilder("blast@ads.com"));
+    await store.senders.put(senderBuilder("blast@ads.test"));
     gmail.seedInbox([
-      msg("1", "blast@ads.com", ["TRASH", "UNREAD"]),
-      msg("2", "blast@ads.com", ["TRASH", "UNREAD"]),
-      msg("3", "blast@ads.com", ["TRASH"]), // read-then-deleted — not part of the unread count
+      msg("1", "blast@ads.test", ["TRASH", "UNREAD"]),
+      msg("2", "blast@ads.test", ["TRASH", "UNREAD"]),
+      msg("3", "blast@ads.test", ["TRASH"]), // read-then-deleted — not part of the unread count
     ]);
 
     await learnPriorDecisions(gmail, store, { now: NOW });
 
-    expect((await store.senders.get(keyFor("blast@ads.com")))?.deletedUnreadCount).toBe(2);
+    expect((await store.senders.get(keyFor("blast@ads.test")))?.deletedUnreadCount).toBe(2);
   });
 
   it("does not read a partially-matching filter as a prior block (#212)", async () => {
@@ -82,7 +82,7 @@ describe("learnPriorDecisions", () => {
       // decided to block the sender, and suggesting so would overstate their own rule.
       {
         id: "partial",
-        from: "newsletter@x.com",
+        from: "newsletter@x.test",
         addLabelIds: ["TRASH"],
         removeLabelIds: ["INBOX"],
         unmodelledCriteria: ["subject"],
@@ -97,50 +97,50 @@ describe("learnPriorDecisions", () => {
   it("persists coveredByBlockFilter from existing block filters (address + domain)", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
-    await store.senders.put(senderBuilder("a@x.com")); // covered by an address filter
-    await store.senders.put(senderBuilder("b@promo.com")); // covered by *@promo.com
-    await store.senders.put(senderBuilder("c@safe.com")); // not covered
+    await store.senders.put(senderBuilder("a@x.test")); // covered by an address filter
+    await store.senders.put(senderBuilder("b@promo.test")); // covered by *@promo.test
+    await store.senders.put(senderBuilder("c@safe.test")); // not covered
     gmail.seedFilters([
-      { id: "f1", from: "a@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
-      { id: "f2", from: "*@promo.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "a@x.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f2", from: "*@promo.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
 
     await learnPriorDecisions(gmail, store, { now: NOW });
 
-    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(true);
-    expect((await store.senders.get(keyFor("b@promo.com")))?.coveredByBlockFilter).toBe(true);
-    expect((await store.senders.get(keyFor("c@safe.com")))?.coveredByBlockFilter).toBe(false);
+    expect((await store.senders.get(keyFor("a@x.test")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("b@promo.test")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("c@safe.test")))?.coveredByBlockFilter).toBe(false);
   });
 
   it("resets coveredByBlockFilter when the covering filter is gone", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
-    await store.senders.put(senderBuilder("a@x.com", { coveredByBlockFilter: true }));
+    await store.senders.put(senderBuilder("a@x.test", { coveredByBlockFilter: true }));
     gmail.seedFilters([]); // no filters any more
 
     await learnPriorDecisions(gmail, store, { now: NOW });
 
-    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(false);
+    expect((await store.senders.get(keyFor("a@x.test")))?.coveredByBlockFilter).toBe(false);
   });
 
   it("preserves coveredByBlockFilter when the filter scan fails (no silent erase)", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
-    await store.senders.put(senderBuilder("a@x.com", { coveredByBlockFilter: true }));
+    await store.senders.put(senderBuilder("a@x.test", { coveredByBlockFilter: true }));
     vi.spyOn(gmail, "listFilters").mockRejectedValueOnce(new Error("rate limited"));
 
     await learnPriorDecisions(gmail, store, { now: NOW });
 
     // A transient failure must not wipe the previously-recorded signal.
-    expect((await store.senders.get(keyFor("a@x.com")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("a@x.test")))?.coveredByBlockFilter).toBe(true);
   });
 
   it("never re-suggests a subject already decided", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@x.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@x.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      { id: "f1", from: "spam@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "spam@x.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
 
     expect(await learnPriorDecisions(gmail, store, { now: NOW })).toHaveLength(0);
@@ -151,13 +151,13 @@ describe("learnPriorDecisions", () => {
     const gmail = new MockGmailClient();
     // Same subject appears as both a filter and spam-marked mail.
     gmail.seedFilters([
-      { id: "f1", from: "deals@x.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "f1", from: "deals@x.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
-    gmail.seedInbox([msg("1", "deals@x.com", ["SPAM", "UNREAD"])]);
+    gmail.seedInbox([msg("1", "deals@x.test", ["SPAM", "UNREAD"])]);
 
     const out = await learnPriorDecisions(gmail, store, { now: NOW });
 
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ subjectId: keyFor("deals@x.com"), reason: "filter" });
+    expect(out[0]).toMatchObject({ subjectId: keyFor("deals@x.test"), reason: "filter" });
   });
 });

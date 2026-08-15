@@ -21,13 +21,13 @@ function day(date: string, overrides: Partial<DailyAnalytics> = {}): DailyAnalyt
 
 describe("buildAnalyticsSummary", () => {
   const senders = [
-    senderBuilder("a@x.com", { trustStatus: "trusted", readRate: 1, category: "personal" }),
-    senderBuilder("b@y.com", { trustStatus: "blocked", readRate: 0, category: "promotional" }),
-    senderBuilder("c@y.com", { trustStatus: "pending", readRate: null, category: "promotional" }),
+    senderBuilder("a@x.test", { trustStatus: "trusted", readRate: 1, category: "personal" }),
+    senderBuilder("b@y.test", { trustStatus: "blocked", readRate: 0, category: "promotional" }),
+    senderBuilder("c@y.test", { trustStatus: "pending", readRate: null, category: "promotional" }),
   ];
   const domains = [
-    domainBuilder("x.com", { totalEmails: 10, trustStatus: "trusted" }),
-    domainBuilder("y.com", { totalEmails: 40, trustStatus: "blocked" }),
+    domainBuilder("x.test", { totalEmails: 10, trustStatus: "trusted" }),
+    domainBuilder("y.test", { totalEmails: 40, trustStatus: "blocked" }),
   ];
   const days = [
     day("2026-06-27", { emailsBlocked: 100, decisionsMade: 2, sendersBlocked: 1 }),
@@ -37,8 +37,8 @@ describe("buildAnalyticsSummary", () => {
   it("folds counters and current state into health, totals, time-saved and trend", () => {
     const summary = buildAnalyticsSummary({ now: NOW, windowDays: 30, days, senders, domains });
 
-    // Counts are EFFECTIVE (#146): c@y.com is raw-pending but sits under blocked domain
-    // y.com, so the domain block catches it → it counts as blocked, not pending.
+    // Counts are EFFECTIVE (#146): c@y.test is raw-pending but sits under blocked domain
+    // y.test, so the domain block catches it → it counts as blocked, not pending.
     expect(summary.totals).toEqual({
       senders: 3,
       domains: 2,
@@ -51,7 +51,7 @@ describe("buildAnalyticsSummary", () => {
     // Trend is chronological.
     expect(summary.trend.map((p) => p.date)).toEqual(["2026-06-27", "2026-06-28"]);
     // Top blocked domain leaderboard isolates blocked domains.
-    expect(summary.topBlockedDomains.map((d) => d.domain)).toEqual(["y.com"]);
+    expect(summary.topBlockedDomains.map((d) => d.domain)).toEqual(["y.test"]);
     expect(summary.categories.map((c) => c.category)).toContain("promotional");
   });
 
@@ -96,7 +96,7 @@ describe("buildMonthlyAnalytics", () => {
 describe("analyticsSummary (over the Store port)", () => {
   it("reads inputs, builds the summary, and persists the current-month rollup", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("a@x.com", { trustStatus: "blocked", readRate: 0 }));
+    await store.senders.put(senderBuilder("a@x.test", { trustStatus: "blocked", readRate: 0 }));
     await store.analytics.putDay(day("2026-06-28", { emailsBlocked: 40, sendersBlocked: 1 }));
 
     const summary = await analyticsSummary(store, { now: NOW, windowDays: 30 });
@@ -138,14 +138,14 @@ describe("snapshot (privacy-safe, opt-in)", () => {
       windowDays: 30,
       days: [day("2026-06-28", { emailsBlocked: 60, sendersBlocked: 1 })],
       senders: [
-        senderBuilder("secret@private.com", { trustStatus: "blocked", category: "promotional" }),
+        senderBuilder("secret@private.test", { trustStatus: "blocked", category: "promotional" }),
       ],
-      domains: [domainBuilder("private.com", { trustStatus: "blocked", totalEmails: 60 })],
+      domains: [domainBuilder("private.test", { trustStatus: "blocked", totalEmails: 60 })],
     });
     const snapshot = buildSnapshot(summary);
     const json = JSON.stringify(snapshot);
 
-    expect(json).not.toContain("private.com");
+    expect(json).not.toContain("private.test");
     expect(json).not.toContain("secret@");
     expect(snapshot.app).toBe("Inbox Clinic");
     expect(snapshot.emailsBlocked).toBe(60);
@@ -157,7 +157,7 @@ describe("snapshot (privacy-safe, opt-in)", () => {
       now: NOW,
       windowDays: 30,
       days: [day("2026-06-28", { emailsBlocked: 120, sendersBlocked: 1 })],
-      senders: [senderBuilder("a@x.com", { trustStatus: "blocked", readRate: 1 })],
+      senders: [senderBuilder("a@x.test", { trustStatus: "blocked", readRate: 1 })],
       domains: [],
     });
     const text = snapshotText(buildSnapshot(summary));

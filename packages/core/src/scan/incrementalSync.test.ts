@@ -46,8 +46,8 @@ class FakeLockManager implements LockManager {
 /** Seed the inbox, run a first (full) sync, and return the synced fixtures. */
 async function syncedFixture() {
   const client = new MockGmailClient(
-    [msg("a1", "jane@acme.com"), msg("b1", "news@promo.com")],
-    "owner@gmail.com",
+    [msg("a1", "jane@acme.test"), msg("b1", "news@promo.test")],
+    "owner@example.com",
   );
   client.setLatestHistoryId("100");
   const store = createInMemoryStore();
@@ -70,8 +70,8 @@ describe("incrementalSync — first run", () => {
     const profile = await store.profile.get();
     expect(profile?.lastHistoryId).toBe("100");
     expect((await store.senders.query({})).map((s) => s.email).sort()).toEqual([
-      "jane@acme.com",
-      "news@promo.com",
+      "jane@acme.test",
+      "news@promo.test",
     ]);
   });
 });
@@ -80,7 +80,7 @@ describe("incrementalSync — added delta", () => {
   it("adds a new sender, generates its prompt, and advances the marker", async () => {
     const { client, store } = await syncedFixture();
 
-    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.addInboxMessages([msg("c1", "fresh@new.test")]);
     const records: HistoryRecord[] = [
       {
         id: "150",
@@ -97,12 +97,12 @@ describe("incrementalSync — added delta", () => {
     expect(result.historyId).toBe("200");
     expect(client.historyQueries).toEqual(["100"]);
 
-    expect(await store.senders.get(keyFor("fresh@new.com"))).toMatchObject({
-      email: "fresh@new.com",
+    expect(await store.senders.get(keyFor("fresh@new.test"))).toMatchObject({
+      email: "fresh@new.test",
       trustStatus: "pending",
       totalEmails: 1,
     });
-    expect(await store.prompts.get(keyFor("fresh@new.com"))).toBeDefined();
+    expect(await store.prompts.get(keyFor("fresh@new.test"))).toBeDefined();
     const profile = await store.profile.get();
     expect(profile?.lastHistoryId).toBe("200");
     expect(profile?.messageCount).toBe(3);
@@ -147,9 +147,9 @@ describe("incrementalSync — added delta", () => {
 
   it("merges repeat messages into an existing sender's counts", async () => {
     const { client, store } = await syncedFixture();
-    const before = await store.senders.get(keyFor("jane@acme.com"));
+    const before = await store.senders.get(keyFor("jane@acme.test"));
 
-    client.addInboxMessages([msg("a2", "jane@acme.com")]);
+    client.addInboxMessages([msg("a2", "jane@acme.test")]);
     client.seedHistory(
       [{ id: "150", messagesAdded: [{ message: { id: "a2", threadId: "t-a2" } }] }],
       "200",
@@ -159,7 +159,7 @@ describe("incrementalSync — added delta", () => {
 
     expect(result.sendersAdded).toBe(0);
     expect(result.sendersUpdated).toBe(1);
-    const after = await store.senders.get(keyFor("jane@acme.com"));
+    const after = await store.senders.get(keyFor("jane@acme.test"));
     expect(after?.totalEmails).toBe((before?.totalEmails ?? 0) + 1);
   });
 
@@ -167,13 +167,13 @@ describe("incrementalSync — added delta", () => {
     // Seed 5 distinct pending senders sharing a domain, all in one full sync.
     const client = new MockGmailClient(
       [
-        msg("p1", "one@promo.com"),
-        msg("p2", "two@promo.com"),
-        msg("p3", "three@promo.com"),
-        msg("p4", "four@promo.com"),
-        msg("p5", "five@promo.com"),
+        msg("p1", "one@promo.test"),
+        msg("p2", "two@promo.test"),
+        msg("p3", "three@promo.test"),
+        msg("p4", "four@promo.test"),
+        msg("p5", "five@promo.test"),
       ],
-      "owner@gmail.com",
+      "owner@example.com",
     );
     client.setLatestHistoryId("100");
     const store = createInMemoryStore();
@@ -182,14 +182,14 @@ describe("incrementalSync — added delta", () => {
     // Sanity: the initial full sync already agrees on batchSize 5 for the domain.
     const initialSizes = await Promise.all(
       ["one", "two", "three", "four", "five"].map(
-        async (n) => (await store.prompts.get(keyFor(`${n}@promo.com`)))?.batchSize,
+        async (n) => (await store.prompts.get(keyFor(`${n}@promo.test`)))?.batchSize,
       ),
     );
     expect(initialSizes).toEqual([5, 5, 5, 5, 5]);
 
     // A single new message from just one domain-mate should not desync the batch size —
     // every prompt in the domain must still report the same 5-member batch.
-    client.addInboxMessages([msg("p1b", "one@promo.com")]);
+    client.addInboxMessages([msg("p1b", "one@promo.test")]);
     client.seedHistory(
       [{ id: "150", messagesAdded: [{ message: { id: "p1b", threadId: "t-p1b" } }] }],
       "200",
@@ -198,7 +198,7 @@ describe("incrementalSync — added delta", () => {
 
     const sizesAfter = await Promise.all(
       ["one", "two", "three", "four", "five"].map(
-        async (n) => (await store.prompts.get(keyFor(`${n}@promo.com`)))?.batchSize,
+        async (n) => (await store.prompts.get(keyFor(`${n}@promo.test`)))?.batchSize,
       ),
     );
     expect(sizesAfter).toEqual([5, 5, 5, 5, 5]);
@@ -209,7 +209,7 @@ describe("incrementalSync — added delta", () => {
     const DAY = 24 * 60 * 60 * 1000;
 
     // jane's one message from the first sync is fresh (d30:1) as of NOW.
-    const afterFirst = await store.senders.get(keyFor("jane@acme.com"));
+    const afterFirst = await store.senders.get(keyFor("jane@acme.test"));
     expect(afterFirst?.recencyBuckets).toEqual({ d30: 1, d90: 0, d180: 0, older: 0 });
 
     // 40 days later, jane sends again. Her first message is now >30 days old and should
@@ -218,7 +218,7 @@ describe("incrementalSync — added delta", () => {
     client.addInboxMessages([
       messageMetaBuilder({
         id: "a2",
-        headers: { from: "jane@acme.com" },
+        headers: { from: "jane@acme.test" },
         internalDate: secondNow,
         labelIds: ["INBOX"],
       }),
@@ -229,7 +229,7 @@ describe("incrementalSync — added delta", () => {
     );
     await incrementalSync(client, store, { now: secondNow });
 
-    const afterSecond = await store.senders.get(keyFor("jane@acme.com"));
+    const afterSecond = await store.senders.get(keyFor("jane@acme.test"));
     expect(afterSecond?.totalEmails).toBe(2);
     expect(afterSecond?.recencyBuckets).toEqual({ d30: 1, d90: 1, d180: 0, older: 0 });
     // Buckets stay a true partition of the sender's messages, not an unbounded d30.
@@ -259,7 +259,7 @@ describe("incrementalSync — removed delta", () => {
   it("nets an add-then-delete within one window to zero, not -1", async () => {
     const { client, store } = await syncedFixture();
 
-    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.addInboxMessages([msg("c1", "fresh@new.test")]);
     client.seedHistory(
       [
         {
@@ -283,7 +283,7 @@ describe("incrementalSync — removed delta", () => {
 describe("incrementalSync — label delta", () => {
   it("applies a SPAM signal delta to the affected sender", async () => {
     const { client, store } = await syncedFixture();
-    expect((await store.senders.get(keyFor("jane@acme.com")))?.spamMarkedCount).toBe(0);
+    expect((await store.senders.get(keyFor("jane@acme.test")))?.spamMarkedCount).toBe(0);
 
     client.seedHistory(
       [
@@ -298,7 +298,7 @@ describe("incrementalSync — label delta", () => {
     const result = await incrementalSync(client, store, { now: NOW });
 
     expect(result.labelChanges).toBe(1);
-    expect((await store.senders.get(keyFor("jane@acme.com")))?.spamMarkedCount).toBe(1);
+    expect((await store.senders.get(keyFor("jane@acme.test")))?.spamMarkedCount).toBe(1);
   });
 });
 
@@ -322,9 +322,9 @@ describe("incrementalSync — stale historyId", () => {
 describe("incrementalSync — concurrency & partial failure (#48)", () => {
   it("does not double-count a sync interrupted before the final profile.put", async () => {
     const { client, store } = await syncedFixture();
-    const before = await store.senders.get(keyFor("jane@acme.com"));
+    const before = await store.senders.get(keyFor("jane@acme.test"));
 
-    client.addInboxMessages([msg("a2", "jane@acme.com")]);
+    client.addInboxMessages([msg("a2", "jane@acme.test")]);
     client.seedHistory(
       [{ id: "150", messagesAdded: [{ message: { id: "a2", threadId: "t-a2" } }] }],
       "200",
@@ -358,14 +358,14 @@ describe("incrementalSync — concurrency & partial failure (#48)", () => {
 
     expect(retry.mode).toBe("incremental");
     expect(retry.messagesAdded).toBe(0);
-    const after = await store.senders.get(keyFor("jane@acme.com"));
+    const after = await store.senders.get(keyFor("jane@acme.test"));
     expect(after?.totalEmails).toBe((before?.totalEmails ?? 0) + 1);
   });
 
   it("collapses concurrent calls for the same store into a single run", async () => {
     const { client, store } = await syncedFixture();
 
-    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.addInboxMessages([msg("c1", "fresh@new.test")]);
     client.seedHistory(
       [{ id: "150", messagesAdded: [{ message: { id: "c1", threadId: "t-c1" } }] }],
       "200",
@@ -378,7 +378,7 @@ describe("incrementalSync — concurrency & partial failure (#48)", () => {
 
     expect(second).toBe(first);
     expect(client.historyQueries).toEqual(["100"]); // a single listHistory call
-    const sender = await store.senders.get(keyFor("fresh@new.com"));
+    const sender = await store.senders.get(keyFor("fresh@new.test"));
     expect(sender?.totalEmails).toBe(1);
   });
 });
@@ -386,11 +386,11 @@ describe("incrementalSync — concurrency & partial failure (#48)", () => {
 describe("incrementalSync — cross-tab lock (#81)", () => {
   it("skips the sync when another tab already holds the cross-tab lock", async () => {
     const { client, store } = await syncedFixture();
-    const before = await store.senders.get(keyFor("jane@acme.com"));
+    const before = await store.senders.get(keyFor("jane@acme.test"));
 
     // A message is available to sync, but the lock is held elsewhere — the body must
     // never run, so this delta is left for the next poll rather than double-applied.
-    client.addInboxMessages([msg("a2", "jane@acme.com")]);
+    client.addInboxMessages([msg("a2", "jane@acme.test")]);
     client.seedHistory(
       [{ id: "150", messagesAdded: [{ message: { id: "a2", threadId: "t-a2" } }] }],
       "200",
@@ -406,14 +406,14 @@ describe("incrementalSync — cross-tab lock (#81)", () => {
     expect(result.sendersUpdated).toBe(0);
     expect(result.historyId).toBe("100"); // unchanged — the marker was never claimed
     expect(client.historyQueries).toEqual([]); // listHistory never called
-    const after = await store.senders.get(keyFor("jane@acme.com"));
+    const after = await store.senders.get(keyFor("jane@acme.test"));
     expect(after).toEqual(before);
   });
 
   it("runs the sync normally when the cross-tab lock is available", async () => {
     const { client, store } = await syncedFixture();
 
-    client.addInboxMessages([msg("c1", "fresh@new.com")]);
+    client.addInboxMessages([msg("c1", "fresh@new.test")]);
     client.seedHistory(
       [{ id: "150", messagesAdded: [{ message: { id: "c1", threadId: "t-c1" } }] }],
       "200",
@@ -435,7 +435,7 @@ describe("incrementalSync — filter reconciliation", () => {
     const { client, store } = await syncedFixture();
 
     // The user blocks a sender out-of-band; its native filter is created on next sync.
-    const blocked = await store.senders.get(keyFor("news@promo.com"));
+    const blocked = await store.senders.get(keyFor("news@promo.test"));
     await store.senders.put({ ...blocked!, trustStatus: "blocked" });
 
     client.seedHistory([], "300");

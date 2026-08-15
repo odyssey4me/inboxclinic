@@ -48,13 +48,13 @@ describe("runScan", () => {
   it("scans metadata, persists senders/domains, and updates the profile", async () => {
     const client = new MockGmailClient(
       [
-        messageMetaBuilder({ headers: { from: "Jane <jane@acme.com>" } }),
-        messageMetaBuilder({ headers: { from: "bob@acme.com" } }),
+        messageMetaBuilder({ headers: { from: "Jane <jane@acme.test>" } }),
+        messageMetaBuilder({ headers: { from: "bob@acme.test" } }),
         messageMetaBuilder({
-          headers: { from: "news@promo.com", listUnsubscribe: "<mailto:u@promo.com>" },
+          headers: { from: "news@promo.test", listUnsubscribe: "<mailto:u@promo.test>" },
         }),
       ],
-      "owner@gmail.com",
+      "owner@example.com",
     );
     const store = createInMemoryStore();
 
@@ -65,17 +65,17 @@ describe("runScan", () => {
 
     const senders = await store.senders.query({});
     expect(senders.map((s) => s.email).sort()).toEqual([
-      "bob@acme.com",
-      "jane@acme.com",
-      "news@promo.com",
+      "bob@acme.test",
+      "jane@acme.test",
+      "news@promo.test",
     ]);
 
-    const promo = await store.senders.get(keyFor("news@promo.com"));
+    const promo = await store.senders.get(keyFor("news@promo.test"));
     expect(promo?.category).toBe("promotional");
 
     const profile = await store.profile.get();
     expect(profile).toMatchObject({
-      googleEmail: "owner@gmail.com",
+      googleEmail: "owner@example.com",
       senderCount: 3,
       domainCount: 2,
       messageCount: 3,
@@ -86,7 +86,7 @@ describe("runScan", () => {
   });
 
   it("honours the window and label options when building the query", async () => {
-    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.com" } })]);
+    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.test" } })]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { windowDays: 7, labelIds: ["INBOX", "IMPORTANT"], now: NOW });
@@ -95,7 +95,7 @@ describe("runScan", () => {
   });
 
   it("caps the number of messages fetched", async () => {
-    const client = new MockGmailClient(inboxFromSender("bulk@news.com", 50));
+    const client = new MockGmailClient(inboxFromSender("bulk@news.test", 50));
     const store = createInMemoryStore();
 
     const result = await runScan(client, store, { maxMessages: 5, now: NOW });
@@ -106,7 +106,7 @@ describe("runScan", () => {
   it("preserves the existing profile identity and privacy on rescan", async () => {
     const store = createInMemoryStore();
     await store.profile.put({
-      googleEmail: "kept@gmail.com",
+      googleEmail: "kept@example.com",
       onboardingComplete: true,
       lastHistoryId: "12345",
       senderCount: 0,
@@ -116,15 +116,15 @@ describe("runScan", () => {
       privacy: { contributeToAggregate: false },
     });
     const client = new MockGmailClient(
-      [messageMetaBuilder({ headers: { from: "x@y.com" } })],
-      "different@gmail.com",
+      [messageMetaBuilder({ headers: { from: "x@y.test" } })],
+      "different@example.com",
     );
 
     await runScan(client, store, { now: NOW });
 
     const profile = await store.profile.get();
     expect(profile).toMatchObject({
-      googleEmail: "kept@gmail.com",
+      googleEmail: "kept@example.com",
       onboardingComplete: true,
       lastHistoryId: "12345",
       privacy: { contributeToAggregate: false },
@@ -134,21 +134,21 @@ describe("runScan", () => {
 
   it("falls back to the client account email when no profile exists", async () => {
     const client = new MockGmailClient(
-      [messageMetaBuilder({ headers: { from: "x@y.com" } })],
-      "fromclient@gmail.com",
+      [messageMetaBuilder({ headers: { from: "x@y.test" } })],
+      "fromclient@example.com",
     );
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
 
     const profile = await store.profile.get();
-    expect(profile?.googleEmail).toBe("fromclient@gmail.com");
+    expect(profile?.googleEmail).toBe("fromclient@example.com");
   });
 
   it("generates and persists a prompt per undecided sender", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "jane@acme.com" } }),
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "jane@acme.test" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
     ]);
     const store = createInMemoryStore();
 
@@ -157,9 +157,9 @@ describe("runScan", () => {
     expect(result.promptCount).toBe(2);
     const prompts = await store.prompts.query({});
     expect(prompts).toHaveLength(2);
-    const jane = await store.prompts.get(keyFor("jane@acme.com"));
+    const jane = await store.prompts.get(keyFor("jane@acme.test"));
     expect(jane).toMatchObject({
-      senderId: keyFor("jane@acme.com"),
+      senderId: keyFor("jane@acme.test"),
       createdAt: NOW,
       expiresAt: NOW + 30 * 24 * 60 * 60 * 1000,
       resolvedAt: null,
@@ -167,8 +167,8 @@ describe("runScan", () => {
   });
 
   it("skips a message that fails to fetch instead of aborting the whole scan", async () => {
-    const ok = messageMetaBuilder({ headers: { from: "jane@acme.com" } });
-    const flaky = messageMetaBuilder({ headers: { from: "bob@acme.com" } });
+    const ok = messageMetaBuilder({ headers: { from: "jane@acme.test" } });
+    const flaky = messageMetaBuilder({ headers: { from: "bob@acme.test" } });
     const client = new FlakyGmailClient([ok, flaky], new Set([flaky.id]));
     const store = createInMemoryStore();
 
@@ -176,12 +176,12 @@ describe("runScan", () => {
 
     expect(result).toEqual({ messageCount: 1, senderCount: 1, domainCount: 1, promptCount: 1 });
     const senders = await store.senders.query({});
-    expect(senders.map((s) => s.email)).toEqual(["jane@acme.com"]);
+    expect(senders.map((s) => s.email)).toEqual(["jane@acme.test"]);
   });
 
   it("throws instead of reporting an empty scan when every message fails to fetch", async () => {
-    const a = messageMetaBuilder({ headers: { from: "jane@acme.com" } });
-    const b = messageMetaBuilder({ headers: { from: "bob@acme.com" } });
+    const a = messageMetaBuilder({ headers: { from: "jane@acme.test" } });
+    const b = messageMetaBuilder({ headers: { from: "bob@acme.test" } });
     const client = new FlakyGmailClient([a, b], new Set([a.id, b.id]));
     const store = createInMemoryStore();
 
@@ -192,38 +192,38 @@ describe("runScan", () => {
 
   it("preserves prior decisions and skips prompts for decided senders on rescan", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "jane@acme.com" } }),
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "jane@acme.test" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
     ]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
 
     // The user blocks one sender; a later rescan must not re-prompt it.
-    const blocked = await store.senders.get(keyFor("news@promo.com"));
+    const blocked = await store.senders.get(keyFor("news@promo.test"));
     await store.senders.put({ ...blocked!, trustStatus: "blocked" });
-    await store.prompts.delete(keyFor("news@promo.com"));
+    await store.prompts.delete(keyFor("news@promo.test"));
 
     const result = await runScan(client, store, { now: NOW + 1000 });
 
-    expect(await store.senders.get(keyFor("news@promo.com"))).toMatchObject({
+    expect(await store.senders.get(keyFor("news@promo.test"))).toMatchObject({
       trustStatus: "blocked",
     });
     expect(result.promptCount).toBe(1);
-    expect(await store.prompts.get(keyFor("news@promo.com"))).toBeUndefined();
-    expect(await store.prompts.get(keyFor("jane@acme.com"))).toBeDefined();
+    expect(await store.prompts.get(keyFor("news@promo.test"))).toBeUndefined();
+    expect(await store.prompts.get(keyFor("jane@acme.test"))).toBeDefined();
   });
 
   it("preserves a blocked sender's pendingActions across a rescan", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
     ]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
 
     // Mirrors applyDecision's block bookkeeping (staged for M4 enforcement).
-    const blocked = await store.senders.get(keyFor("news@promo.com"));
+    const blocked = await store.senders.get(keyFor("news@promo.test"));
     await store.senders.put({
       ...blocked!,
       trustStatus: "blocked",
@@ -234,7 +234,7 @@ describe("runScan", () => {
 
     await runScan(client, store, { now: NOW + 1000 });
 
-    expect(await store.senders.get(keyFor("news@promo.com"))).toMatchObject({
+    expect(await store.senders.get(keyFor("news@promo.test"))).toMatchObject({
       trustStatus: "blocked",
       trustDecidedAt: NOW,
       decisionScope: "address",
@@ -244,15 +244,15 @@ describe("runScan", () => {
 
   it("does not re-prompt a domain-decided sender's members on rescan (#123)", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "a@x.com" } }),
-      messageMetaBuilder({ headers: { from: "b@x.com" } }),
+      messageMetaBuilder({ headers: { from: "a@x.test" } }),
+      messageMetaBuilder({ headers: { from: "b@x.test" } }),
     ]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
     // Block the whole domain — its members are now covered (effectively decided).
     await applyDecision(store, {
-      subjectId: keyFor("x.com"),
+      subjectId: keyFor("x.test"),
       scope: "domain",
       decision: "block",
       actions: ["create_filter"],
@@ -269,68 +269,68 @@ describe("runScan", () => {
 
   it("preserves a learn-populated coveredByBlockFilter across a rescan (#96)", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
     ]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
     // The learn pass (filter scan) later marks this sender as filter-covered.
-    const sender = await store.senders.get(keyFor("news@promo.com"));
+    const sender = await store.senders.get(keyFor("news@promo.test"));
     await store.senders.put({ ...sender!, coveredByBlockFilter: true });
 
     // A full rescan rebuilds senders from the inbox (which can't see filters) — it must not
     // wipe the learn-derived flag.
     await runScan(client, store, { now: NOW + 1000 });
 
-    expect((await store.senders.get(keyFor("news@promo.com")))?.coveredByBlockFilter).toBe(true);
+    expect((await store.senders.get(keyFor("news@promo.test")))?.coveredByBlockFilter).toBe(true);
   });
 
   it("preserves a learn-populated deletedUnreadCount across a rescan", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
     ]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
 
     // The learn pass (Trash scan) later records a deleted-unread count on this sender.
-    const sender = await store.senders.get(keyFor("news@promo.com"));
+    const sender = await store.senders.get(keyFor("news@promo.test"));
     await store.senders.put({ ...sender!, deletedUnreadCount: 3 });
 
     // A full rescan rebuilds senders from the inbox (which can't see Trash) — it must not
     // wipe the learn-derived count.
     await runScan(client, store, { now: NOW + 1000 });
 
-    expect((await store.senders.get(keyFor("news@promo.com")))?.deletedUnreadCount).toBe(3);
+    expect((await store.senders.get(keyFor("news@promo.test")))?.deletedUnreadCount).toBe(3);
   });
 
   it("preserves a blocked domain's trustStatus and exceptionAddresses across a rescan", async () => {
     const client = new MockGmailClient([
-      messageMetaBuilder({ headers: { from: "news@promo.com" } }),
-      messageMetaBuilder({ headers: { from: "deals@promo.com" } }),
+      messageMetaBuilder({ headers: { from: "news@promo.test" } }),
+      messageMetaBuilder({ headers: { from: "deals@promo.test" } }),
     ]);
     const store = createInMemoryStore();
 
     await runScan(client, store, { now: NOW });
 
-    const domain = await store.domains.get(keyFor("promo.com"));
+    const domain = await store.domains.get(keyFor("promo.test"));
     await store.domains.put({
       ...domain!,
       trustStatus: "blocked",
       trustDecidedAt: NOW,
       decisionScope: "domain",
       pendingActions: ["create_filter", "archive"],
-      exceptionAddresses: ["deals@promo.com"],
+      exceptionAddresses: ["deals@promo.test"],
     });
 
     await runScan(client, store, { now: NOW + 1000 });
 
-    expect(await store.domains.get(keyFor("promo.com"))).toMatchObject({
+    expect(await store.domains.get(keyFor("promo.test"))).toMatchObject({
       trustStatus: "blocked",
       trustDecidedAt: NOW,
       decisionScope: "domain",
       pendingActions: ["create_filter", "archive"],
-      exceptionAddresses: ["deals@promo.com"],
+      exceptionAddresses: ["deals@promo.test"],
     });
   });
 
@@ -368,11 +368,11 @@ describe("reseedHistoryMarker", () => {
   const NOW = 1_700_000_000_000;
 
   it("advances lastHistoryId to the mailbox's current historyId", async () => {
-    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.com" } })]);
+    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.test" } })]);
     client.setLatestHistoryId("456");
     const store = createInMemoryStore();
     await store.profile.put({
-      googleEmail: "owner@gmail.com",
+      googleEmail: "owner@example.com",
       onboardingComplete: true,
       lastHistoryId: "123",
       senderCount: 0,
@@ -388,7 +388,7 @@ describe("reseedHistoryMarker", () => {
   });
 
   it("is a no-op when no profile exists yet", async () => {
-    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.com" } })]);
+    const client = new MockGmailClient([messageMetaBuilder({ headers: { from: "a@b.test" } })]);
     client.setLatestHistoryId("456");
     const store = createInMemoryStore();
 
@@ -401,8 +401,8 @@ describe("reseedHistoryMarker", () => {
     // Reproduces the reported bug: "Full rescan" (runScan) followed by the next
     // automatic sync (incrementalSync) must not replay history since a stale marker.
     const client = new MockGmailClient(
-      [messageMetaBuilder({ headers: { from: "jane@acme.com" } })],
-      "owner@gmail.com",
+      [messageMetaBuilder({ headers: { from: "jane@acme.test" } })],
+      "owner@example.com",
     );
     client.setLatestHistoryId("100");
     const store = createInMemoryStore();

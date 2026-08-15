@@ -16,7 +16,7 @@ describe("ReportProblem", () => {
     const { container } = render(
       <ReportProblem
         store={store}
-        initial={{ message: "429 for /messages/19efa38b32b35328 (news@retailco.com)" }}
+        initial={{ message: "429 for /messages/19efa38b32b35328 (news@retailco.test)" }}
       />,
     );
 
@@ -46,7 +46,7 @@ describe("ReportProblem", () => {
 
   it("submits via the client and surfaces the returned reference", async () => {
     const submit = vi.fn<ReportingClient["submit"]>(async () => ({
-      ref: "https://github.com/x/y/issues/1",
+      ref: "https://github.test/x/y/issues/1",
     }));
     const client: ReportingClient = { submit };
     const store = createInMemoryStore();

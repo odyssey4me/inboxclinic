@@ -12,29 +12,29 @@ import {
 
 describe("effectiveSenderStatus", () => {
   it("returns the raw status when there is no domain override", () => {
-    const s = senderBuilder("a@x.com", { trustStatus: "blocked" });
+    const s = senderBuilder("a@x.test", { trustStatus: "blocked" });
     expect(effectiveSenderStatus(s, undefined)).toBe("blocked");
   });
 
   it("lets a domain-scope trust override an address block", () => {
-    const s = senderBuilder("a@x.com", { trustStatus: "blocked" });
-    const d = domainBuilder("x.com", { trustStatus: "trusted", decisionScope: "domain" });
+    const s = senderBuilder("a@x.test", { trustStatus: "blocked" });
+    const d = domainBuilder("x.test", { trustStatus: "trusted", decisionScope: "domain" });
     expect(effectiveSenderStatus(s, d)).toBe("trusted");
   });
 
   it("honours an address exception over the domain trust", () => {
-    const s = senderBuilder("a@x.com", { trustStatus: "blocked" });
-    const d = domainBuilder("x.com", {
+    const s = senderBuilder("a@x.test", { trustStatus: "blocked" });
+    const d = domainBuilder("x.test", {
       trustStatus: "trusted",
       decisionScope: "domain",
-      exceptionAddresses: ["a@x.com"],
+      exceptionAddresses: ["a@x.test"],
     });
     expect(effectiveSenderStatus(s, d)).toBe("blocked");
   });
 
   it("ignores a domain status that isn't a domain-scope decision", () => {
-    const s = senderBuilder("a@x.com", { trustStatus: "blocked" });
-    const d = domainBuilder("x.com", { trustStatus: "trusted", decisionScope: "address" });
+    const s = senderBuilder("a@x.test", { trustStatus: "blocked" });
+    const d = domainBuilder("x.test", { trustStatus: "trusted", decisionScope: "address" });
     expect(effectiveSenderStatus(s, d)).toBe("blocked");
   });
 
@@ -63,19 +63,19 @@ describe("effectiveSenderStatus", () => {
 describe("effectiveBlockedSenders", () => {
   it("excludes a domain-trusted sender, keeps exceptions and un-overridden blocks", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("a@shop.com", { trustStatus: "blocked" })); // overridden → out
-    await store.senders.put(senderBuilder("b@shop.com", { trustStatus: "blocked" })); // exception → kept
-    await store.senders.put(senderBuilder("c@other.com", { trustStatus: "blocked" })); // no domain → kept
+    await store.senders.put(senderBuilder("a@shop.test", { trustStatus: "blocked" })); // overridden → out
+    await store.senders.put(senderBuilder("b@shop.test", { trustStatus: "blocked" })); // exception → kept
+    await store.senders.put(senderBuilder("c@other.test", { trustStatus: "blocked" })); // no domain → kept
     await store.domains.put(
-      domainBuilder("shop.com", {
+      domainBuilder("shop.test", {
         trustStatus: "trusted",
         decisionScope: "domain",
-        exceptionAddresses: ["b@shop.com"],
+        exceptionAddresses: ["b@shop.test"],
       }),
     );
 
     const blocked = await effectiveBlockedSenders(store);
-    expect(blocked.map((s) => s.email).sort()).toEqual(["b@shop.com", "c@other.com"]);
+    expect(blocked.map((s) => s.email).sort()).toEqual(["b@shop.test", "c@other.test"]);
   });
 });
 
@@ -138,6 +138,7 @@ describe("parent-domain rules (#184)", () => {
     await store.domains.put(parentRule());
     // `example.com.au` is its own registrable domain — the coarse Gmail match would catch it,
     // the decision model must not.
+    // eslint-disable-next-line local/no-real-domains -- real public suffix, see the note above
     await store.senders.put(senderBuilder("promo@example.com.au", { trustStatus: "pending" }));
 
     expect(await effectiveBlockedSenders(store)).toEqual([]);
@@ -249,18 +250,21 @@ describe("a domain-scope block covers its subtree (#210/#244)", () => {
     expect(await effectiveTrustedSenders(store)).toEqual([]);
   });
 
-  it("does not reach a domain that merely shares a suffix", async () => {
+  it("does not reach a domain that merely shares a substring", async () => {
     const store = createInMemoryStore();
-    await store.domains.put(blockedDomain());
-    // Neither is under `example.com`: one is a longer registrable domain, the other a
-    // spoofable substring match. The boundary is a label, never a substring.
-    await store.senders.put(senderBuilder("promo@example.com.au", { trustStatus: "trusted" }));
-    await store.senders.put(senderBuilder("promo@notexample.com", { trustStatus: "trusted" }));
+    // Named so both hazards are expressible in reserved names: `acme.test` blocked, with a
+    // sender at a domain that ENDS with that string and one that BEGINS with it. Neither is
+    // under it — the boundary is a dot-separated label, never a substring.
+    await store.domains.put(
+      domainBuilder("acme.test", { trustStatus: "blocked", decisionScope: "domain" }),
+    );
+    await store.senders.put(senderBuilder("promo@notacme.test", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("promo@acme.testing.test", { trustStatus: "trusted" }));
 
     const trusted = await effectiveTrustedSenders(store);
     expect(trusted.map((s) => s.email).sort()).toEqual([
-      "promo@example.com.au",
-      "promo@notexample.com",
+      "promo@acme.testing.test",
+      "promo@notacme.test",
     ]);
   });
 });

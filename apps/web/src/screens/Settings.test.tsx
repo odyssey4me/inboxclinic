@@ -50,7 +50,7 @@ describe("Settings view", () => {
 
   it("backs up to Drive when enabled and reports the result", async () => {
     const { store, backup, gmail } = setup();
-    await store.senders.put(senderBuilder("a@x.com"));
+    await store.senders.put(senderBuilder("a@x.test"));
     render(
       <Settings
         store={store}
@@ -95,7 +95,7 @@ describe("Settings view", () => {
 
   it("restores only after confirming the replace-local warning", async () => {
     const { store, backup, gmail } = setup();
-    await store.senders.put(senderBuilder("keep@x.com"));
+    await store.senders.put(senderBuilder("keep@x.test"));
     render(
       <Settings
         store={store}
@@ -113,7 +113,7 @@ describe("Settings view", () => {
     await screen.findByText(/in your drive/i);
 
     // Mutate, then restore.
-    await store.senders.put(senderBuilder("added@y.com"));
+    await store.senders.put(senderBuilder("added@y.test"));
     fireEvent.click(screen.getByRole("button", { name: /restore from backup/i }));
 
     // A confirmation dialog appears; the store is untouched until confirmed.
@@ -154,9 +154,9 @@ describe("Settings view", () => {
 
   it("suggests and adopts an existing filter that already matches a desired one (#80)", async () => {
     const { store, backup, gmail } = setup();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     gmail.seedFilters([
-      { id: "hand-made", from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "hand-made", from: "spam@a.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     render(
       <Settings
@@ -171,7 +171,7 @@ describe("Settings view", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /check for adoptable filters/i }));
-    expect(await screen.findByText(/spam@a.com/i)).toBeInTheDocument();
+    expect(await screen.findByText(/spam@a.test/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /adopt 1 filter/i }));
 
@@ -183,9 +183,9 @@ describe("Settings view", () => {
 
   it("skips an adoption whose sender was unblocked after checking (#89)", async () => {
     const { store, backup, gmail } = setup();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     gmail.seedFilters([
-      { id: "hand-made", from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "hand-made", from: "spam@a.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     render(
       <Settings
@@ -200,10 +200,10 @@ describe("Settings view", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /check for adoptable filters/i }));
-    expect(await screen.findByText(/spam@a.com/i)).toBeInTheDocument();
+    expect(await screen.findByText(/spam@a.test/i)).toBeInTheDocument();
 
     // Unblocked between "Check" and "Adopt" — the filter no longer matches anything.
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "trusted" }));
 
     fireEvent.click(screen.getByRole("button", { name: /adopt 1 filter/i }));
 
@@ -215,9 +215,9 @@ describe("Settings view", () => {
 
   it("keeps the Adopt button enabled while offline once filters were already checked", async () => {
     const { store, backup, gmail } = setup();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     gmail.seedFilters([
-      { id: "hand-made", from: "spam@a.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { id: "hand-made", from: "spam@a.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     const { rerender } = render(
       <Settings
@@ -232,7 +232,7 @@ describe("Settings view", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /check for adoptable filters/i }));
-    expect(await screen.findByText(/spam@a.com/i)).toBeInTheDocument();
+    expect(await screen.findByText(/spam@a.test/i)).toBeInTheDocument();
 
     rerender(
       <Settings

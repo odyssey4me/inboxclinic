@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+/* eslint-disable local/no-real-domains -- the Public Suffix List itself is the subject: `alice.github.io` not collapsing to `github.io` only means something because `github.io` is a real PRIVATE-section entry */
 import { describe, expect, it } from "vitest";
 
 import { publicSuffix, registrableDomain, sameRegistrableDomain } from "./registrableDomain";

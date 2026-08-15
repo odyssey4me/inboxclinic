@@ -121,7 +121,7 @@ describe("DomainDetail — block breadth (#210)", () => {
   function renderWithSenders(allSenders: { domain: string }[], allDomains: Domain[] = []) {
     render(
       <DomainDetail
-        domain={domainFixture("monzo.com")}
+        domain={domainFixture("mybank.test")}
         members={[]}
         allSenders={allSenders as never}
         allDomains={allDomains}
@@ -136,16 +136,16 @@ describe("DomainDetail — block breadth (#210)", () => {
   }
 
   it("states the subtree a block would cover, before it is made", () => {
-    renderWithSenders([sender("monzo.com"), sender("email.monzo.com")]);
+    renderWithSenders([sender("mybank.test"), sender("email.mybank.test")]);
 
     expect(screen.getByText(/also covers everything beneath it/)).toBeInTheDocument();
-    expect(screen.getByText(/email\.monzo\.com \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/email\.mybank\.test \(1\)/)).toBeInTheDocument();
   });
 
   it("separates subdomains the user already decided, which enforcement spares", () => {
     renderWithSenders(
-      [sender("monzo.com"), sender("email.monzo.com")],
-      [domainFixture("email.monzo.com", { trustStatus: "trusted", decisionScope: "domain" })],
+      [sender("mybank.test"), sender("email.mybank.test")],
+      [domainFixture("email.mybank.test", { trustStatus: "trusted", decisionScope: "domain" })],
     );
 
     // Same set `effectiveBlockedDomains` carves out — the panel must promise what enforcement
@@ -154,7 +154,7 @@ describe("DomainDetail — block breadth (#210)", () => {
   });
 
   it("stays quiet when the block reaches nothing beyond the domain itself", () => {
-    renderWithSenders([sender("monzo.com")]);
+    renderWithSenders([sender("mybank.test")]);
 
     expect(screen.queryByText(/also covers everything beneath it/)).not.toBeInTheDocument();
   });

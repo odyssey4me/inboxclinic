@@ -18,8 +18,8 @@ function setup(): { store: Store; gmail: MockGmailClient } {
 describe("SenderDetail — flagged siblings (#96)", () => {
   it("offers to block all flagged same-domain siblings together, previewed and confirmed", async () => {
     const { store, gmail } = setup();
-    const a = senderBuilder("a@shop.com", { spamMarkedCount: 1 });
-    const b = senderBuilder("b@shop.com", { coveredByBlockFilter: true });
+    const a = senderBuilder("a@shop.test", { spamMarkedCount: 1 });
+    const b = senderBuilder("b@shop.test", { coveredByBlockFilter: true });
     await store.senders.put(a);
     await store.senders.put(b);
     const onChanged = vi.fn();
@@ -44,8 +44,8 @@ describe("SenderDetail — flagged siblings (#96)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /confirm block all/i }));
 
     await waitFor(async () => {
-      expect((await store.senders.get(keyFor("a@shop.com")))?.trustStatus).toBe("blocked");
-      expect((await store.senders.get(keyFor("b@shop.com")))?.trustStatus).toBe("blocked");
+      expect((await store.senders.get(keyFor("a@shop.test")))?.trustStatus).toBe("blocked");
+      expect((await store.senders.get(keyFor("b@shop.test")))?.trustStatus).toBe("blocked");
     });
     expect(onChanged).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
@@ -53,13 +53,13 @@ describe("SenderDetail — flagged siblings (#96)", () => {
 
   it("keeps all flagged siblings (trust) in one step", async () => {
     const { store, gmail } = setup();
-    await store.senders.put(senderBuilder("a@shop.com", { spamMarkedCount: 1 }));
-    await store.senders.put(senderBuilder("b@shop.com", { coveredByBlockFilter: true }));
+    await store.senders.put(senderBuilder("a@shop.test", { spamMarkedCount: 1 }));
+    await store.senders.put(senderBuilder("b@shop.test", { coveredByBlockFilter: true }));
 
     render(
       <SenderDetail
-        sender={senderBuilder("a@shop.com", { spamMarkedCount: 1 })}
-        flaggedSiblings={[senderBuilder("b@shop.com", { coveredByBlockFilter: true })]}
+        sender={senderBuilder("a@shop.test", { spamMarkedCount: 1 })}
+        flaggedSiblings={[senderBuilder("b@shop.test", { coveredByBlockFilter: true })]}
         store={store}
         gmail={gmail}
         online
@@ -71,8 +71,8 @@ describe("SenderDetail — flagged siblings (#96)", () => {
     fireEvent.click(screen.getByRole("button", { name: /keep all/i }));
 
     await waitFor(async () => {
-      expect((await store.senders.get(keyFor("a@shop.com")))?.trustStatus).toBe("trusted");
-      expect((await store.senders.get(keyFor("b@shop.com")))?.trustStatus).toBe("trusted");
+      expect((await store.senders.get(keyFor("a@shop.test")))?.trustStatus).toBe("trusted");
+      expect((await store.senders.get(keyFor("b@shop.test")))?.trustStatus).toBe("trusted");
     });
   });
 
@@ -80,7 +80,7 @@ describe("SenderDetail — flagged siblings (#96)", () => {
     const { store, gmail } = setup();
     render(
       <SenderDetail
-        sender={senderBuilder("solo@x.com")}
+        sender={senderBuilder("solo@x.test")}
         store={store}
         gmail={gmail}
         online
@@ -99,9 +99,9 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     const { store, gmail } = setup();
     render(
       <SenderDetail
-        sender={senderBuilder("news@shop.com")}
+        sender={senderBuilder("news@shop.test")}
         allDomains={[
-          domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+          domainBuilder("shop.test", { trustStatus: "blocked", decisionScope: "domain" }),
         ]}
         store={store}
         gmail={gmail}
@@ -141,9 +141,9 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     render(
       <SenderDetail
         // Trusted earlier, and NOT a recorded exception — so the later domain block wins.
-        sender={senderBuilder("old@shop.com", { trustStatus: "trusted", decisionScope: "address" })}
+        sender={senderBuilder("old@shop.test", { trustStatus: "trusted", decisionScope: "address" })}
         allDomains={[
-          domainBuilder("shop.com", { trustStatus: "blocked", decisionScope: "domain" }),
+          domainBuilder("shop.test", { trustStatus: "blocked", decisionScope: "domain" }),
         ]}
         store={store}
         gmail={gmail}
@@ -158,16 +158,16 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
 
   it("offers a carved-out sender the way back, clearing the decision and the carve-out", async () => {
     const { store, gmail } = setup();
-    const sender = senderBuilder("vip@shop.com", {
+    const sender = senderBuilder("vip@shop.test", {
       trustStatus: "trusted",
       decisionScope: "address",
     });
     await store.senders.put(sender);
     await store.domains.put(
-      domainBuilder("shop.com", {
+      domainBuilder("shop.test", {
         trustStatus: "blocked",
         decisionScope: "domain",
-        exceptionAddresses: ["vip@shop.com"],
+        exceptionAddresses: ["vip@shop.test"],
       }),
     );
 
@@ -175,10 +175,10 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
       <SenderDetail
         sender={sender}
         allDomains={[
-          domainBuilder("shop.com", {
+          domainBuilder("shop.test", {
             trustStatus: "blocked",
             decisionScope: "domain",
-            exceptionAddresses: ["vip@shop.com"],
+            exceptionAddresses: ["vip@shop.test"],
           }),
         ]}
         store={store}
@@ -195,8 +195,8 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     // Both halves, or the model and the behaviour diverge: the decision goes, and so does the
     // carve-out that told the rule to skip this address.
     await waitFor(async () => {
-      expect((await store.senders.get(keyFor("vip@shop.com")))?.trustStatus).toBe("pending");
-      expect((await store.domains.get(keyFor("shop.com")))?.exceptionAddresses).toEqual([]);
+      expect((await store.senders.get(keyFor("vip@shop.test")))?.trustStatus).toBe("pending");
+      expect((await store.domains.get(keyFor("shop.test")))?.exceptionAddresses).toEqual([]);
     });
   });
 
@@ -261,8 +261,8 @@ describe("SenderDetail — the rule governing a sender (#229)", () => {
     render(
       <SenderDetail
         // A domain record exists, but carries no decision — there is no rule to explain.
-        sender={senderBuilder("solo@x.com")}
-        allDomains={[domainBuilder("x.com")]}
+        sender={senderBuilder("solo@x.test")}
+        allDomains={[domainBuilder("x.test")]}
         store={store}
         gmail={gmail}
         online

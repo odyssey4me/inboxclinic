@@ -39,14 +39,14 @@ describe("demo environment", () => {
 
     // Pre-decisions applied: two trusted, two blocked (rest pending).
     const byId = new Map(senders.map((s) => [s.id, s]));
-    expect(byId.get(keyFor("jane.cooper@gmail.com"))?.trustStatus).toBe("trusted");
-    expect(byId.get(keyFor("notifications@github.com"))?.trustStatus).toBe("trusted");
-    expect(byId.get(keyFor("deals@retailco.com"))?.trustStatus).toBe("blocked");
-    expect(byId.get(keyFor("security@paypa1-alert.com"))?.trustStatus).toBe("blocked");
+    expect(byId.get(keyFor("jane.cooper@example.com"))?.trustStatus).toBe("trusted");
+    expect(byId.get(keyFor("notifications@devforge.test"))?.trustStatus).toBe("trusted");
+    expect(byId.get(keyFor("deals@retailco.test"))?.trustStatus).toBe("blocked");
+    expect(byId.get(keyFor("security@securepa1-alerts.test"))?.trustStatus).toBe("blocked");
     expect(senders.filter((s) => s.trustStatus === "pending").length).toBeGreaterThan(5);
 
     // A shared domain drives the workflow batch-offer.
-    const retailco = await store.domains.get(keyFor("retailco.com"));
+    const retailco = await store.domains.get(keyFor("retailco.test"));
     expect(retailco?.senderCount).toBe(2);
   });
 
@@ -78,7 +78,7 @@ describe("demo environment", () => {
     await runScan(gmail, store, { now: NOW });
 
     expect((await store.senders.query({})).length).toBe(before);
-    const jane = await store.senders.get(keyFor("jane.cooper@gmail.com"));
+    const jane = await store.senders.get(keyFor("jane.cooper@example.com"));
     expect(jane?.trustStatus).toBe("trusted");
   });
 

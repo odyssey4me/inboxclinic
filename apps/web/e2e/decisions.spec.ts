@@ -17,12 +17,12 @@ test("decisions surface: re-decide a trusted sender to blocked, previewed and co
   // Layout-agnostic: the per-sender action group is labelled identically on the desktop
   // table row and the mobile card.
   await page
-    .getByRole("group", { name: /decide jane\.cooper@gmail\.com/i })
+    .getByRole("group", { name: /decide jane\.cooper@example\.com/i })
     .getByRole("button", { name: /^Block$/ })
     .click();
 
   // Block opens the detail panel, where the impact is previewed before it applies.
-  const drawer = page.getByRole("dialog", { name: /actions for jane\.cooper@gmail\.com/i });
+  const drawer = page.getByRole("dialog", { name: /actions for jane\.cooper@example\.com/i });
   await expect(drawer).toBeVisible();
   await drawer.getByRole("button", { name: /^Block$/ }).click();
   await expect(drawer.getByText(/when you apply/i)).toBeVisible();
@@ -30,7 +30,7 @@ test("decisions surface: re-decide a trusted sender to blocked, previewed and co
   await expect(drawer).toBeHidden();
 
   // The re-decision is reflected in the sender's row/card status.
-  const janeItem = page.locator("tr, li").filter({ hasText: "jane.cooper@gmail.com" });
+  const janeItem = page.locator("tr, li").filter({ hasText: "jane.cooper@example.com" });
   await expect(janeItem).toContainText("blocked");
 });
 

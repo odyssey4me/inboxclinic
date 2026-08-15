@@ -5,7 +5,7 @@
  * A hand-authored set of ~19 senders spanning every M1 category (personal,
  * transactional, promotional, other) and a spread of trust signals (read-rate,
  * auth posture, list-unsubscribe, spam marks, a spoofed look-alike). Two addresses
- * share `retailco.com` so the workflow's domain batch-offer appears. Three more share
+ * share `retailco.test` so the workflow's domain batch-offer appears. Three more share
  * `bargainhub.example`, each still pending in the inbox but also binned unread in Trash,
  * so opening one in `SenderDetail` surfaces the flagged-siblings consolidation (#96, #128).
  *
@@ -66,35 +66,35 @@ const DAY_MS = 86_400_000;
  */
 const DEMO_SENDERS: DemoSenderSpec[] = [
   // -- Personal (engaged, high trust) --------------------------------------------
-  { name: "Jane Cooper", email: "jane.cooper@gmail.com", total: 5, unread: 0, starred: 2, auth: "pass", withinDays: 20 }, // prettier-ignore
-  { name: "Marcus Lee", email: "marcus@fastmail.com", total: 3, unread: 0, starred: 1, auth: "pass", withinDays: 25 }, // prettier-ignore
-  { name: "Priya Nair", email: "priya.nair@outlook.com", total: 2, unread: 1, auth: "pass", withinDays: 28 }, // prettier-ignore
+  { name: "Jane Cooper", email: "jane.cooper@example.com", total: 5, unread: 0, starred: 2, auth: "pass", withinDays: 20 }, // prettier-ignore
+  { name: "Marcus Lee", email: "marcus@oldmail.test", total: 3, unread: 0, starred: 1, auth: "pass", withinDays: 25 }, // prettier-ignore
+  { name: "Priya Nair", email: "priya.nair@othermail.test", total: 2, unread: 1, auth: "pass", withinDays: 28 }, // prettier-ignore
 
   // -- Transactional (useful automated mail) -------------------------------------
-  { name: "GitHub", email: "notifications@github.com", total: 12, unread: 3, category: "CATEGORY_UPDATES", listId: true, auth: "pass", withinDays: 14 }, // prettier-ignore
-  { name: "Stripe", email: "receipts@stripe.com", total: 4, unread: 0, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 30 }, // prettier-ignore
-  { name: "Vercel", email: "notifications@vercel.com", total: 6, unread: 2, listId: true, auth: "pass", withinDays: 21 }, // prettier-ignore
-  { name: "Bank of Aurora", email: "alerts@bankofaurora.com", total: 3, unread: 0, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 18 }, // prettier-ignore
+  { name: "DevForge", email: "notifications@devforge.test", total: 12, unread: 3, category: "CATEGORY_UPDATES", listId: true, auth: "pass", withinDays: 14 }, // prettier-ignore
+  { name: "PayFlow", email: "receipts@payflow.test", total: 4, unread: 0, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 30 }, // prettier-ignore
+  { name: "Hostly", email: "notifications@hostly.test", total: 6, unread: 2, listId: true, auth: "pass", withinDays: 21 }, // prettier-ignore
+  { name: "Bank of Aurora", email: "alerts@bankofaurora.test", total: 3, unread: 0, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 18 }, // prettier-ignore
 
   // -- Promotional (bulk marketing; mostly unopened) -----------------------------
-  { name: "RetailCo Deals", email: "deals@retailco.com", total: 18, unread: 16, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 14 }, // prettier-ignore
-  { name: "RetailCo News", email: "news@retailco.com", total: 7, unread: 6, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 22 }, // prettier-ignore
-  { name: "TravelNow", email: "offers@travelnow.com", total: 9, unread: 8, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "pass", withinDays: 20 }, // prettier-ignore
-  { name: "Foodie Weekly", email: "hello@foodieweekly.com", total: 6, unread: 2, listUnsub: true, auth: "pass", withinDays: 24 }, // prettier-ignore
-  { name: "MegaMart", email: "no-reply@megamart.com", total: 14, unread: 13, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 18 }, // prettier-ignore
+  { name: "RetailCo Deals", email: "deals@retailco.test", total: 18, unread: 16, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 14 }, // prettier-ignore
+  { name: "RetailCo News", email: "news@retailco.test", total: 7, unread: 6, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 22 }, // prettier-ignore
+  { name: "TravelNow", email: "offers@travelnow.test", total: 9, unread: 8, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "pass", withinDays: 20 }, // prettier-ignore
+  { name: "Foodie Weekly", email: "hello@foodieweekly.test", total: 6, unread: 2, listUnsub: true, auth: "pass", withinDays: 24 }, // prettier-ignore
+  { name: "MegaMart", email: "no-reply@megamart.test", total: 14, unread: 13, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 18 }, // prettier-ignore
   // One organisation writing from several subdomains — the shape the whole-subtree rule
   // exists for (design-trust-decisions.md Decision 9). Without it the offer never appears in
   // demo mode, so neither the user exploring nor the E2E tier ever meets the feature.
-  { name: "MegaMart Deals", email: "deals@news.megamart.com", total: 9, unread: 8, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 12 }, // prettier-ignore
-  { name: "MegaMart Orders", email: "orders@shipping.megamart.com", total: 6, unread: 2, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 9 }, // prettier-ignore
+  { name: "MegaMart Deals", email: "deals@news.megamart.test", total: 9, unread: 8, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "partial", withinDays: 12 }, // prettier-ignore
+  { name: "MegaMart Orders", email: "orders@shipping.megamart.test", total: 6, unread: 2, category: "CATEGORY_UPDATES", auth: "pass", withinDays: 9 }, // prettier-ignore
 
   // -- Other (social / forums) ---------------------------------------------------
-  { name: "LinkedIn", email: "notifications@linkedin.com", total: 10, unread: 6, category: "CATEGORY_SOCIAL", listUnsub: true, auth: "pass", withinDays: 20 }, // prettier-ignore
-  { name: "X", email: "info@x.com", total: 8, unread: 7, category: "CATEGORY_SOCIAL", auth: "pass", withinDays: 15 }, // prettier-ignore
-  { name: "DevForum Digest", email: "digest@devforum.org", total: 5, unread: 1, category: "CATEGORY_FORUMS", listId: true, listUnsub: true, auth: "pass", withinDays: 27 }, // prettier-ignore
+  { name: "DevNetwork", email: "notifications@devnetwork.test", total: 10, unread: 6, category: "CATEGORY_SOCIAL", listUnsub: true, auth: "pass", withinDays: 20 }, // prettier-ignore
+  { name: "Chirp", email: "info@chirp.test", total: 8, unread: 7, category: "CATEGORY_SOCIAL", auth: "pass", withinDays: 15 }, // prettier-ignore
+  { name: "DevForum Digest", email: "digest@devforum.test", total: 5, unread: 1, category: "CATEGORY_FORUMS", listId: true, listUnsub: true, auth: "pass", withinDays: 27 }, // prettier-ignore
 
   // -- Spoofed look-alike that landed in the inbox (lowest trust) ----------------
-  { name: "PayPal Security", email: "security@paypa1-alert.com", total: 4, unread: 4, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "fail", withinDays: 10 }, // prettier-ignore
+  { name: "SecurePay Alerts", email: "security@securepa1-alerts.test", total: 4, unread: 4, category: "CATEGORY_PROMOTIONS", listUnsub: true, auth: "fail", withinDays: 10 }, // prettier-ignore
 
   // -- Already handled outside the inbox — for the "learn prior decisions" demo --
   // Spam-marked (strong signal) and unread-binned (a signal); read-then-binned is not.
@@ -115,10 +115,10 @@ export const DEMO_DECISIONS: {
   decision: "trust" | "block";
   actions: BlockAction[];
 }[] = [
-  { email: "jane.cooper@gmail.com", decision: "trust", actions: [] },
-  { email: "notifications@github.com", decision: "trust", actions: [] },
-  { email: "deals@retailco.com", decision: "block", actions: ["create_filter", "archive"] },
-  { email: "security@paypa1-alert.com", decision: "block", actions: ["create_filter", "delete"] },
+  { email: "jane.cooper@example.com", decision: "trust", actions: [] },
+  { email: "notifications@devforge.test", decision: "trust", actions: [] },
+  { email: "deals@retailco.test", decision: "block", actions: ["create_filter", "archive"] },
+  { email: "security@securepa1-alerts.test", decision: "block", actions: ["create_filter", "delete"] },
 ];
 
 /**

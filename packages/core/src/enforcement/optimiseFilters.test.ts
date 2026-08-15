@@ -39,8 +39,8 @@ describe("suggestFilterOptimisations", () => {
   it("does not treat differently-excluded domain filters as duplicates (#145)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("plain", "*@shop.com"),
-      carved("carve", "*@shop.com", "vip@shop.com"),
+      block("plain", "*@shop.test"),
+      carved("carve", "*@shop.test", "vip@shop.test"),
     ]);
     const store = await storeOwning("plain", "carve");
 
@@ -52,9 +52,9 @@ describe("suggestFilterOptimisations", () => {
   it("does not flag an excluded address as redundant under its domain filter (#145)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      carved("dom", "*@shop.com", "vip@shop.com"),
-      block("vip", "vip@shop.com"), // the carved-out address — still doing real work
-      block("junk", "junk@shop.com"), // genuinely covered by the domain rule
+      carved("dom", "*@shop.test", "vip@shop.test"),
+      block("vip", "vip@shop.test"), // the carved-out address — still doing real work
+      block("junk", "junk@shop.test"), // genuinely covered by the domain rule
     ]);
     const store = await storeOwning("dom", "vip", "junk");
 
@@ -67,22 +67,22 @@ describe("suggestFilterOptimisations", () => {
   it("suggests consolidating several same-domain address filters into a domain rule", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "b@spam.com"),
-      block("f3", "c@spam.com"),
-      block("f4", "keep@other.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "b@spam.test"),
+      block("f3", "c@spam.test"),
+      block("f4", "keep@other.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3", "f4");
 
     const out = await suggestFilterOptimisations(gmail, store);
     const consolidate = out.find((o) => o.kind === "consolidate");
-    expect(consolidate?.createFilter?.from).toBe("*@spam.com");
+    expect(consolidate?.createFilter?.from).toBe("*@spam.test");
     expect(consolidate?.removeFilterIds.sort()).toEqual(["f1", "f2", "f3"]);
   });
 
   it("flags duplicate filters", async () => {
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("f1", "dupe@x.com"), block("f2", "dupe@x.com")]);
+    gmail.seedFilters([block("f1", "dupe@x.test"), block("f2", "dupe@x.test")]);
     const store = await storeOwning("f1", "f2");
 
     const dup = (await suggestFilterOptimisations(gmail, store)).find(
@@ -93,7 +93,7 @@ describe("suggestFilterOptimisations", () => {
 
   it("flags an address filter already covered by a domain filter as redundant", async () => {
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("f1", "*@ads.com"), block("f2", "promo@ads.com")]);
+    gmail.seedFilters([block("f1", "*@ads.test"), block("f2", "promo@ads.test")]);
     const store = await storeOwning("f1", "f2");
 
     const redundant = (await suggestFilterOptimisations(gmail, store)).find(
@@ -105,9 +105,9 @@ describe("suggestFilterOptimisations", () => {
   it("ignores non-block filters and tidy accounts", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      { id: "s1", from: "friend@x.com", addLabelIds: ["STARRED"], removeLabelIds: [] },
-      block("f1", "a@x.com"),
-      block("f2", "b@y.com"),
+      { id: "s1", from: "friend@x.test", addLabelIds: ["STARRED"], removeLabelIds: [] },
+      block("f1", "a@x.test"),
+      block("f2", "b@y.test"),
     ]);
     const store = await storeOwning("s1", "f1", "f2");
 
@@ -122,13 +122,13 @@ describe("suggestFilterOptimisations", () => {
     // a domain rule, and three same-domain address rules ripe for consolidation. All were
     // built by hand in Gmail, so none is tracked.
     gmail.seedFilters([
-      block("hand-1", "dupe@x.com"),
-      block("hand-2", "dupe@x.com"),
-      block("hand-3", "*@ads.com"),
-      block("hand-4", "promo@ads.com"),
-      block("hand-5", "a@spam.com"),
-      block("hand-6", "b@spam.com"),
-      block("hand-7", "c@spam.com"),
+      block("hand-1", "dupe@x.test"),
+      block("hand-2", "dupe@x.test"),
+      block("hand-3", "*@ads.test"),
+      block("hand-4", "promo@ads.test"),
+      block("hand-5", "a@spam.test"),
+      block("hand-6", "b@spam.test"),
+      block("hand-7", "c@spam.test"),
     ]);
     const store = await storeOwning(); // nothing managed
 
@@ -138,17 +138,17 @@ describe("suggestFilterOptimisations", () => {
   it("offers only the tracked filters when hand-built ones share the domain (#190)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("ours-1", "a@spam.com"),
-      block("ours-2", "b@spam.com"),
-      block("ours-3", "c@spam.com"),
-      block("hand-1", "d@spam.com"), // same domain, but the user's own
+      block("ours-1", "a@spam.test"),
+      block("ours-2", "b@spam.test"),
+      block("ours-3", "c@spam.test"),
+      block("hand-1", "d@spam.test"), // same domain, but the user's own
     ]);
     const store = await storeOwning("ours-1", "ours-2", "ours-3");
 
     const out = await suggestFilterOptimisations(gmail, store);
 
     const consolidate = out.find((o) => o.kind === "consolidate");
-    expect(consolidate?.createFilter?.from).toBe("*@spam.com");
+    expect(consolidate?.createFilter?.from).toBe("*@spam.test");
     expect(consolidate?.removeFilterIds.sort()).toEqual(["ours-1", "ours-2", "ours-3"]);
     expect(out.flatMap((o) => o.removeFilterIds)).not.toContain("hand-1");
   });
@@ -156,9 +156,9 @@ describe("suggestFilterOptimisations", () => {
   it("does not consolidate when too few of the address rules are tracked (#190)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("ours-1", "a@spam.com"),
-      block("hand-1", "b@spam.com"),
-      block("hand-2", "c@spam.com"),
+      block("ours-1", "a@spam.test"),
+      block("hand-1", "b@spam.test"),
+      block("hand-2", "c@spam.test"),
     ]);
     // Only one of the three is ours — below the threshold once untracked rules don't count.
     const store = await storeOwning("ours-1");
@@ -169,9 +169,9 @@ describe("suggestFilterOptimisations", () => {
   it("keeps a tracked duplicate as the survivor and leaves the hand-built copy (#190)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("hand-1", "dupe@x.com"),
-      block("ours-1", "dupe@x.com"),
-      block("ours-2", "dupe@x.com"),
+      block("hand-1", "dupe@x.test"),
+      block("ours-1", "dupe@x.test"),
+      block("ours-2", "dupe@x.test"),
     ]);
     const store = await storeOwning("ours-1", "ours-2");
 
@@ -187,8 +187,8 @@ describe("suggestFilterOptimisations", () => {
   it("still counts an untracked domain rule as coverage for a tracked address rule (#190)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("hand-1", "*@ads.com"), // hand-built, but genuinely covers the address below
-      block("ours-1", "promo@ads.com"),
+      block("hand-1", "*@ads.test"), // hand-built, but genuinely covers the address below
+      block("ours-1", "promo@ads.test"),
     ]);
     const store = await storeOwning("ours-1");
 
@@ -200,7 +200,7 @@ describe("suggestFilterOptimisations", () => {
 
   it("offers nothing when the store has no filter-sync state at all (#190)", async () => {
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("f1", "dupe@x.com"), block("f2", "dupe@x.com")]);
+    gmail.seedFilters([block("f1", "dupe@x.test"), block("f2", "dupe@x.test")]);
 
     expect(await suggestFilterOptimisations(gmail, createInMemoryStore())).toEqual([]);
   });
@@ -210,9 +210,9 @@ describe("suggestFilterOptimisations", () => {
   it("applyFilterOptimisations creates the replacement then deletes the old filters", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "b@spam.com"),
-      block("f3", "c@spam.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "b@spam.test"),
+      block("f3", "c@spam.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3");
 
@@ -223,7 +223,7 @@ describe("suggestFilterOptimisations", () => {
     expect(result.filtersDeleted).toBe(3);
     expect(result.failures).toEqual([]);
     expect(gmail.createdFilters).toEqual([
-      { from: "*@spam.com", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
+      { from: "*@spam.test", addLabelIds: ["TRASH"], removeLabelIds: ["INBOX"] },
     ]);
     expect(gmail.deletedFilterIds.sort()).toEqual(["f1", "f2", "f3"]);
   });
@@ -255,17 +255,17 @@ describe("suggestFilterOptimisations", () => {
 
   it("does not let a partial domain rule make an address rule look redundant (#212)", async () => {
     const gmail = new MockGmailClient();
-    // `*@shop.com AND subject:sale` covers some of shop.com, not shop.com — so the address
+    // `*@shop.test AND subject:sale` covers some of shop.test, not shop.test — so the address
     // rule is still doing work, and removing it would let that sender's other mail through.
     gmail.seedFilters([
       {
         id: "partial-domain",
-        from: "*@shop.com",
+        from: "*@shop.test",
         addLabelIds: ["TRASH"],
         removeLabelIds: ["INBOX"],
         unmodelledCriteria: ["subject"],
       },
-      block("addr", "promo@shop.com"),
+      block("addr", "promo@shop.test"),
     ]);
     const store = await storeOwning("partial-domain", "addr");
 
@@ -275,16 +275,16 @@ describe("suggestFilterOptimisations", () => {
   it("records the consolidated filter as managed and drops the removed ids (#202)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "b@spam.com"),
-      block("f3", "c@spam.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "b@spam.test"),
+      block("f3", "c@spam.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3");
 
     const suggestions = await suggestFilterOptimisations(gmail, store);
     await applyFilterOptimisations(gmail, store, suggestions);
 
-    const created = (await gmail.listFilters()).find((f) => f.from === "*@spam.com");
+    const created = (await gmail.listFilters()).find((f) => f.from === "*@spam.test");
     const sync = await store.filterSync.get();
     // The replacement this app just created is tracked, and the filters it removed are gone
     // from the set rather than lingering until the next enforce() prunes them.
@@ -295,18 +295,18 @@ describe("suggestFilterOptimisations", () => {
   it("never offers to adopt the filter the tidy-up just created (#202)", async () => {
     const gmail = new MockGmailClient();
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "b@spam.com"),
-      block("f3", "c@spam.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "b@spam.test"),
+      block("f3", "c@spam.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3");
-    for (const email of ["a@spam.com", "b@spam.com", "c@spam.com"]) {
+    for (const email of ["a@spam.test", "b@spam.test", "c@spam.test"]) {
       await store.senders.put(senderBuilder(email, { trustStatus: "blocked" }));
     }
 
     await applyFilterOptimisations(gmail, store, await suggestFilterOptimisations(gmail, store));
 
-    // Untracked, the new *@spam.com rule would match a desired filter with no managed id —
+    // Untracked, the new *@spam.test rule would match a desired filter with no managed id —
     // so the app would offer to "adopt" a filter it created itself moments earlier (#80).
     expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
 
@@ -325,9 +325,9 @@ describe("suggestFilterOptimisations", () => {
     }
     const gmail = new FlakyClient();
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "b@spam.com"),
-      block("f3", "c@spam.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "b@spam.test"),
+      block("f3", "c@spam.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3");
 
@@ -342,9 +342,9 @@ describe("suggestFilterOptimisations", () => {
     // "duplicate" set (keep f1) AND as a "consolidate" set (all three), since
     // they're also three uncovered address rules for the same domain.
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "a@spam.com"),
-      block("f3", "a@spam.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "a@spam.test"),
+      block("f3", "a@spam.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3");
 
@@ -369,7 +369,7 @@ describe("suggestFilterOptimisations", () => {
       }
     }
     const gmail = new FlakyClient();
-    gmail.seedFilters([block("f1", "dupe@x.com"), block("f2", "dupe@x.com")]);
+    gmail.seedFilters([block("f1", "dupe@x.test"), block("f2", "dupe@x.test")]);
     const store = await storeOwning("f1", "f2");
 
     const suggestions = await suggestFilterOptimisations(gmail, store);
@@ -388,9 +388,9 @@ describe("suggestFilterOptimisations", () => {
     }
     const gmail = new FlakyClient();
     gmail.seedFilters([
-      block("f1", "a@spam.com"),
-      block("f2", "b@spam.com"),
-      block("f3", "c@spam.com"),
+      block("f1", "a@spam.test"),
+      block("f2", "b@spam.test"),
+      block("f3", "c@spam.test"),
     ]);
     const store = await storeOwning("f1", "f2", "f3");
 
@@ -400,6 +400,6 @@ describe("suggestFilterOptimisations", () => {
     expect(result.filtersCreated).toBe(0);
     expect(result.filtersDeleted).toBe(3);
     expect(result.failures).toHaveLength(1);
-    expect(result.failures[0]).toEqual({ subject: "filter:*@spam.com", error: "boom" });
+    expect(result.failures[0]).toEqual({ subject: "filter:*@spam.test", error: "boom" });
   });
 });

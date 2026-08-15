@@ -61,21 +61,21 @@ afterEach(() => {
 
 describe("DexieStore senders/domains repos", () => {
   it("round-trips a sender by its keyFor id", async () => {
-    const sender = senderFixture("jane@acme.com");
+    const sender = senderFixture("jane@acme.test");
     await store.senders.put(sender);
 
-    expect(await store.senders.get(keyFor("jane@acme.com"))).toEqual(sender);
+    expect(await store.senders.get(keyFor("jane@acme.test"))).toEqual(sender);
   });
 
   it("bulkPuts and queries senders by an indexed field", async () => {
     await store.senders.bulkPut([
-      senderFixture("a@acme.com", { domain: "acme.com" }),
-      senderFixture("b@acme.com", { domain: "acme.com" }),
-      senderFixture("c@other.com", { domain: "other.com" }),
+      senderFixture("a@acme.test", { domain: "acme.test" }),
+      senderFixture("b@acme.test", { domain: "acme.test" }),
+      senderFixture("c@other.test", { domain: "other.test" }),
     ]);
 
-    const acme = await store.senders.query({ domain: "acme.com" });
-    expect(acme.map((s) => s.email).sort()).toEqual(["a@acme.com", "b@acme.com"]);
+    const acme = await store.senders.query({ domain: "acme.test" });
+    expect(acme.map((s) => s.email).sort()).toEqual(["a@acme.test", "b@acme.test"]);
 
     const all = await store.senders.query({});
     expect(all).toHaveLength(3);
@@ -83,27 +83,27 @@ describe("DexieStore senders/domains repos", () => {
 
   it("queries senders by a non-indexed field, falling back to a full scan", async () => {
     await store.senders.bulkPut([
-      senderFixture("a@acme.com", { displayName: "Ann" }),
-      senderFixture("b@acme.com", { displayName: "Bea" }),
+      senderFixture("a@acme.test", { displayName: "Ann" }),
+      senderFixture("b@acme.test", { displayName: "Bea" }),
     ]);
 
     const matches = await store.senders.query({ displayName: "Bea" });
-    expect(matches.map((s) => s.email)).toEqual(["b@acme.com"]);
+    expect(matches.map((s) => s.email)).toEqual(["b@acme.test"]);
   });
 
   it("queries senders by an indexed field combined with a non-indexed field", async () => {
     await store.senders.bulkPut([
-      senderFixture("a@acme.com", { domain: "acme.com", displayName: "Ann" }),
-      senderFixture("b@acme.com", { domain: "acme.com", displayName: "Bea" }),
-      senderFixture("c@other.com", { domain: "other.com", displayName: "Ann" }),
+      senderFixture("a@acme.test", { domain: "acme.test", displayName: "Ann" }),
+      senderFixture("b@acme.test", { domain: "acme.test", displayName: "Bea" }),
+      senderFixture("c@other.test", { domain: "other.test", displayName: "Ann" }),
     ]);
 
-    const matches = await store.senders.query({ domain: "acme.com", displayName: "Ann" });
-    expect(matches.map((s) => s.email)).toEqual(["a@acme.com"]);
+    const matches = await store.senders.query({ domain: "acme.test", displayName: "Ann" });
+    expect(matches.map((s) => s.email)).toEqual(["a@acme.test"]);
   });
 
   it("deletes a sender", async () => {
-    const sender = senderFixture("gone@acme.com");
+    const sender = senderFixture("gone@acme.test");
     await store.senders.put(sender);
     await store.senders.delete(sender.id);
 
@@ -112,8 +112,8 @@ describe("DexieStore senders/domains repos", () => {
 
   it("round-trips a domain", async () => {
     const domain: Domain = {
-      id: keyFor("acme.com"),
-      domain: "acme.com",
+      id: keyFor("acme.test"),
+      domain: "acme.test",
       trustStatus: "pending",
       senderCount: 2,
       totalEmails: 5,
@@ -127,13 +127,13 @@ describe("DexieStore senders/domains repos", () => {
     };
     await store.domains.put(domain);
 
-    expect(await store.domains.get(keyFor("acme.com"))).toEqual(domain);
+    expect(await store.domains.get(keyFor("acme.test"))).toEqual(domain);
   });
 });
 
 describe("DexieStore profile (singleton)", () => {
   const profile: Profile = {
-    googleEmail: "owner@gmail.com",
+    googleEmail: "owner@example.com",
     onboardingComplete: false,
     lastHistoryId: null,
     senderCount: 0,
@@ -150,18 +150,18 @@ describe("DexieStore profile (singleton)", () => {
 
   it("keeps only one profile record even if the account email changes", async () => {
     await store.profile.put(profile);
-    await store.profile.put({ ...profile, googleEmail: "renamed@gmail.com" });
+    await store.profile.put({ ...profile, googleEmail: "renamed@example.com" });
 
     const current = await store.profile.get();
-    expect(current?.googleEmail).toBe("renamed@gmail.com");
+    expect(current?.googleEmail).toBe("renamed@example.com");
   });
 });
 
 describe("DexieStore export / wipe", () => {
   it("exports every store as a JSON blob and wipeAll clears them", async () => {
-    await store.senders.put(senderFixture("jane@acme.com"));
+    await store.senders.put(senderFixture("jane@acme.test"));
     await store.profile.put({
-      googleEmail: "owner@gmail.com",
+      googleEmail: "owner@example.com",
       onboardingComplete: true,
       lastHistoryId: null,
       senderCount: 1,
@@ -182,7 +182,7 @@ describe("DexieStore export / wipe", () => {
   });
 
   it("restores state from an exported blob via importAll", async () => {
-    await store.senders.bulkPut([senderFixture("a@acme.com"), senderFixture("b@acme.com")]);
+    await store.senders.bulkPut([senderFixture("a@acme.test"), senderFixture("b@acme.test")]);
     const blob = await store.exportAll();
 
     await store.wipeAll();
@@ -196,7 +196,7 @@ describe("DexieStore prompts (priority-ordered)", () => {
   function promptFixture(id: string, priorityScore: number): Prompt {
     return {
       id,
-      senderId: keyFor(`${id}@acme.com`),
+      senderId: keyFor(`${id}@acme.test`),
       priorityScore,
       components: { impact: 0, confidence: 0, batch: 0, alignment: 0 },
       batchGroupId: null,
@@ -269,7 +269,7 @@ describe("DexieStore filterSync (singleton) and settings", () => {
       lastSyncAt: 123,
       totalFilters: 7,
       managedFilterIds: ["filter-1"],
-      enumeratedDomains: ["shop.com"],
+      enumeratedDomains: ["shop.test"],
     };
     await store.filterSync.put(state);
 
@@ -287,9 +287,9 @@ describe("DexieStore filterSync (singleton) and settings", () => {
 describe("createDexieStore", () => {
   it("returns a working Store backed by Dexie", async () => {
     const built = createDexieStore(`factory-db-${dbSeq}`);
-    await built.senders.put(senderFixture("factory@acme.com"));
+    await built.senders.put(senderFixture("factory@acme.test"));
 
-    expect(await built.senders.get(keyFor("factory@acme.com"))).toBeDefined();
+    expect(await built.senders.get(keyFor("factory@acme.test"))).toBeDefined();
   });
 });
 
@@ -301,12 +301,12 @@ describe("schema upgrade v1 → v2 (#183)", () => {
     const v1 = new Dexie(name);
     v1.version(1).stores({ domains: "id, trustStatus, updatedAt" });
     await v1.table("domains").put({
-      id: keyFor("legacy.com"),
-      domain: "legacy.com",
+      id: keyFor("legacy.test"),
+      domain: "legacy.test",
       trustStatus: "blocked",
       senderCount: 1,
       totalEmails: 3,
-      exceptionAddresses: ["vip@legacy.com"],
+      exceptionAddresses: ["vip@legacy.test"],
       updatedAt: 1,
       trustDecidedAt: null,
       decisionScope: "domain",
@@ -317,13 +317,13 @@ describe("schema upgrade v1 → v2 (#183)", () => {
 
     // Reopening through the current store runs the v2 upgrade.
     const upgraded = new DexieStore(name);
-    const domain = await upgraded.domains.get(keyFor("legacy.com"));
+    const domain = await upgraded.domains.get(keyFor("legacy.test"));
     upgraded.close();
 
     // The new field is a real empty array, not `undefined` behind an array-typed field…
     expect(domain?.exceptionDomains).toEqual([]);
     // …and the migration is a transform, so nothing else in the record is lost.
-    expect(domain?.exceptionAddresses).toEqual(["vip@legacy.com"]);
+    expect(domain?.exceptionAddresses).toEqual(["vip@legacy.test"]);
     expect(domain?.trustStatus).toBe("blocked");
     expect(domain?.totalEmails).toBe(3);
   });

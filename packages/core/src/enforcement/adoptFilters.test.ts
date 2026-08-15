@@ -15,26 +15,26 @@ const block = (id: string, from: string) => ({
 describe("suggestFilterAdoptions", () => {
   it("suggests adopting an untracked filter that already matches a desired one", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("hand-made", "spam@a.com")]);
+    gmail.seedFilters([block("hand-made", "spam@a.test")]);
 
     const suggestions = await suggestFilterAdoptions(gmail, store);
 
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]?.filterId).toBe("hand-made");
-    expect(suggestions[0]?.from).toBe("spam@a.com");
-    expect(suggestions[0]?.description).toContain("spam@a.com");
+    expect(suggestions[0]?.from).toBe("spam@a.test");
+    expect(suggestions[0]?.description).toContain("spam@a.test");
   });
 
   it("does not suggest adopting a filter for a sender the domain now trusts (#144)", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("promo@shop.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("promo@shop.test", { trustStatus: "blocked" }));
     await store.domains.put(
-      domainBuilder("shop.com", { trustStatus: "trusted", decisionScope: "domain" }),
+      domainBuilder("shop.test", { trustStatus: "trusted", decisionScope: "domain" }),
     );
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("hand-made", "promo@shop.com")]);
+    gmail.seedFilters([block("hand-made", "promo@shop.test")]);
 
     // The sender is effectively trusted, so its filter isn't desired → nothing to adopt.
     expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
@@ -43,21 +43,21 @@ describe("suggestFilterAdoptions", () => {
   it("threads a domain's exception exclusion into adoption matching (#145)", async () => {
     const store = createInMemoryStore();
     await store.domains.put(
-      domainBuilder("shop.com", {
+      domainBuilder("shop.test", {
         trustStatus: "blocked",
         decisionScope: "domain",
-        exceptionAddresses: ["vip@shop.com"],
+        exceptionAddresses: ["vip@shop.test"],
       }),
     );
     await store.senders.put(
-      senderBuilder("vip@shop.com", { trustStatus: "trusted", decisionScope: "address" }),
+      senderBuilder("vip@shop.test", { trustStatus: "trusted", decisionScope: "address" }),
     );
     const gmail = new MockGmailClient();
     gmail.seedFilters([
       {
         id: "hand",
-        from: "*@shop.com",
-        excludeFrom: "vip@shop.com",
+        from: "*@shop.test",
+        excludeFrom: "vip@shop.test",
         addLabelIds: ["TRASH"],
         removeLabelIds: ["INBOX"],
       },
@@ -70,7 +70,7 @@ describe("suggestFilterAdoptions", () => {
 
   it("does not suggest a filter that is already tracked as managed", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     await store.filterSync.put({
       key: FILTER_SYNC_KEY,
       lastSyncAt: null,
@@ -79,7 +79,7 @@ describe("suggestFilterAdoptions", () => {
       enumeratedDomains: [],
     });
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("already-managed", "spam@a.com")]);
+    gmail.seedFilters([block("already-managed", "spam@a.test")]);
 
     expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
   });
@@ -87,7 +87,7 @@ describe("suggestFilterAdoptions", () => {
   it("does not suggest a foreign filter with no matching desired criteria", async () => {
     const store = createInMemoryStore();
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("foreign", "boss@work.com")]);
+    gmail.seedFilters([block("foreign", "boss@work.test")]);
 
     expect(await suggestFilterAdoptions(gmail, store)).toEqual([]);
   });
@@ -96,12 +96,12 @@ describe("suggestFilterAdoptions", () => {
 describe("applyFilterAdoptions", () => {
   it("records accepted adoptions into managedFilterIds without mutating Gmail", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("hand-made", "spam@a.com")]);
+    gmail.seedFilters([block("hand-made", "spam@a.test")]);
 
     const result = await applyFilterAdoptions(store, [
-      { filterId: "hand-made", from: "spam@a.com", description: "adopt it" },
+      { filterId: "hand-made", from: "spam@a.test", description: "adopt it" },
     ]);
 
     expect(result.adopted).toBe(1);
@@ -114,7 +114,7 @@ describe("applyFilterAdoptions", () => {
 
   it("merges into any existing managed ids rather than replacing them", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     await store.filterSync.put({
       key: FILTER_SYNC_KEY,
       lastSyncAt: 1000,
@@ -124,7 +124,7 @@ describe("applyFilterAdoptions", () => {
     });
 
     await applyFilterAdoptions(store, [
-      { filterId: "newly-adopted", from: "spam@a.com", description: "adopt it" },
+      { filterId: "newly-adopted", from: "spam@a.test", description: "adopt it" },
     ]);
 
     const sync = await store.filterSync.get();
@@ -135,15 +135,15 @@ describe("applyFilterAdoptions", () => {
 
   it("drops an adoption whose sender was unblocked since it was suggested (#89)", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("hand-made", "spam@a.com")]);
+    gmail.seedFilters([block("hand-made", "spam@a.test")]);
 
     const suggestions = await suggestFilterAdoptions(gmail, store);
     expect(suggestions).toHaveLength(1);
 
     // Unblocked between "Check" and "Adopt" — the filter no longer matches anything.
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "trusted" }));
 
     const result = await applyFilterAdoptions(store, suggestions);
 
@@ -155,15 +155,15 @@ describe("applyFilterAdoptions", () => {
 
   it("adopts the ones that still match and skips only the ones that don't", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("spam@a.com", { trustStatus: "blocked" }));
-    await store.senders.put(senderBuilder("junk@b.com", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("spam@a.test", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("junk@b.test", { trustStatus: "blocked" }));
     const gmail = new MockGmailClient();
-    gmail.seedFilters([block("still-blocked", "spam@a.com"), block("now-unblocked", "junk@b.com")]);
+    gmail.seedFilters([block("still-blocked", "spam@a.test"), block("now-unblocked", "junk@b.test")]);
 
     const suggestions = await suggestFilterAdoptions(gmail, store);
     expect(suggestions).toHaveLength(2);
 
-    await store.senders.put(senderBuilder("junk@b.com", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("junk@b.test", { trustStatus: "trusted" }));
 
     const result = await applyFilterAdoptions(store, suggestions);
 

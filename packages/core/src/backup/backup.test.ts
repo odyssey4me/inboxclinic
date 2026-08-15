@@ -40,7 +40,7 @@ describe("getBackupState / setBackupEnabled", () => {
 describe("backupToDrive", () => {
   it("creates the backup file when none exists and records the markers", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("a@x.com"));
+    await store.senders.put(senderBuilder("a@x.test"));
     const backup = new MockBackupClient();
 
     const result = await backupToDrive(backup, store, { now: NOW });
@@ -78,20 +78,20 @@ describe("backupToDrive", () => {
 describe("restoreFromDrive", () => {
   it("round-trips the store: backup → mutate → restore reverts local data", async () => {
     const store = createInMemoryStore();
-    await store.senders.put(senderBuilder("keep@x.com", { trustStatus: "trusted" }));
+    await store.senders.put(senderBuilder("keep@x.test", { trustStatus: "trusted" }));
     const backup = new MockBackupClient();
 
     await backupToDrive(backup, store, { now: NOW });
 
     // Mutate after the backup: change the existing sender and add a new one.
-    await store.senders.put(senderBuilder("keep@x.com", { trustStatus: "blocked" }));
-    await store.senders.put(senderBuilder("added@y.com"));
+    await store.senders.put(senderBuilder("keep@x.test", { trustStatus: "blocked" }));
+    await store.senders.put(senderBuilder("added@y.test"));
 
     const result = await restoreFromDrive(backup, store);
 
     const senders = await store.senders.query({});
     expect(senders).toHaveLength(1);
-    expect(senders[0]?.email).toBe("keep@x.com");
+    expect(senders[0]?.email).toBe("keep@x.test");
     expect(senders[0]?.trustStatus).toBe("trusted");
     expect(result.fileId).toBeDefined();
     expect(result.restoredFrom).not.toBe("");

@@ -176,6 +176,35 @@ emits Gmail-metadata-shaped messages/headers to seed the fake `GmailClient`.
 catch schema drift at compile time. A library (e.g. fishery) is unnecessary at this
 scale.
 
+**Fixture domains must be reserved names, enforced by lint.** Every domain in a test,
+demo or e2e fixture uses a name **RFC 2606 / RFC 6761 reserve** for the purpose —
+`<anything>.test` (the whole TLD is reserved, so there are as many distinct fictional
+organisations as a test needs), `.example`, `.invalid`, `.localhost`, or
+`example.com` / `.net` / `.org`. No committed test names a real organisation's mail,
+and no fixture can ever resolve.
+
+`local/no-real-domains` (`tools/eslint/no-real-domains.js`) enforces it:
+
+- **Ownable is decided by `tldts`, not a TLD list.** A name is ownable iff its public
+  suffix is in the Public Suffix List — `isIcann` for `com`/`co.uk`/`xyz`, `isPrivate`
+  for `github.io`/`pages.dev`. The reserved TLDs are in neither section, which is what
+  makes them safe. A hand-written TLD list would silently miss `.shop`, `.email`,
+  `.xyz`. `tldts` is already the codebase's authority on domain structure
+  (`registrableDomain.ts`), so the guard and the app agree by construction.
+- **It walks the AST, not the text.** Comments are never visited, so a comment citing
+  a real measurement — the #210 finding that `from:*@google.com` returns
+  `docs.google.com` — stays as the evidence it is. `sender.email` is a member
+  expression, not a string, so a property access is never mistaken for a domain.
+- **Exemptions carry their reason inline.** The Public Suffix List tests cannot be
+  written with a fictional suffix — `alice.github.io` not collapsing to `github.io`
+  only means something because `github.io` is a real PRIVATE-section entry — so those
+  files disable the rule at the top with that reason, and one-off PSL assertions
+  elsewhere use `eslint-disable-next-line` with theirs.
+
+**Not** `@faker-js/faker` for sender data: its `internet.email` draws from real
+free-mail providers (`gmail.com` among them), so it would generate exactly what this
+rule exists to keep out.
+
 ### Decision 6: Coverage Gate Focused on `packages/core`
 
 **Context:** A coverage gate focused on core logic is retained from the prior design.
@@ -556,6 +585,7 @@ it("applies a block decision and records a compiled filter", async () => {
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-15 | **Decision 5 — fixture domains must be reserved names, enforced by `local/no-real-domains`.** Fixtures had accumulated ~1,300 references to domains someone can really own — `monzo.com`, `apple.com`, `linkedin.com`, and generic-looking ones (`shop.com`, `x.com`, `acme.com`) that are registered all the same — so committed tests read as being about real organisations' mail. All fixture data moved to the RFC 2606 / RFC 6761 reserved names, `.test` for the fictional organisations a test needs and `example.com` where it already fitted. The new lint rule decides "ownable" with **`tldts`** rather than a hand-written TLD list: a name is ownable iff its public suffix is in the PSL (`isIcann`, or `isPrivate` for `github.io`/`pages.dev`), and the reserved TLDs are in neither section. Walking the AST rather than the text means comments citing real measurements (the #210 `from:*@google.com` finding) are untouched and `sender.email` is never mistaken for a domain. The Public Suffix List tests are exempt with the reason inline — you cannot test eTLD+1 handling with a fictional suffix. Rejected `@faker-js/faker` for sender fixtures: its `internet.email` draws on real free-mail providers, generating what this rule exists to exclude. | Claude |
 | 2026-08-14 | **Decision 9 criterion 6 — probe subjects are ranked by the rate of the evidence they can produce, not by how busy they are.** The `match` experiment ran for five days and answered neither of its questions: subjects were ranked on total subtree volume (overwhelmingly apex mail), which armed a domain whose subdomains send roughly once a quarter, and the excepted address was the alphabetically first apex sender, which had not written in 90 days. Each question's rate limiter is now measured separately — subdomain send rate over 90d for the subdomain question, the busiest single address for the exception question — with the rates recorded at arming so a null reads as "none expected yet" rather than ambiguous silence, and an expected wait stated up front. Also fixed: `addresses_per_host` counted messages rather than distinct addresses (the dedupe tested an address against host keys, which nothing containing `@` can match), inflating a 4-sender domain to 14 and feeding the candidate threshold a wrong number. | Claude |
 | 2026-08-14 | **Decision 9 criterion 2 — consent is one grant per session, not progressive.** Requesting each scope at the moment a probe needed it required a terminal to ask at, so a probe run from any non-TTY shell could not obtain write scope by any route: `match arm`/`disarm` were unreachable and armed probe filters unremovable. `login` now grants read-only plus filter management together. The credential's ~1h lifetime (access token only, no refresh token) is the meaningful bound for a hand-run QA tool against the developer's own mailbox; the application's own least-privilege scope discipline (architecture.md §6) is unaffected. | Claude |
 | 2026-08-09 | **Decision 9 auth mechanism:** the Google CLI cannot mint a Gmail-only credential by any route — ADC login mandates `cloud-platform` even with `--client-id-file`, and `gcloud auth login` takes no scopes — so the probe runs the installed-app loopback flow (PKCE) itself against a developer-local Desktop OAuth client, caching only the access token (no refresh token, ~1h, 0600). Re-consent per session is the accepted cost of keeping the grant to Gmail scopes. | Claude |

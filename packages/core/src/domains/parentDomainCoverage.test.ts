@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+/* eslint-disable local/no-real-domains -- coverage across real public suffixes — a fictional suffix would exercise none of the grouping this asserts */
 import { describe, expect, it } from "vitest";
 
 import { parentDomainCoverage } from "./parentDomainCoverage";

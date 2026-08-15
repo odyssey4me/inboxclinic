@@ -74,22 +74,22 @@ function promptFix(email: string): Prompt {
   };
 }
 
-/** A store seeded with two acme.com senders + one other.com sender, all with prompts. */
+/** A store seeded with two acme.test senders + one other.test sender, all with prompts. */
 async function seed(): Promise<Store> {
   const store = createInMemoryStore();
   await store.senders.bulkPut([
-    senderFix("a@acme.com"),
-    senderFix("b@acme.com"),
-    senderFix("solo@other.com", { hasListUnsubscribe: true, category: "promotional" }),
+    senderFix("a@acme.test"),
+    senderFix("b@acme.test"),
+    senderFix("solo@other.test", { hasListUnsubscribe: true, category: "promotional" }),
   ]);
   await store.domains.bulkPut([
-    domainFix("acme.com", { senderCount: 2, totalEmails: 10 }),
-    domainFix("other.com"),
+    domainFix("acme.test", { senderCount: 2, totalEmails: 10 }),
+    domainFix("other.test"),
   ]);
   await store.prompts.bulkPut([
-    promptFix("a@acme.com"),
-    promptFix("b@acme.com"),
-    promptFix("solo@other.com"),
+    promptFix("a@acme.test"),
+    promptFix("b@acme.test"),
+    promptFix("solo@other.test"),
   ]);
   return store;
 }
@@ -98,29 +98,29 @@ describe("applyDecision — address scope", () => {
   it("records a Trust decision and resolves the prompt", async () => {
     const store = await seed();
     const result = await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "trust",
       now: NOW,
     });
 
     expect(result.status).toBe("trusted");
-    expect(result.resolvedPromptIds).toEqual([keyFor("a@acme.com")]);
+    expect(result.resolvedPromptIds).toEqual([keyFor("a@acme.test")]);
 
-    const sender = await store.senders.get(keyFor("a@acme.com"));
+    const sender = await store.senders.get(keyFor("a@acme.test"));
     expect(sender).toMatchObject({
       trustStatus: "trusted",
       trustDecidedAt: NOW,
       decisionScope: "address",
     });
     expect(sender?.decisionContext).toMatchObject({ decidedVia: "workflow", category: "personal" });
-    expect((await store.prompts.get(keyFor("a@acme.com")))?.resolvedAt).toBe(NOW);
+    expect((await store.prompts.get(keyFor("a@acme.test")))?.resolvedAt).toBe(NOW);
   });
 
   it("stores Block actions as pending without touching Gmail", async () => {
     const store = await seed();
     const result = await applyDecision(store, {
-      subjectId: keyFor("solo@other.com"),
+      subjectId: keyFor("solo@other.test"),
       scope: "address",
       decision: "block",
       actions: ["unsubscribe", "create_filter"],
@@ -131,38 +131,38 @@ describe("applyDecision — address scope", () => {
     expect(result.status).toBe("blocked");
     expect(result.pendingActions).toEqual(["unsubscribe", "create_filter"]);
 
-    const sender = await store.senders.get(keyFor("solo@other.com"));
+    const sender = await store.senders.get(keyFor("solo@other.test"));
     expect(sender?.trustStatus).toBe("blocked");
     expect(sender?.pendingActions).toEqual(["unsubscribe", "create_filter"]);
     expect(sender?.decisionContext?.decidedVia).toBe("dashboard");
-    expect((await store.prompts.get(keyFor("solo@other.com")))?.resolvedAt).toBe(NOW);
+    expect((await store.prompts.get(keyFor("solo@other.test")))?.resolvedAt).toBe(NOW);
   });
 
   it("defers: decays priority, marks deferredAt, leaves the prompt unresolved", async () => {
     const store = await seed();
-    const before = await store.prompts.get(keyFor("a@acme.com"));
+    const before = await store.prompts.get(keyFor("a@acme.test"));
 
     const result = await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "defer",
       now: NOW,
     });
 
     expect(result.status).toBe("pending");
-    expect(result.deferredPromptIds).toEqual([keyFor("a@acme.com")]);
+    expect(result.deferredPromptIds).toEqual([keyFor("a@acme.test")]);
 
-    const after = await store.prompts.get(keyFor("a@acme.com"));
+    const after = await store.prompts.get(keyFor("a@acme.test"));
     expect(after?.resolvedAt).toBeNull();
     expect(after?.deferredAt).toBe(NOW);
     expect(after?.priorityScore).toBeCloseTo(before!.priorityScore * DEFER_DECAY, 5);
-    expect((await store.senders.get(keyFor("a@acme.com")))?.trustStatus).toBe("pending");
+    expect((await store.senders.get(keyFor("a@acme.test")))?.trustStatus).toBe("pending");
   });
 
   it("defer on an already-blocked sender is a no-op — status and pendingActions untouched", async () => {
     const store = await seed();
     await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "block",
       actions: ["create_filter"],
@@ -170,7 +170,7 @@ describe("applyDecision — address scope", () => {
     });
 
     const result = await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "defer",
       now: NOW + 1,
@@ -179,7 +179,7 @@ describe("applyDecision — address scope", () => {
     expect(result.status).toBe("blocked");
     expect(result.pendingActions).toEqual(["create_filter"]);
 
-    const sender = await store.senders.get(keyFor("a@acme.com"));
+    const sender = await store.senders.get(keyFor("a@acme.test"));
     expect(sender).toMatchObject({
       trustStatus: "blocked",
       trustDecidedAt: NOW,
@@ -190,21 +190,21 @@ describe("applyDecision — address scope", () => {
   it("defer on an already-trusted sender is a no-op — status untouched", async () => {
     const store = await seed();
     await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "trust",
       now: NOW,
     });
 
     const result = await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "defer",
       now: NOW + 1,
     });
 
     expect(result.status).toBe("trusted");
-    const sender = await store.senders.get(keyFor("a@acme.com"));
+    const sender = await store.senders.get(keyFor("a@acme.test"));
     expect(sender).toMatchObject({ trustStatus: "trusted", trustDecidedAt: NOW });
   });
 
@@ -212,7 +212,7 @@ describe("applyDecision — address scope", () => {
     const store = await seed();
     await expect(
       applyDecision(store, {
-        subjectId: keyFor("ghost@nowhere.com"),
+        subjectId: keyFor("ghost@nowhere.test"),
         scope: "address",
         decision: "trust",
         now: NOW,
@@ -225,7 +225,7 @@ describe("applyDecision — domain scope (overrides address)", () => {
   it("records a domain decision and resolves every member prompt", async () => {
     const store = await seed();
     const result = await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "block",
       actions: ["create_filter"],
@@ -234,54 +234,54 @@ describe("applyDecision — domain scope (overrides address)", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.resolvedPromptIds.sort()).toEqual(
-      [keyFor("a@acme.com"), keyFor("b@acme.com")].sort(),
+      [keyFor("a@acme.test"), keyFor("b@acme.test")].sort(),
     );
 
-    const domain = await store.domains.get(keyFor("acme.com"));
+    const domain = await store.domains.get(keyFor("acme.test"));
     expect(domain).toMatchObject({ trustStatus: "blocked", decisionScope: "domain" });
     expect(domain?.pendingActions).toEqual(["create_filter"]);
-    expect((await store.prompts.get(keyFor("a@acme.com")))?.resolvedAt).toBe(NOW);
-    expect((await store.prompts.get(keyFor("b@acme.com")))?.resolvedAt).toBe(NOW);
+    expect((await store.prompts.get(keyFor("a@acme.test")))?.resolvedAt).toBe(NOW);
+    expect((await store.prompts.get(keyFor("b@acme.test")))?.resolvedAt).toBe(NOW);
     // A sender in a different domain is untouched.
-    expect((await store.prompts.get(keyFor("solo@other.com")))?.resolvedAt).toBeNull();
+    expect((await store.prompts.get(keyFor("solo@other.test")))?.resolvedAt).toBeNull();
   });
 
   it("skips address exceptions when resolving member prompts", async () => {
     const store = createInMemoryStore();
-    await store.senders.bulkPut([senderFix("a@acme.com"), senderFix("b@acme.com")]);
-    await store.domains.put(domainFix("acme.com", { exceptionAddresses: ["a@acme.com"] }));
-    await store.prompts.bulkPut([promptFix("a@acme.com"), promptFix("b@acme.com")]);
+    await store.senders.bulkPut([senderFix("a@acme.test"), senderFix("b@acme.test")]);
+    await store.domains.put(domainFix("acme.test", { exceptionAddresses: ["a@acme.test"] }));
+    await store.prompts.bulkPut([promptFix("a@acme.test"), promptFix("b@acme.test")]);
 
     const result = await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "block",
       now: NOW,
     });
 
-    expect(result.resolvedPromptIds).toEqual([keyFor("b@acme.com")]);
-    expect((await store.prompts.get(keyFor("a@acme.com")))?.resolvedAt).toBeNull();
+    expect(result.resolvedPromptIds).toEqual([keyFor("b@acme.test")]);
+    expect((await store.prompts.get(keyFor("a@acme.test")))?.resolvedAt).toBeNull();
   });
 
   it("records an address decision under a domain decision as an explicit exception", async () => {
     const store = await seed();
     await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "trust",
       now: NOW,
     });
     await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "block",
       now: NOW,
     });
 
-    const domain = await store.domains.get(keyFor("acme.com"));
-    expect(domain?.exceptionAddresses).toContain("a@acme.com");
+    const domain = await store.domains.get(keyFor("acme.test"));
+    expect(domain?.exceptionAddresses).toContain("a@acme.test");
 
-    const sender = await store.senders.get(keyFor("a@acme.com"));
+    const sender = await store.senders.get(keyFor("a@acme.test"));
     const effective = resolveEffectiveDecision({
       addressStatus: sender!.trustStatus,
       addressIsException: domain!.exceptionAddresses.includes(sender!.email),
@@ -294,7 +294,7 @@ describe("applyDecision — domain scope (overrides address)", () => {
   it("does not record a defer as a domain exception (#195)", async () => {
     const store = await seed();
     await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "trust",
       now: NOW,
@@ -302,20 +302,20 @@ describe("applyDecision — domain scope (overrides address)", () => {
 
     // "Not sure" leaves the sender undecided, so it carves nothing out of the domain's rule.
     await applyDecision(store, {
-      subjectId: keyFor("a@acme.com"),
+      subjectId: keyFor("a@acme.test"),
       scope: "address",
       decision: "defer",
       now: NOW,
     });
 
-    const domain = await store.domains.get(keyFor("acme.com"));
+    const domain = await store.domains.get(keyFor("acme.test"));
     expect(domain?.exceptionAddresses).toEqual([]);
   });
 
   it("defers a whole domain, decaying every member prompt", async () => {
     const store = await seed();
     const result = await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "defer",
       now: NOW,
@@ -323,15 +323,15 @@ describe("applyDecision — domain scope (overrides address)", () => {
 
     expect(result.status).toBe("pending");
     expect(result.deferredPromptIds.sort()).toEqual(
-      [keyFor("a@acme.com"), keyFor("b@acme.com")].sort(),
+      [keyFor("a@acme.test"), keyFor("b@acme.test")].sort(),
     );
-    expect((await store.prompts.get(keyFor("a@acme.com")))?.deferredAt).toBe(NOW);
+    expect((await store.prompts.get(keyFor("a@acme.test")))?.deferredAt).toBe(NOW);
   });
 
   it("defer on an already-blocked domain is a no-op — status and pendingActions untouched", async () => {
     const store = await seed();
     await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "block",
       actions: ["create_filter"],
@@ -339,7 +339,7 @@ describe("applyDecision — domain scope (overrides address)", () => {
     });
 
     const result = await applyDecision(store, {
-      subjectId: keyFor("acme.com"),
+      subjectId: keyFor("acme.test"),
       scope: "domain",
       decision: "defer",
       now: NOW + 1,
@@ -348,7 +348,7 @@ describe("applyDecision — domain scope (overrides address)", () => {
     expect(result.status).toBe("blocked");
     expect(result.pendingActions).toEqual(["create_filter"]);
 
-    const domain = await store.domains.get(keyFor("acme.com"));
+    const domain = await store.domains.get(keyFor("acme.test"));
     expect(domain).toMatchObject({
       trustStatus: "blocked",
       trustDecidedAt: NOW,
@@ -360,7 +360,7 @@ describe("applyDecision — domain scope (overrides address)", () => {
     const store = await seed();
     await expect(
       applyDecision(store, {
-        subjectId: keyFor("ghost.com"),
+        subjectId: keyFor("ghost.test"),
         scope: "domain",
         decision: "trust",
         now: NOW,
@@ -371,14 +371,14 @@ describe("applyDecision — domain scope (overrides address)", () => {
 
 describe("applyDecisions — batch ordering (#167)", () => {
   const domainBlock = {
-    subjectId: keyFor("acme.com"),
+    subjectId: keyFor("acme.test"),
     scope: "domain" as const,
     decision: "block" as const,
     actions: ["create_filter", "delete"] as BlockAction[],
     now: NOW,
   };
   const memberTrust = {
-    subjectId: keyFor("a@acme.com"),
+    subjectId: keyFor("a@acme.test"),
     scope: "address" as const,
     decision: "trust" as const,
     now: NOW,
@@ -394,17 +394,17 @@ describe("applyDecisions — batch ordering (#167)", () => {
       const outcomes = await applyDecisions(store, batch);
       expect(outcomes.every((o) => o.error === undefined)).toBe(true);
 
-      const domain = await store.domains.get(keyFor("acme.com"));
-      const member = await store.senders.get(keyFor("a@acme.com"));
+      const domain = await store.domains.get(keyFor("acme.test"));
+      const member = await store.senders.get(keyFor("a@acme.test"));
       // The domain lands blocked at domain scope...
       expect(domain?.trustStatus).toBe("blocked");
       expect(domain?.decisionScope).toBe("domain");
       // ...and the kept member is recorded as an exception, so it resolves effectively trusted
       // (not overridden and trashed) — the intended "block the domain, keep this sender" outcome.
-      expect(domain?.exceptionAddresses).toContain("a@acme.com");
+      expect(domain?.exceptionAddresses).toContain("a@acme.test");
       const effective = resolveEffectiveDecision({
         addressStatus: member?.trustStatus === "pending" ? null : (member?.trustStatus ?? null),
-        addressIsException: domain?.exceptionAddresses.includes("a@acme.com") ?? false,
+        addressIsException: domain?.exceptionAddresses.includes("a@acme.test") ?? false,
         domainStatus: domain?.trustStatus === "pending" ? null : (domain?.trustStatus ?? null),
         domainScope: domain?.decisionScope ?? null,
       });
@@ -416,8 +416,8 @@ describe("applyDecisions — batch ordering (#167)", () => {
     const store = await seed();
     const outcomes = await applyDecisions(store, [memberTrust, domainBlock]);
     expect(outcomes.map((o) => o.input.subjectId)).toEqual([
-      keyFor("a@acme.com"),
-      keyFor("acme.com"),
+      keyFor("a@acme.test"),
+      keyFor("acme.test"),
     ]);
   });
 
@@ -437,7 +437,7 @@ describe("applyDecisions — batch ordering (#167)", () => {
     const store = await seed();
     const outcomes = await applyDecisions(store, [
       {
-        subjectId: keyFor("missing@acme.com"),
+        subjectId: keyFor("missing@acme.test"),
         scope: "address" as const,
         decision: "trust" as const,
         now: NOW,
@@ -446,7 +446,7 @@ describe("applyDecisions — batch ordering (#167)", () => {
     ]);
     expect(outcomes[0]?.error).toBeDefined(); // unknown sender
     expect(outcomes[1]?.result).toBeDefined(); // the valid decision still applied
-    expect((await store.senders.get(keyFor("a@acme.com")))?.trustStatus).toBe("trusted");
+    expect((await store.senders.get(keyFor("a@acme.test")))?.trustStatus).toBe("trusted");
   });
 });
 

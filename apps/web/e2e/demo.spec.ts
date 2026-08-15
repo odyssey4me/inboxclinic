@@ -16,8 +16,8 @@ test("landing offers a demo that opens a populated dashboard, and can exit", asy
   // The decisions surface is populated from the seeded store. It opens on Pending; switch
   // to All to see the seeded decided senders (jane trusted, deals blocked).
   await page.getByRole("tab", { name: /^all/i }).click();
-  await expect(page.getByText("jane.cooper@gmail.com").first()).toBeVisible();
-  await expect(page.getByText("deals@retailco.com").first()).toBeVisible();
+  await expect(page.getByText("jane.cooper@example.com").first()).toBeVisible();
+  await expect(page.getByText("deals@retailco.test").first()).toBeVisible();
 
   // Exiting returns to the signed-out landing page.
   await page.getByRole("button", { name: /exit demo/i }).click();

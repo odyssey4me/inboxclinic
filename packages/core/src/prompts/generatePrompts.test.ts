@@ -48,46 +48,46 @@ describe("generatePrompts", () => {
   it("creates a prompt only for undecided (pending) senders", () => {
     const prompts = generatePrompts(
       [
-        senderFixture("pending@a.com", "pending"),
-        senderFixture("trusted@b.com", "trusted"),
-        senderFixture("blocked@c.com", "blocked"),
+        senderFixture("pending@a.test", "pending"),
+        senderFixture("trusted@b.test", "trusted"),
+        senderFixture("blocked@c.test", "blocked"),
       ],
       { now: NOW },
     );
-    expect(prompts.map((p) => p.senderId)).toEqual([keyFor("pending@a.com")]);
+    expect(prompts.map((p) => p.senderId)).toEqual([keyFor("pending@a.test")]);
   });
 
   it("does not prompt a sender covered by a domain decision (#123)", () => {
     const prompts = generatePrompts(
       [
-        senderFixture("a@blocked.com", "pending"),
-        senderFixture("b@blocked.com", "pending"),
-        senderFixture("c@open.com", "pending"),
+        senderFixture("a@blocked.test", "pending"),
+        senderFixture("b@blocked.test", "pending"),
+        senderFixture("c@open.test", "pending"),
       ],
       {
         now: NOW,
         domains: [
-          domainBuilder("blocked.com", { trustStatus: "blocked", decisionScope: "domain" }),
+          domainBuilder("blocked.test", { trustStatus: "blocked", decisionScope: "domain" }),
         ],
       },
     );
-    // blocked.com's members are effectively decided → excluded; the undecided domain stays.
-    expect(prompts.map((p) => p.senderId)).toEqual([keyFor("c@open.com")]);
+    // blocked.test's members are effectively decided → excluded; the undecided domain stays.
+    expect(prompts.map((p) => p.senderId)).toEqual([keyFor("c@open.test")]);
   });
 
   it("excludes a decided per-address exception like any decided sender (#123)", () => {
     const prompts = generatePrompts(
       [
-        senderFixture("keep@blocked.com", "trusted"), // own address decision → an exception
-        senderFixture("other@blocked.com", "pending"), // covered by the domain block
+        senderFixture("keep@blocked.test", "trusted"), // own address decision → an exception
+        senderFixture("other@blocked.test", "pending"), // covered by the domain block
       ],
       {
         now: NOW,
         domains: [
-          domainBuilder("blocked.com", {
+          domainBuilder("blocked.test", {
             trustStatus: "blocked",
             decisionScope: "domain",
-            exceptionAddresses: ["keep@blocked.com"],
+            exceptionAddresses: ["keep@blocked.test"],
           }),
         ],
       },
@@ -99,19 +99,19 @@ describe("generatePrompts", () => {
 
   it("still prompts members of an undecided domain — suppression only fires for decided domains (#123)", () => {
     const prompts = generatePrompts(
-      [senderFixture("a@open.com", "pending"), senderFixture("b@open.com", "pending")],
-      { now: NOW, domains: [domainBuilder("open.com")] }, // default trustStatus: pending
+      [senderFixture("a@open.test", "pending"), senderFixture("b@open.test", "pending")],
+      { now: NOW, domains: [domainBuilder("open.test")] }, // default trustStatus: pending
     );
     expect(new Set(prompts.map((p) => p.senderId))).toEqual(
-      new Set([keyFor("a@open.com"), keyFor("b@open.com")]),
+      new Set([keyFor("a@open.test"), keyFor("b@open.test")]),
     );
   });
 
   it("sets createdAt = now and a 30-day expiresAt, with resolvedAt null", () => {
-    const [prompt] = generatePrompts([senderFixture("x@a.com", "pending")], { now: NOW });
+    const [prompt] = generatePrompts([senderFixture("x@a.test", "pending")], { now: NOW });
     expect(prompt).toMatchObject({
-      id: keyFor("x@a.com"),
-      senderId: keyFor("x@a.com"),
+      id: keyFor("x@a.test"),
+      senderId: keyFor("x@a.test"),
       createdAt: NOW,
       expiresAt: NOW + PROMPT_TTL_MS,
       resolvedAt: null,
@@ -122,17 +122,17 @@ describe("generatePrompts", () => {
   it("orders prompts by descending priority", () => {
     const prompts = generatePrompts(
       [
-        senderFixture("low@a.com", "pending", { totalEmails: 1, frequency: "rare" }),
-        senderFixture("high@a.com", "pending", { totalEmails: 100, frequency: "daily" }),
+        senderFixture("low@a.test", "pending", { totalEmails: 1, frequency: "rare" }),
+        senderFixture("high@a.test", "pending", { totalEmails: 100, frequency: "daily" }),
       ],
       { now: NOW },
     );
-    expect(prompts[0]?.senderId).toBe(keyFor("high@a.com"));
+    expect(prompts[0]?.senderId).toBe(keyFor("high@a.test"));
     expect(prompts[0]!.priorityScore).toBeGreaterThan(prompts[1]!.priorityScore);
   });
 
   it("returns no prompts when every sender is decided", () => {
-    const prompts = generatePrompts([senderFixture("done@a.com", "trusted")], { now: NOW });
+    const prompts = generatePrompts([senderFixture("done@a.test", "trusted")], { now: NOW });
     expect(prompts).toEqual([]);
   });
 });
