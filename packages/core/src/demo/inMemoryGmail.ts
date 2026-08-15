@@ -22,9 +22,9 @@ import type {
   MessageLabelEdit,
   MessageMeta,
   NativeFilter,
-  ScopeTier,
 } from "../ports/GmailClient";
-import { SCOPES_BY_TIER, StaleHistoryError } from "../ports/GmailClient";
+import { StaleHistoryError } from "../ports/GmailClient";
+import { GOOGLE_SCOPES } from "../ports/scopes";
 import { inDomainSubtree } from "../domains/subtree";
 import { parseFromHeader } from "../senders/extract";
 
@@ -57,6 +57,12 @@ export class InMemoryGmailClient implements GmailClient {
   readonly deletedFilterIds: string[] = [];
   /** Records `batchModifyMessages` calls, for assertions. */
   readonly batchModifyCalls: BatchModifyCall[] = [];
+  /** The scope set passed to each `authenticate()` call — one entry per consent prompt. */
+  readonly authCalls: string[][] = [];
+  /** The scopes this fake grants; narrow it with {@link setGrantedScopes}. */
+  private grantedScopes: string[] = [...GOOGLE_SCOPES];
+  /** When true, the next `getAccessToken` re-authenticates ({@link setAuthExpired}). */
+  private expired = false;
 
   constructor(messages: MessageMeta[] = [], accountEmail = "user@example.com") {
     this.messages = [...messages];
@@ -98,17 +104,42 @@ export class InMemoryGmailClient implements GmailClient {
     this.historyStale = stale;
   }
 
-  authenticate(tiers: ScopeTier[] = [1]): Promise<AccessToken> {
-    const grantedScopes = [...new Set(tiers.flatMap((tier) => SCOPES_BY_TIER[tier]))];
-    return Promise.resolve({
-      value: "mock-token",
-      expiresAt: Date.now() + 3_600_000,
-      grantedScopes,
-    });
+  /**
+   * Take the single sign-in grant. Every call records its scope set in
+   * {@link authCalls}, which is how tests assert the consolidated-consent invariant:
+   * a whole workflow must produce exactly one call
+   * (docs/design-gmail-integration.md Decision 2, docs/design-testing.md Decision 9).
+   */
+  authenticate(): Promise<AccessToken> {
+    this.authCalls.push([...this.grantedScopes]);
+    this.expired = false;
+    return Promise.resolve(this.currentToken());
   }
 
   getAccessToken(): Promise<AccessToken> {
-    return this.authenticate();
+    if (this.expired) return this.authenticate();
+    return Promise.resolve(this.currentToken());
+  }
+
+  /** Force the next `getAccessToken` down the re-authentication path. */
+  setAuthExpired(): void {
+    this.expired = true;
+  }
+
+  /**
+   * Narrow the grant to simulate a user unticking a scope on the consent screen —
+   * the `GmailScopeMissing` / `DriveScopeMissing` condition.
+   */
+  setGrantedScopes(scopes: string[]): void {
+    this.grantedScopes = [...scopes];
+  }
+
+  private currentToken(): AccessToken {
+    return {
+      value: "mock-token",
+      expiresAt: Date.now() + 3_600_000,
+      grantedScopes: [...this.grantedScopes],
+    };
   }
 
   getAccountEmail(): Promise<string> {

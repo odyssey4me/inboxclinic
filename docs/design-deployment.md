@@ -2,7 +2,7 @@
 
 > **Status:** Draft
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-08-15
 
 ## Overview
 
@@ -164,8 +164,10 @@ enabled, no merge commits); confirm Renovate merges via rebase after install.
 
 ## Configuration
 
-- **OAuth scopes** are requested incrementally by the client (see
-  [design-gmail-integration.md](design-gmail-integration.md)); the consent screen lists them.
+- **OAuth scopes** are requested by the client as a **single grant at sign-in** (see
+  [design-gmail-integration.md](design-gmail-integration.md) Decision 2); the consent
+  screen lists all of them at once. Every scope in that set must therefore be registered
+  on the Cloud console's consent screen before deploying.
 - **Allowlist** is managed in the Google Cloud console (OAuth consent → Test users).
 
 ## Error Handling
@@ -205,3 +207,4 @@ enabled, no merge commits); confirm Renovate merges via rebase after install.
 | 2026-07-05 | Switch hosting to **Cloudflare Pages** (root domain, base `/`): single-vendor DNS+CDN+TLS + cookieless edge analytics; drop the GitHub Pages deploy workflow + CNAME; add `_redirects`/`_headers`. GitHub Pages could not front-with-Cloudflare-proxy (cert conflict) and gave no site stats/custom headers. | Claude |
 | 2026-07-05 | Document the Dependabot strategy: "can it reach users?" auto-merge policy (minor/patch + Actions + non-shipping dev-tooling majors; bundle/runtime majors manual), atomic ecosystem grouping (vite/eslint/types) with CI as the compatibility gate, and the duplicate-major guard. | Claude |
 | 2026-07-05 | Consolidate CI/E2E/deploy into one `ci.yml` (jobs `build`, `e2e`, `deploy`); **deploy now `needs: [build, e2e]`** and runs only on `main`, so a broken build or failing E2E can never publish. | Claude |
+| 2026-08-15 | Configuration: OAuth scopes are now a **single grant at sign-in** rather than incremental requests (design-gmail-integration.md Decision 2), so the consent screen lists them all at once and every scope in the set must be registered on the Cloud console before deploying. | Claude |

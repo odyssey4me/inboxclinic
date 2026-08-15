@@ -17,6 +17,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { scheduleBackup } from "../backup/autoBackup";
 import { DomainDetail } from "../components/composed/DomainDetail";
 import { ScoreIndicator } from "../components/composed/ScoreIndicator";
 import { SenderDetail } from "../components/composed/SenderDetail";
@@ -406,6 +407,7 @@ export function Dashboard({
         decidedVia: "dashboard",
         now: Date.now(),
       });
+      scheduleBackup();
       await enforce(gmail, store);
       reload();
       onChanged();

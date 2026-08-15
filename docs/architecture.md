@@ -141,17 +141,20 @@ Each class of data has an **allowed location**, enforced by where the software r
 
 | Data | Allowed location |
 |------|------------------|
-| Inbox metadata, senders, decisions, analytics | **The user's device only.** |
+| Inbox metadata, senders, decisions, analytics | **The user's device**, plus **the user's own cloud storage** where they have a backup destination enabled (see the backup row). Never a service the project operates. |
 | Email message bodies / contents | **Never read or stored** (metadata only). |
 | User credentials | **Never persisted by the service** (short-lived, held only in memory while active). |
 | Anonymous aggregate signal (deferred) | Leaves the device **only if the user opts in**, contributed one-way and non-identifiably. |
 | Opt-in diagnostic report | Leaves the device **only when the user explicitly submits one**, after **on-screen review** of a **redacted** payload. Carries no message content, credentials, or the user's address. |
+| Backup of the user's own data | Leaves the device **only to storage the user already owns**, under the same account they signed in with, as a **single user-visible file** they can inspect or delete. **Default on**, disableable at any time. Never passes through project-operated infrastructure. |
 
 **Durability.** Because the user's data lives on their device, the app treats local
 persistence as durable but evictable. Most data is reconstructible by re-analysing
 the inbox; the exception is **user-generated decisions**, which are not — so
-**export and backup of the user's own data are first-class capabilities** (the
-mechanism is a design choice).
+**export and backup of the user's own data are first-class capabilities** — and,
+because a lost decision history cannot be rebuilt, backup is **on by default** rather
+than something the user must think to turn on (the mechanism and destination are a
+design choice).
 
 ---
 
@@ -172,10 +175,14 @@ decisions.
 | **Aggregate contribution** *(deferred)* | One-way, anonymous, opt-out submission of a subject signal. | Defined now; no implementation in v1. |
 | **Reporting client** | One-way submission of an opt-in, redacted diagnostic report. | Cloud-neutral; adapter is a design choice. |
 
-Authorisation follows a **least-permission** principle: the app requests the minimum
-provider permission for what the user is doing, escalating only as features require
-(read-only to analyse; modify/settings to enforce; contacts and backup only as
-opt-in features). The exact permission scopes are a design detail.
+Authorisation is a **single, consolidated grant**: the app asks for every permission
+it can ever use **once, at sign-in**, and again only when the session expires or the
+user revokes access. Permissions are still held to the **minimum set the product
+needs** — the discipline is on *what* is requested, not on *when*. The app does not
+escalate permissions mid-session, because a prompt that interrupts a task is a worse
+consent moment than one the user came to the app expecting: it is read as an
+obstacle rather than a choice, and it teaches the user to click through prompts. The
+exact permission scopes are a design detail.
 
 ---
 
@@ -204,8 +211,13 @@ or telemetry. Every capability is one of two kinds:
 - **Opt-in / opt-out** — a toggle the **user** controls, stored on their device.
 
 Examples include the deferred collective-intelligence contribution (opt-out, default
-on when it exists) and on-device backup (opt-in). Work-in-progress is simply not
-shipped until ready, or released as a clearly-labelled opt-in.
+on when it exists) and backup of the user's own data (opt-out, default on — §5).
+Work-in-progress is simply not shipped until ready, or released as a clearly-labelled
+opt-in.
+
+A capability may default **on** only when it needs no permission beyond the sign-in
+grant (§6) and sends nothing to anyone but the user themselves. Anything that would
+share data with the project or a third party is opt-in.
 
 ---
 
@@ -238,6 +250,7 @@ later as an extension rather than a rewrite.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.3 | 2026-08-15 | §6: replace **least-permission escalation** with a **single consolidated grant at sign-in** (re-asked only on session expiry or revocation) — minimality now governs *what* is requested, not *when*. §5: add a **backup egress row** (the user's own cloud storage, same account, single user-visible file, **default on**) and widen the device-only row accordingly; note that decision history is unrebuildable, so backup defaults on. §8: backup becomes **opt-out**, with a rule for when a capability may default on. See [design-gmail-integration.md](design-gmail-integration.md) and [design-backup-restore.md](design-backup-restore.md). |
 | 3.2 | 2026-07-16 | §1: add the **"Use the ecosystem"** principle — prefer well-supported, replaceable libraries that give substantive benefit at acceptable risk/lock-in over hand-rolling; complements **No lock-in**. |
 | 3.1 | 2026-07-05 | §5: add a **second opt-in egress class** — *opt-in diagnostic report* (user-submitted, on-screen-reviewed, redacted; no content/credentials/address) alongside the deferred anonymous aggregate. §6: add the **Reporting client** interface (one-way, cloud-neutral). See [design-error-reporting.md](design-error-reporting.md). |
 | 3.0 | 2026-06-28 | Re-levelled to a **technology-agnostic** spec — principles, constraints, and stable interfaces only. Moved technology choices, implementation detail, and algorithm constants to the design docs. |

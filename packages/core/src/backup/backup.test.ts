@@ -2,10 +2,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  backupIfEnabled,
   backupToDrive,
   BACKUP_ENABLED_KEY,
   BACKUP_FILE_ID_KEY,
   BACKUP_LAST_AT_KEY,
+  BACKUP_LAST_ERROR_KEY,
   getBackupState,
   restoreFromDrive,
   setBackupEnabled,
@@ -16,16 +18,17 @@ import { createInMemoryStore, MockBackupClient, senderBuilder } from "../testing
 const NOW = 1_700_000_000_000;
 
 describe("getBackupState / setBackupEnabled", () => {
-  it("defaults to disabled with no markers", async () => {
+  it("defaults to enabled with no markers", async () => {
     const store = createInMemoryStore();
     expect(await getBackupState(store)).toEqual({
-      enabled: false,
+      enabled: true,
       lastBackupAt: null,
+      lastBackupError: null,
       fileId: null,
     });
   });
 
-  it("persists the opt-in flag", async () => {
+  it("persists the master switch", async () => {
     const store = createInMemoryStore();
     await setBackupEnabled(store, true);
     expect((await getBackupState(store)).enabled).toBe(true);
@@ -43,7 +46,6 @@ describe("backupToDrive", () => {
     const result = await backupToDrive(backup, store, { now: NOW });
 
     expect(result.created).toBe(true);
-    expect(backup.authorized).toBe(true);
     expect(backup.currentData()).toBeDefined();
     const state = await getBackupState(store);
     expect(state.fileId).toBe(result.fileId);
@@ -95,9 +97,11 @@ describe("restoreFromDrive", () => {
     expect(result.restoredFrom).not.toBe("");
   });
 
-  it("carries the opt-in preference in the backup, but not the device-local markers", async () => {
+  it("carries the user's preference in the backup, but not the device-local markers", async () => {
     const store = createInMemoryStore();
-    await setBackupEnabled(store, true);
+    // Opting *out* is the case worth asserting now that on is the default: a restore must
+    // reinstate the user's choice, not silently re-enable backup on the new device.
+    await setBackupEnabled(store, false);
     const backup = new MockBackupClient();
     // exportAll runs before fileId/lastBackupAt are written, so the first backup's blob
     // captures `enabled` but not those two markers — they are re-established per device.
@@ -105,12 +109,12 @@ describe("restoreFromDrive", () => {
 
     // Simulate a fresh device: wipe everything, then restore.
     await store.wipeAll();
-    expect((await getBackupState(store)).enabled).toBe(false);
+    expect((await getBackupState(store)).enabled).toBe(true); // fresh device: the default
 
     await restoreFromDrive(backup, store);
 
     const state = await getBackupState(store);
-    expect(state.enabled).toBe(true); // preference travels with the backup
+    expect(state.enabled).toBe(false); // preference travels with the backup
     expect(state.fileId).toBeNull(); // device-local; recovered by name on next backup
     expect(state.lastBackupAt).toBeNull();
   });
@@ -121,11 +125,52 @@ describe("restoreFromDrive", () => {
     await expect(restoreFromDrive(backup, store)).rejects.toBeInstanceOf(BackupNotFoundError);
   });
 
-  it("propagates a declined drive.file consent", async () => {
+  it("propagates a write failure to the caller of the manual backup", async () => {
     const store = createInMemoryStore();
     const backup = new MockBackupClient();
-    backup.authorizeError = new Error("consent declined");
-    await expect(backupToDrive(backup, store, { now: NOW })).rejects.toThrow("consent declined");
+    backup.writeError = new Error("drive unavailable");
+    await expect(backupToDrive(backup, store, { now: NOW })).rejects.toThrow("drive unavailable");
+  });
+});
+
+describe("backupIfEnabled", () => {
+  it("backs up and clears any recorded error when enabled", async () => {
+    const store = createInMemoryStore();
+    await store.settings.put({ key: BACKUP_LAST_ERROR_KEY, value: "an earlier failure" });
+    const backup = new MockBackupClient();
+
+    const result = await backupIfEnabled(backup, store, { now: NOW });
+
+    expect(result?.created).toBe(true);
+    const state = await getBackupState(store);
+    expect(state.lastBackupAt).toBe(NOW);
+    expect(state.lastBackupError).toBeNull();
+  });
+
+  it("is a no-op when the user has turned backup off", async () => {
+    const store = createInMemoryStore();
+    await setBackupEnabled(store, false);
+    const backup = new MockBackupClient();
+
+    expect(await backupIfEnabled(backup, store, { now: NOW })).toBeNull();
+    expect(backup.currentData()).toBeUndefined();
+  });
+
+  it("records a failure instead of throwing — an unasked-for write must not interrupt", async () => {
+    const store = createInMemoryStore();
+    const backup = new MockBackupClient();
+    backup.writeError = new Error("drive unavailable");
+
+    expect(await backupIfEnabled(backup, store, { now: NOW })).toBeNull();
+    const state = await getBackupState(store);
+    expect(state.lastBackupError).toBe("drive unavailable");
+    expect(state.lastBackupAt).toBeNull();
+  });
+});
+
+describe("default state", () => {
+  it("is enabled on a fresh store — backup is opt-out (design-backup-restore.md D2)", async () => {
+    expect((await getBackupState(createInMemoryStore())).enabled).toBe(true);
   });
 });
 

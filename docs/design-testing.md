@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-07-05
+> **Last Updated:** 2026-08-15
 
 ## Overview
 
@@ -297,9 +297,8 @@ Criteria it is built to:
    account — query semantics, the shape of stored filter criteria — uses `gmail.readonly`.
    Write scope (`gmail.settings.basic`) is needed for exactly one question nothing existing
    can answer (where the length limit falls), and that probe is additionally opt-in at the
-   command line. **Scope is requested when a probe needs it, not chosen up front:** a
-   read-only session stays read-only, and the widening prompt names the scope and the reason.
-   No flag to remember, and no credential carrying permissions the session never used.
+   command line. Read-only is the **default posture of the probes themselves**: the write
+   scope is in the session grant (criterion 2), but only that one opt-in probe ever uses it.
 2. **Short-lived, and bounded by lifetime rather than narrowness.** Consent is a **single
    grant per session** covering every Gmail scope the probes use — read-only plus filter
    management — and lasts about an hour. Only the **access token** is cached (`.local/`, mode
@@ -313,8 +312,12 @@ Criteria it is built to:
    route — leaving `match arm`/`disarm` unreachable and armed probe filters unremovable. This
    is a manual tool run by hand against the developer's own mailbox, not the application, so
    the hour-long lifetime is the meaningful bound; scope narrowness within that hour bought
-   friction rather than safety. The application's own scope discipline (architecture.md §6) is
-   untouched by this and remains strictly least-privilege.
+   friction rather than safety. **The application has since reached the same conclusion for
+   its own reasons** — architecture.md v3.3 §6 replaced incremental escalation with a single
+   grant at sign-in ([design-gmail-integration.md](design-gmail-integration.md) Decision 2) —
+   so the carve-out this criterion previously claimed no longer applies. The arguments are
+   independent (a non-TTY shell here; an interrupted user task there) and both land on: ask
+   once, up front.
 
    **The Google CLI cannot provide this.** `gcloud auth application-default login` refuses to
    mint a credential without `cloud-platform` — even when given `--client-id-file` — and
@@ -447,10 +450,15 @@ export interface GmailClientFake extends GmailClient {
   seedInbox(messages: GmailMessageMeta[]): void;   // metadata-only headers/labels
   setHistoryStale(): void;                           // force 404 → bounded rescan path
   setRateLimited(afterCalls?: number): void;         // 429 back-off path
-  setAuthExpired(): void;                             // token-expiry → re-consent path
+  setAuthExpired(): void;                             // token-expiry → re-auth path
+  authCalls(): string[][];                           // scope sets passed to each authenticate()
   createdFilters(): CompiledFilter[];                // assert filter sync
 }
 ```
+
+`authCalls()` exists because the **single-grant rule is a behavioural invariant, not a
+constant**: the cheapest way to catch a regression that reintroduces a mid-session prompt
+is to drive a full workflow against the fake and assert the auth call count.
 
 People-API contact look-ups are mocked on the same fake (`setInContacts(email)`),
 honouring the 24-hour TTL behaviour from [design-gmail-integration.md](design-gmail-integration.md).
@@ -477,7 +485,9 @@ Tests must cover the client-side failure paths from [design-gmail-integration.md
 
 | Path | Test strategy |
 |------|---------------|
-| Token expiry | `setAuthExpired()` → assert re-consent is triggered, no crash |
+| Token expiry | `setAuthExpired()` → assert re-authentication is triggered with the **full scope set** (not a narrower one), no crash |
+| Consent consolidation | drive scan → decide → enforce → back up against the fake; assert `authCalls()` has **length 1** and carries every scope ([design-gmail-integration.md](design-gmail-integration.md) Decision 2) |
+| Declined scope | grant missing `drive.file` → assert backup records the failure and stops retrying, and that **no** narrower re-ask is attempted |
 | Stale `historyId` (`404`) | `setHistoryStale()` → assert transparent bounded rescan + marker reset |
 | Quota / `429` | `setRateLimited()` → assert slow/pause + user warning near cap |
 | Filter limit (≤10/OR, soft cap 450) | seed many blocks → assert domain-level + combined filters (see [design-gmail-integration.md](design-gmail-integration.md)) |
@@ -554,3 +564,4 @@ it("applies a block decision and records a compiled filter", async () => {
 | 2026-07-05 | Add **Decision 7 & a third test tier: end-to-end (Playwright) against demo mode** — a shippable no-Google demo build (`@inboxclinic/core/demo`) driven by Playwright across chromium/firefox/webkit + mobile, as a required CI gate. Reframed Decision 2 to three tiers; resolved the PWA/service-worker Open Question via Tier 3; corrected the Test File Layout (`demo/`, `e2e/`; dropped the never-adopted MSW handlers). | Claude |
 | 2026-07-18 | Add **Decision 8: property-based tests** (fast-check under Vitest, `*.property.test.ts`) for pure-core invariants — when to reach for them vs example tests, seed/reproducibility, generous bounds for probabilistic invariants; fuzzing of untrusted-input boundaries noted as related (#166). Landed compiler (cap/coverage/idempotence/stability), effective-status precedence, and `keyFor` collision properties (#165). | Claude |
 | 2026-07-18 | Add the **Fuzzing** subsection to Decision 8 (#166): `*.fuzz.test.ts` for the Gmail-response parsers (`parseHeaders`, `parseFromHeader`/`parseAuthResults`/`extractSenders` — no throw, allowlisted metadata-only) and the restore/import boundary (`parseStoreDump` — typed `InvalidBackupError`, no partial write). Documents the hostile-corpus approach and shape-vs-schema scope. | Claude |
+| 2026-08-15 | **Decision 9 criterion 1 de-drifted, and the app carve-out dropped.** Criterion 1 still claimed the probe requests scope per-probe, which criterion 2 had already replaced with one grant per session. Reworded to say read-only is the posture of the *probes*, not of the grant. Criterion 2 no longer carves the application out: architecture.md v3.3 §6 moved the app to a single sign-in grant too (design-gmail-integration.md Decision 2), by an independent argument. Added `authCalls()` to the Gmail fake plus two error-table rows — consent consolidation (one auth call across a full workflow) and a declined scope (no narrower re-ask) — since the single-grant rule is a behavioural invariant a constant cannot protect. | Claude |

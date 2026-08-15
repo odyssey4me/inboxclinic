@@ -7,14 +7,18 @@
  * orchestration depend on this interface, not on any transport. A browser PKCE/GIS
  * adapter lives in `apps/web`; a `MockGmailClient` (in `../testing`) backs the tests.
  *
- * M1 surface (read-only): authenticate, read the signed-in account identity, list
- * message ids for a bounded query, and fetch per-message **metadata only** (headers
- * and labels — never bodies or snippets; design-gmail-integration.md Decision 3).
+ * Read surface: authenticate, read the signed-in account identity, list message ids
+ * for a bounded query, and fetch per-message **metadata only** (headers and labels —
+ * never bodies or snippets; design-gmail-integration.md Decision 3).
  *
- * M4 surface (enforcement, Tier 2): native-filter list/create/delete and bounded
- * message label edits (archive / trash / Trust rescue), plus a `from:`-scoped id
- * lookup. Reads stay metadata-only; writes are best-effort and idempotent (the local
- * decision is the source of truth — design-gmail-integration.md Decision 5).
+ * Enforcement surface: native-filter list/create/delete and bounded message label
+ * edits (archive / trash / Trust rescue), plus a `from:`-scoped id lookup. Reads stay
+ * metadata-only; writes are best-effort and idempotent (the local decision is the
+ * source of truth — design-gmail-integration.md Decision 5).
+ *
+ * Authorisation is **one grant covering both surfaces**, taken at sign-in — see
+ * `GOOGLE_SCOPES` in ./scopes and design-gmail-integration.md Decision 2. No method
+ * here escalates permissions.
  */
 
 /** Short-lived bearer token + the scopes Google actually granted. In-memory only. */
@@ -26,28 +30,6 @@ export interface AccessToken {
   /** The scopes Google actually granted for this token. */
   grantedScopes: string[];
 }
-
-/** Tiered scopes; least-permission per architecture.md §6. M1 only needs Tier 1. */
-export type ScopeTier = 1 | 2 | 3;
-
-/** The Tier-1 read-only Gmail scope used by the M1 inbox scan. */
-export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-
-/** Tier-2 scope: archive / trash / relabel existing mail (`users.messages.modify`). */
-export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
-
-/** Tier-2 scope: read/write native filters (`users.settings.filters`). */
-export const GMAIL_SETTINGS_BASIC_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
-
-/**
- * Least-permission scopes requested per tier (design-gmail-integration.md Decision 2).
- * Tier 1 is read-only; Tier 2 adds enforcement; Tier 3 (contacts) is deferred.
- */
-export const SCOPES_BY_TIER: Record<ScopeTier, string[]> = {
-  1: [GMAIL_READONLY_SCOPE],
-  2: [GMAIL_MODIFY_SCOPE, GMAIL_SETTINGS_BASIC_SCOPE],
-  3: [],
-};
 
 /**
  * Parsed, typed projection of the metadata headers the scan reads.
@@ -176,9 +158,16 @@ export class StaleHistoryError extends Error {
  * `apps/web`; an in-memory fixture mock in `../testing`).
  */
 export interface GmailClient {
-  /** Acquire (or refresh) an access token for the requested scope tiers (default Tier 1). */
-  authenticate(tiers?: ScopeTier[]): Promise<AccessToken>;
-  /** Return a valid in-memory token, authenticating transparently if needed/expired. */
+  /**
+   * Acquire an access token for the **whole** `GOOGLE_SCOPES` grant, prompting the
+   * user. Called at sign-in, and again only when a session cannot be renewed.
+   */
+  authenticate(): Promise<AccessToken>;
+  /**
+   * Return a valid in-memory token, renewing transparently if it is near expiry. Any
+   * renewal covers the same full scope set, so a session never comes back narrower
+   * than it started (design-gmail-integration.md Decisions 1 & 2).
+   */
   getAccessToken(): Promise<AccessToken>;
   /** The signed-in Google account address — used as the `profile` primary key. */
   getAccountEmail(): Promise<string>;
@@ -187,7 +176,7 @@ export interface GmailClient {
   /** Fetch a single message's metadata (headers + labels only). */
   getMessageMeta(id: string): Promise<MessageMeta>;
 
-  // --- Incremental sync (Tier 1; M5) --------------------------------------
+  // --- Incremental sync ----------------------------------------------------
   /**
    * Page through `users.history.list` since `startHistoryId`, returning the change
    * records and the mailbox's current historyId. Throws {@link StaleHistoryError}
@@ -197,7 +186,7 @@ export interface GmailClient {
   /** The mailbox's current historyId (`users.getProfile`), used to (re)seed the marker. */
   getLatestHistoryId(): Promise<string>;
 
-  // --- Enforcement (Tier 2; M4) -------------------------------------------
+  // --- Enforcement ---------------------------------------------------------
   /** List the account's native Gmail filters (`users.settings.filters.list`). */
   listFilters(): Promise<NativeFilter[]>;
   /** Create one native filter; resolves to the created filter (with its id). */

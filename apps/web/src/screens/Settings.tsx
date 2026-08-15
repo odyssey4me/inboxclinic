@@ -182,26 +182,19 @@ export function Settings({
     setState(await getBackupState(store));
   };
 
-  // Enabling requests incremental drive.file consent; a decline reverts the toggle.
+  // No consent step: drive.file came with the sign-in grant (design-backup-restore.md
+  // Decision 2), so this only flips the switch.
   const onToggle = async (): Promise<void> => {
     setNote(null);
     setError(null);
     const next = !state.enabled;
-    try {
-      if (next) {
-        await setBackupEnabled(store, true);
-        await backup.authorize();
-        setNote("Backup enabled. Use “Back up now” to save a copy to your Drive.");
-      } else {
-        await setBackupEnabled(store, false);
-        setNote("Backup disabled. Your existing Drive backup is left untouched.");
-      }
-      await reload();
-    } catch (caught) {
-      await setBackupEnabled(store, false);
-      await reload();
-      setError(`Could not enable backup: ${errorMessage(caught)}`);
-    }
+    await setBackupEnabled(store, next);
+    setNote(
+      next
+        ? "Backup enabled. Your decisions are saved to your Drive after you make them."
+        : "Backup disabled. Your existing Drive backup is left untouched.",
+    );
+    await reload();
   };
 
   const onBackupNow = async (): Promise<void> => {
@@ -277,9 +270,10 @@ export function Settings({
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">Back up to Google Drive</h2>
             <p className="text-sm text-muted">
-              Save an encryptable copy of your on-device data to your own Google Drive. Inbox Clinic
-              requests the least-permission <code>drive.file</code> scope, which can only see the
-              single backup file it creates — never the rest of your Drive.
+              Your decisions can’t be rebuilt by re-scanning, so Inbox Clinic saves a copy to your
+              own Google Drive after you make them. It uses the least-permission{" "}
+              <code>drive.file</code> scope, which can only see the single backup file it creates —
+              never the rest of your Drive.
             </p>
           </div>
           <label className="flex shrink-0 items-center gap-2 text-sm font-medium">
@@ -298,6 +292,15 @@ export function Settings({
           <dt className="text-muted">Last backup</dt>
           <dd className="tabular-nums text-ink">{formatWhen(state.lastBackupAt)}</dd>
         </dl>
+
+        {/* An automatic backup failing is reported here rather than interrupting the
+            user, who never asked for that write (design-backup-restore.md Decision 4). */}
+        {state.enabled && state.lastBackupError !== null && (
+          <p role="status" className="text-sm text-defer">
+            Last automatic backup didn’t complete: {state.lastBackupError}. It will retry after your
+            next decision.
+          </p>
+        )}
 
         {!online && (
           <p role="status" className="text-sm text-defer">

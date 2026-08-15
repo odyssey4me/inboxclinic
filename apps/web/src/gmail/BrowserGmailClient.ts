@@ -8,7 +8,7 @@
  * Implements the `GmailClient` port from `@inboxclinic/core`.
  */
 
-import { SCOPES_BY_TIER, StaleHistoryError, unwrapExcludeFrom } from "@inboxclinic/core";
+import { StaleHistoryError, unwrapExcludeFrom } from "@inboxclinic/core";
 import type {
   AccessToken,
   FilterSpec,
@@ -20,10 +20,9 @@ import type {
   MessageLabelEdit,
   MessageMeta,
   NativeFilter,
-  ScopeTier,
 } from "@inboxclinic/core";
 
-import { requestAccessToken } from "../auth/gis";
+import type { GoogleAuth } from "../auth/GoogleAuth";
 import { fetchWithRetry } from "../lib/googleFetch";
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -156,50 +155,18 @@ export function parseHeaders(headers: readonly GmailHeader[]): MessageHeaders {
 }
 
 export class BrowserGmailClient implements GmailClient {
-  private token: AccessToken | null = null;
-
-  constructor(private readonly clientId: string) {}
+  constructor(private readonly auth: GoogleAuth) {}
 
   /**
-   * Acquire a token for the requested scope tiers (design-gmail-integration.md
-   * Decision 2, incremental authorisation). Tier 1 (read-only) is always included so
-   * escalating to Tier 2 (enforcement) never drops scan access.
+   * Take the single sign-in grant (design-gmail-integration.md Decision 2). There is no
+   * per-capability variant: enforcement calls below use the same token as the scan.
    */
-  async authenticate(tiers: ScopeTier[] = [1]): Promise<AccessToken> {
-    if (this.clientId === "") {
-      throw new Error("VITE_OAUTH_CLIENT_ID is not configured");
-    }
-    const scopes = scopesForTiers(tiers);
-    const response = await requestAccessToken(this.clientId, scopes.join(" "));
-
-    this.token = {
-      value: response.access_token,
-      expiresAt: Date.now() + response.expires_in * 1000,
-      grantedScopes: response.scope.split(" "),
-    };
-    return this.token;
+  async authenticate(): Promise<AccessToken> {
+    return this.auth.authenticate();
   }
 
   async getAccessToken(): Promise<AccessToken> {
-    if (this.token === null || this.token.expiresAt <= Date.now()) {
-      return this.authenticate();
-    }
-    return this.token;
-  }
-
-  /**
-   * Return a token that covers the given tiers, escalating via incremental
-   * authorisation if the current token is missing the scopes (e.g. the first time an
-   * enforcement action runs). Tier 1 is always re-requested alongside so read access
-   * is retained.
-   */
-  private async ensureScopes(tiers: ScopeTier[]): Promise<AccessToken> {
-    const required = scopesForTiers(tiers);
-    const token = await this.getAccessToken();
-    if (required.every((scope) => token.grantedScopes.includes(scope))) {
-      return token;
-    }
-    return this.authenticate([1, ...tiers]);
+    return this.auth.getAccessToken();
   }
 
   async getAccountEmail(): Promise<string> {
@@ -239,7 +206,7 @@ export class BrowserGmailClient implements GmailClient {
     };
   }
 
-  // --- Incremental sync (Tier 1) --------------------------------------------
+  // --- Incremental sync --------------------------------------------
 
   async getLatestHistoryId(): Promise<string> {
     const profile = await this.apiGet<GmailProfileResponse>("/profile");
@@ -282,16 +249,14 @@ export class BrowserGmailClient implements GmailClient {
     return { records, historyId: latestHistoryId };
   }
 
-  // --- Enforcement (Tier 2) -------------------------------------------------
+  // --- Enforcement -------------------------------------------------
 
   async listFilters(): Promise<NativeFilter[]> {
-    await this.ensureScopes([2]);
     const response = await this.apiGet<GmailFilterListResponse>("/settings/filters");
     return (response.filter ?? []).map(toNativeFilter);
   }
 
   async createFilter(spec: FilterSpec): Promise<NativeFilter> {
-    await this.ensureScopes([2]);
     const criteria: { from: string; negatedQuery?: string } = { from: spec.from };
     // Carve out trusted exception addresses via Gmail's "doesn't have the words" (#145).
     if (spec.excludeFrom !== undefined && spec.excludeFrom !== "") {
@@ -306,13 +271,11 @@ export class BrowserGmailClient implements GmailClient {
   }
 
   async deleteFilter(id: string): Promise<void> {
-    await this.ensureScopes([2]);
     await this.apiSend("DELETE", `/settings/filters/${id}`);
   }
 
   async batchModifyMessages(ids: string[], edit: MessageLabelEdit): Promise<void> {
     if (ids.length === 0) return;
-    await this.ensureScopes([2]);
     for (let i = 0; i < ids.length; i += BATCH_MODIFY_LIMIT) {
       const batch = ids.slice(i, i + BATCH_MODIFY_LIMIT);
       await this.apiSend("POST", "/messages/batchModify", {
@@ -363,9 +326,4 @@ export class BrowserGmailClient implements GmailClient {
     const text = await response.text();
     return (text === "" ? undefined : JSON.parse(text)) as T;
   }
-}
-
-/** Union of the least-permission scopes for the requested tiers (deduplicated). */
-function scopesForTiers(tiers: ScopeTier[]): string[] {
-  return [...new Set(tiers.flatMap((tier) => SCOPES_BY_TIER[tier]))];
 }

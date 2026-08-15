@@ -2,7 +2,7 @@
 
 > **Status:** Approved (Alpha)
 >
-> **Last Updated:** 2026-07-16
+> **Last Updated:** 2026-08-15
 
 ## Overview
 
@@ -394,7 +394,7 @@ toast; never block the local-first UI on a network failure.
 | Error | When | UX |
 |-------|------|----|
 | Offline / asset miss | Service worker has no cached response | App still launches from cache; show "Offline — Gmail sync paused; local data is available". |
-| Token expired | Google access token (in-memory) lapsed | Prompt to re-consent (PKCE re-auth); pending local decisions are preserved. |
+| Token expired | Google access token (in-memory) lapsed | Prompt to re-authenticate (PKCE, the **same full scope set** as sign-in — see [design-gmail-integration.md](design-gmail-integration.md) Decision 2); pending local decisions are preserved. |
 | Gmail quota near cap | Client-tracked usage approaches per-user limit | Warn and slow/pause scanning (see [design-gmail-integration.md](design-gmail-integration.md)); keep the UI responsive. |
 | Gmail mutation failed (Execution) | A filter/unsubscribe/modify call fails | Mark that row failed in the completion summary; local decision remains the source of truth and is retried on next sync. |
 | IndexedDB unavailable | Private-mode / storage blocked | Hard-fail with a clear explanation — the app cannot function without local storage. |
@@ -526,3 +526,4 @@ None — the previously-open items are now resolved:
 | 2026-07-17 | **Prior-block signals woven into the decision (#96, #97 — implemented):** `SenderDetail` renders an **inline flagged-siblings offer** (Block all / Keep all / Not now) when the open sender has same-domain spam/binned/filtered siblings; the workflow keeps its existing domain `BatchOffer`. The **learn pass runs on the home surface's mount** to populate the prior-block scoring signals (so flagged senders sort up), and the standalone **"Import all as Blocked" card is removed** (`PriorDecisionsImport` deleted). Semantics in design-trust-decisions.md Decision 8. | Claude |
 | 2026-07-17 | **Prior-block signals woven into the decision (#96, #97 — design lock):** `SenderDetail` renders flagged same-domain siblings via the existing **`batch-offer`** (extended to *block this / all-flagged / domain* + mirrored *Keep* / *Not now*) with the reason in **`signal-list`**; the workflow reuses the compact form. Prior-block signals raise the **trust score** (score-sort) so flagged senders surface in normal triage; the standalone **"Import all as Blocked" card is removed**. Semantics in design-trust-decisions.md Decision 8. | Claude |
 | 2026-07-18 | **#120 — deep-link the decisions surface:** the home surface's active tab (`?tab=decided\|all`) and an open detail (`?sender=<id>` / `?domain=<id>`) are now **URL-controlled** via `useSearchParams`. Tab changes **push** (bookmarkable; back/forward between tabs); an open detail is linkable but transient, so it **replaces** the history entry (only one opens at a time — `sender` wins if both are set). A deep link opens that tab/detail on load; closing clears the param; every setter merges so `?demo=1` survives. Closes the tab/detail follow-up left by #102. | Claude |
+| 2026-08-15 | Token-expiry UX: re-authentication requests the **full sign-in scope set**, not a narrower one (design-gmail-integration.md Decision 2, architecture v3.3 §6). No consent prompt is triggered by an in-app action any more. | Claude |

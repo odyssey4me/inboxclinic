@@ -121,8 +121,7 @@ OAuth client of your own. In the Cloud project that already hosts the app's clie
 an access token (~1h, no refresh token), so nothing long-lived sits on disk.
 
 ```bash
-./scripts/qa-gmail-probe.py login       # read-only consent in the browser (~1h)
-                                        # (optional — probes prompt for what they need)
+./scripts/qa-gmail-probe.py login       # one consent in the browser, all probe scopes (~1h)
 ./scripts/qa-gmail-probe.py discover    # find real subjects in the mailbox
 ./scripts/qa-gmail-probe.py search      # wildcard + subdomain + exclusion semantics
 ./scripts/qa-gmail-probe.py filters     # stored negatedQuery shape (read-only)
@@ -216,7 +215,8 @@ authoritative rules live in the linked docs, not here.
 | Requesting/storing/transmitting message **bodies** or content-bearing snippets (not metadata) | Metadata-only — §5 |
 | Raw addresses, message ids, subjects, or headers reaching a report payload or `console.*`/log without redaction or explicit user submission | Redacted, opt-in diagnostics — §5; [design-error-reporting.md](docs/design-error-reporting.md) |
 | Hardcoded API keys, private keys, or service credentials in source/config | No secrets in repo or client — §7; [design-deployment.md](docs/design-deployment.md) |
-| OAuth scopes broadened beyond the touched feature's need | Least-permission — §6; [design-gmail-integration.md](docs/design-gmail-integration.md), [design-backup-restore.md](docs/design-backup-restore.md) |
+| A scope added to the sign-in set without a capability that needs it, a broader scope where a narrower one covers the work (`gmail.full` over `gmail.modify`, `drive` over `drive.file`), or a scope that is a **subset** of another in the same grant (it buys nothing and lengthens the consent screen) | Minimal scope set — §6; [design-gmail-integration.md](docs/design-gmail-integration.md), [design-backup-restore.md](docs/design-backup-restore.md) |
+| A **second** consent prompt: any `requestAccessToken`/`authenticate` call outside sign-in and expiry re-auth, or one passing a partial scope set | One consolidated grant — §6; [design-gmail-integration.md](docs/design-gmail-integration.md) Decision 2 |
 | `packages/core` importing React/DOM/browser globals, a provider SDK, `apps/web`, or a storage technology; or a scoring function doing I/O | Pure, provider- & UI-agnostic core — §6; [design-trust-decisions.md](docs/design-trust-decisions.md) |
 | A new application server, server-side store of user data, analytics/telemetry SDK, or maintainer-controlled per-user flag | Client-only, no feature-flag system — §1, §2, §3, §8 |
 

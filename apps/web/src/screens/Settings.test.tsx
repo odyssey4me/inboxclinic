@@ -20,7 +20,9 @@ function setup(): { store: Store; backup: MockBackupClient; gmail: MockGmailClie
 }
 
 describe("Settings view", () => {
-  it("enables backup (requesting drive.file consent) via the toggle", async () => {
+  // Backup is opt-out (design-backup-restore.md Decision 2): it starts on, needs no
+  // consent step, and the toggle is how a user opts out and back in again.
+  it("starts enabled and the toggle turns backup off and on with no consent step", async () => {
     const { store, backup, gmail } = setup();
     render(
       <Settings
@@ -35,13 +37,15 @@ describe("Settings view", () => {
     );
 
     const toggle = await screen.findByRole("checkbox", { name: /enable google drive backup/i });
-    expect(toggle).not.toBeChecked();
+    await waitFor(() => expect(toggle).toBeChecked());
 
     fireEvent.click(toggle);
+    expect(await screen.findByText(/backup disabled/i)).toBeInTheDocument();
+    await waitFor(async () => expect((await getBackupState(store)).enabled).toBe(false));
 
-    await waitFor(() => expect(backup.authorized).toBe(true));
+    fireEvent.click(toggle);
     expect(await screen.findByText(/backup enabled/i)).toBeInTheDocument();
-    expect((await getBackupState(store)).enabled).toBe(true);
+    await waitFor(async () => expect((await getBackupState(store)).enabled).toBe(true));
   });
 
   it("backs up to Drive when enabled and reports the result", async () => {
@@ -59,17 +63,14 @@ describe("Settings view", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
-    await screen.findByText(/backup enabled/i);
-
-    fireEvent.click(screen.getByRole("button", { name: /back up now/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /back up now/i }));
 
     expect(await screen.findByText(/created .* in your drive/i)).toBeInTheDocument();
     expect(backup.currentData()).toBeDefined();
     expect((await getBackupState(store)).lastBackupAt).not.toBeNull();
   });
 
-  it("gates actions until backup is enabled", async () => {
+  it("gates actions once the user turns backup off", async () => {
     const { store, backup, gmail } = setup();
     render(
       <Settings
@@ -83,7 +84,12 @@ describe("Settings view", () => {
       />,
     );
 
-    expect(await screen.findByRole("button", { name: /back up now/i })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: /back up now/i })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /enable/i }));
+    await screen.findByText(/backup disabled/i);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /back up now/i })).toBeDisabled());
     expect(screen.getByRole("button", { name: /restore from backup/i })).toBeDisabled();
   });
 
@@ -102,10 +108,8 @@ describe("Settings view", () => {
       />,
     );
 
-    // Enable + back up so a restore target exists.
-    fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
-    await screen.findByText(/backup enabled/i);
-    fireEvent.click(screen.getByRole("button", { name: /back up now/i }));
+    // Back up so a restore target exists (backup is on by default).
+    fireEvent.click(await screen.findByRole("button", { name: /back up now/i }));
     await screen.findByText(/in your drive/i);
 
     // Mutate, then restore.
@@ -139,9 +143,7 @@ describe("Settings view", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: /enable/i }));
-    await screen.findByText(/backup enabled/i);
-    fireEvent.click(screen.getByRole("button", { name: /back up now/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /back up now/i }));
     await screen.findByText(/in your drive/i);
 
     fireEvent.click(screen.getByRole("button", { name: /restore from backup/i }));

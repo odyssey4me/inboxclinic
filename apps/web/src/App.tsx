@@ -11,6 +11,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { BrowserRouter, useLocation, useNavigate } from "react-router-dom";
 
+import { cancelPendingBackup } from "./backup/autoBackup";
 import { AppShell, type ShellView } from "./components/composed/AppShell";
 import { ErrorBoundary } from "./components/composed/ErrorBoundary";
 import { Footer } from "./components/composed/Footer";
@@ -71,6 +72,8 @@ export interface AppProps {
   demo?: boolean;
   /** Pre-set signed-in identity (demo mode seeds this so the shell renders immediately). */
   initialEmail?: string | null;
+  /** Drop the shared OAuth grant on Disconnect. Absent in demo mode (no real grant). */
+  onDisconnect?: () => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -102,7 +105,14 @@ export function App(props: AppProps) {
   );
 }
 
-function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: AppProps) {
+function AppInner({
+  gmail,
+  store,
+  backup,
+  demo = false,
+  initialEmail = null,
+  onDisconnect,
+}: AppProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const view = pathToView(location.pathname);
@@ -180,18 +190,22 @@ function AppInner({ gmail, store, backup, demo = false, initialEmail = null }: A
     }
   }, [gmail, store]);
 
-  // Forget the session and return to the landing (local data is kept). Tokens are
-  // in-memory only, so there is nothing to revoke; the flag stops the local-first
-  // auto-render below from signing back in until the user re-authenticates.
+  // Forget the session and return to the landing (local data is kept). The token is
+  // in-memory only, but it does have to be dropped: the shared grant outlives any one
+  // screen, stays renewable while the tab is active, and a queued automatic backup
+  // would otherwise upload after the user believed the session had ended. The flag
+  // stops the local-first auto-render below from signing back in until they return.
   const disconnect = useCallback(() => {
     if (demo) {
       window.location.search = "";
       return;
     }
+    cancelPendingBackup();
+    onDisconnect?.();
     if (typeof localStorage !== "undefined") localStorage.setItem(SIGNED_OUT_KEY, "1");
     setEmail(null);
     goTo("/");
-  }, [demo, goTo]);
+  }, [demo, goTo, onDisconnect]);
 
   // Deep links to an unknown path fall back to the home surface (the SPA fallback in
   // apps/web/public/_redirects already serves index.html for any path).

@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * Browser `BackupClient` adapter — GIS `drive.file` token + Drive REST v3.
+ * Browser `BackupClient` adapter — Drive REST v3 over the shared sign-in grant.
  *
- * See docs/design-backup-restore.md. Opt-in backup to the user's **own** Drive: a single
+ * See docs/design-backup-restore.md. Backup to the user's **own** Drive: a single
  * user-visible file (`Inbox Clinic Backup.json`), found-or-created then overwritten in
- * place. Holds its own short-lived `drive.file` token in memory (separate from the Gmail
- * token; same Google account) — never persisted. Implements the `BackupClient` port from
- * `@inboxclinic/core`; the store's `exportAll`/`importAll` supply/consume the bytes.
+ * place. `drive.file` is part of the single sign-in grant (Decision 2), so this adapter
+ * takes its token from the shared {@link GoogleAuth} rather than running a consent flow
+ * of its own. Implements the `BackupClient` port from `@inboxclinic/core`; the store's
+ * `exportAll`/`importAll` supply/consume the bytes.
  */
 
-import { BACKUP_FILE_NAME, BackupNotFoundError, DRIVE_FILE_SCOPE } from "@inboxclinic/core";
+import { BACKUP_FILE_NAME, BackupNotFoundError } from "@inboxclinic/core";
 import type { BackupClient, BackupFile } from "@inboxclinic/core";
 
-import { requestAccessToken } from "../auth/gis";
+import type { GoogleAuth } from "../auth/GoogleAuth";
 import { fetchWithRetry } from "../lib/googleFetch";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
@@ -40,27 +41,12 @@ function toBackupFile(resource: DriveFileResource): BackupFile {
 }
 
 export class BrowserDriveClient implements BackupClient {
-  private token: string | null = null;
-  private expiresAt = 0;
+  constructor(private readonly auth: GoogleAuth) {}
 
-  constructor(private readonly clientId: string) {}
-
-  async authorize(): Promise<void> {
-    await this.getToken();
-  }
-
-  /** Return a valid in-memory `drive.file` token, requesting consent if missing/expired. */
+  /** The shared sign-in token, renewed by {@link GoogleAuth} when it nears expiry. */
   private async getToken(): Promise<string> {
-    if (this.clientId === "") {
-      throw new Error("VITE_OAUTH_CLIENT_ID is not configured");
-    }
-    if (this.token !== null && this.expiresAt > Date.now()) {
-      return this.token;
-    }
-    const response = await requestAccessToken(this.clientId, DRIVE_FILE_SCOPE);
-    this.token = response.access_token;
-    this.expiresAt = Date.now() + response.expires_in * 1000;
-    return this.token;
+    const token = await this.auth.getAccessToken();
+    return token.value;
   }
 
   async findBackupFile(): Promise<BackupFile | undefined> {

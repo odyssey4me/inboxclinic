@@ -5,26 +5,38 @@
  * See docs/design-backup-restore.md. `backupToDrive` copies the whole on-device store to
  * the user's own Drive (a single file, overwritten in place); `restoreFromDrive` pulls it
  * back, **replacing** all local data. The on-device store is the source of truth — a
- * failed backup never mutates it. Opt-in state lives in the `settings` store under the
+ * failed backup never mutates it. Backup state lives in the `settings` store under the
  * `backup.*` keys (design-backup-restore.md Configuration). No transport specifics leak
  * in here: `exportAll`/`importAll` handle serialisation, the port handles Drive.
+ *
+ * There is no consent step: `drive.file` is part of the sign-in grant, so backup is
+ * **on by default** and `backupIfEnabled` can run unattended after a decision batch.
  */
 
 import type { BackupClient } from "../ports/BackupClient";
 import { BackupNotFoundError } from "../ports/BackupClient";
 import type { Repo, Setting, Store } from "../store";
 
-/** Opt-in master switch; enabling triggers `drive.file` consent (the caller does that). */
+/**
+ * Master switch. **Opt-out, default on** (design-backup-restore.md Decision 2): the
+ * `drive.file` scope arrives with the sign-in grant, so enabling costs no consent step.
+ */
 export const BACKUP_ENABLED_KEY = "backup.enabled";
 /** Epoch ms of the last successful backup. */
 export const BACKUP_LAST_AT_KEY = "backup.lastBackupAt";
+/** Message from the most recent failed automatic backup; cleared on success. */
+export const BACKUP_LAST_ERROR_KEY = "backup.lastBackupError";
 /** Cached Drive id of the backup file (recoverable by name if stale/absent). */
 export const BACKUP_FILE_ID_KEY = "backup.fileId";
+
+/** Backup is on unless the user has turned it off (design-backup-restore.md Decision 2). */
+export const BACKUP_ENABLED_DEFAULT = true;
 
 /** The on-device backup state, read from the `settings` store. */
 export interface BackupState {
   enabled: boolean;
   lastBackupAt: number | null;
+  lastBackupError: string | null;
   fileId: string | null;
 }
 
@@ -58,16 +70,21 @@ async function writeSetting(settings: Repo<Setting>, key: string, value: unknown
   await settings.put({ key, value });
 }
 
-/** Read the opt-in flag, last-backup marker, and cached file id from the store. */
+/** Read the master switch, last-backup markers, and cached file id from the store. */
 export async function getBackupState(store: Store): Promise<BackupState> {
   return {
-    enabled: (await readSetting<boolean>(store.settings, BACKUP_ENABLED_KEY)) ?? false,
+    enabled:
+      (await readSetting<boolean>(store.settings, BACKUP_ENABLED_KEY)) ?? BACKUP_ENABLED_DEFAULT,
     lastBackupAt: (await readSetting<number>(store.settings, BACKUP_LAST_AT_KEY)) ?? null,
+    lastBackupError: (await readSetting<string>(store.settings, BACKUP_LAST_ERROR_KEY)) ?? null,
     fileId: (await readSetting<string>(store.settings, BACKUP_FILE_ID_KEY)) ?? null,
   };
 }
 
-/** Persist the opt-in flag. Consent (`authorize`) is the caller's responsibility. */
+/**
+ * Persist the master switch. Turning it off stops future uploads; it does **not**
+ * delete the existing Drive file, which is the user's to keep or remove.
+ */
 export async function setBackupEnabled(store: Store, enabled: boolean): Promise<void> {
   await writeSetting(store.settings, BACKUP_ENABLED_KEY, enabled);
 }
@@ -83,7 +100,6 @@ export async function backupToDrive(
   options: BackupOptions = {},
 ): Promise<BackupResult> {
   const now = options.now ?? Date.now();
-  await backup.authorize();
   const blob = await store.exportAll();
   const existing = await backup.findBackupFile();
 
@@ -101,7 +117,31 @@ export async function backupToDrive(
 
   await writeSetting(store.settings, BACKUP_FILE_ID_KEY, fileId);
   await writeSetting(store.settings, BACKUP_LAST_AT_KEY, now);
+  await writeSetting(store.settings, BACKUP_LAST_ERROR_KEY, null);
   return { fileId, backedUpAt: now, created };
+}
+
+/**
+ * Run {@link backupToDrive} for an **automatic** backup: a no-op when the user has
+ * turned backup off, and never throwing. A background write the user did not ask for
+ * must not interrupt them, so a failure is recorded in `backup.lastBackupError` for
+ * Settings to surface quietly and retried on the next commit
+ * (design-backup-restore.md Decision 4).
+ */
+export async function backupIfEnabled(
+  backup: BackupClient,
+  store: Store,
+  options: BackupOptions = {},
+): Promise<BackupResult | null> {
+  const { enabled } = await getBackupState(store);
+  if (!enabled) return null;
+  try {
+    return await backupToDrive(backup, store, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeSetting(store.settings, BACKUP_LAST_ERROR_KEY, message);
+    return null;
+  }
 }
 
 /**
@@ -111,7 +151,6 @@ export async function backupToDrive(
  * exists yet.
  */
 export async function restoreFromDrive(backup: BackupClient, store: Store): Promise<RestoreResult> {
-  await backup.authorize();
   const file = await backup.findBackupFile();
   if (file === undefined) {
     throw new BackupNotFoundError();

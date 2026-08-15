@@ -2,11 +2,10 @@
 /**
  * Shared Google Identity Services (GIS) token-client helper.
  *
- * See docs/design-gmail-integration.md Decision 1 (PKCE public client, in-memory token)
- * and docs/design-backup-restore.md Decision 2 (incremental `drive.file` consent). Both
- * the Gmail adapter and the Drive backup adapter acquire short-lived access tokens the
- * same way — via `initTokenClient` for a given scope string — so that flow lives here
- * once. The GIS script is loaded from index.html (`https://accounts.google.com/gsi/client`).
+ * See docs/design-gmail-integration.md Decision 1 (PKCE public client, in-memory token,
+ * silent renewal). This is the raw GIS call; `GoogleAuth` owns the single grant that the
+ * Gmail and Drive adapters share. The GIS script is loaded from index.html
+ * (`https://accounts.google.com/gsi/client`).
  */
 
 const GIS_POLL_MS = 50;
@@ -35,10 +34,17 @@ function waitForGis(): Promise<typeof google.accounts.oauth2> {
  * token client. Resolves with the granted token response (whose `scope` reflects what
  * Google actually granted); rejects on consent errors. Callers hold the token in memory
  * only — never persisted (no refresh token, no secret).
+ *
+ * With `silent`, GIS is asked for a token **without showing a dialog** (`prompt: ""`),
+ * which succeeds when the scopes are already granted and the user's Google session is
+ * live. It depends on third-party cookies to `accounts.google.com` — blocked by default
+ * in Safari and Firefox — so a silent request is always allowed to fail and fall back to
+ * a visible one (design-gmail-integration.md Decision 1).
  */
 export async function requestAccessToken(
   clientId: string,
   scope: string,
+  options: { silent?: boolean } = {},
 ): Promise<google.accounts.oauth2.TokenResponse> {
   const oauth2 = await waitForGis();
   return new Promise((resolve, reject) => {
@@ -54,6 +60,6 @@ export async function requestAccessToken(
       },
       error_callback: (err) => reject(new Error(err.message ?? err.type)),
     });
-    client.requestAccessToken();
+    client.requestAccessToken(options.silent === true ? { prompt: "" } : undefined);
   });
 }

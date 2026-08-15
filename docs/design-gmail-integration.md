@@ -2,7 +2,7 @@
 
 > **Status:** Draft (Alpha)
 >
-> **Last Updated:** 2026-07-12
+> **Last Updated:** 2026-08-15
 
 ## Overview
 
@@ -39,7 +39,7 @@ This design implements the following sections of
 |---------|-------|-----------|
 | 2 | Constraints | Gmail-only provider; client-only with no backend; no credential custody |
 | 3 | System Model | Browser talks directly to the provider and stores all user data on-device |
-| 6 | Core Interfaces | Provider-client port (auth, metadata scan, actions, native-filter reconcile); least-permission scopes |
+| 6 | Core Interfaces | Provider-client port (auth, metadata scan, actions, native-filter reconcile); a single consolidated scope grant at sign-in |
 
 ## Design Decisions
 
@@ -50,35 +50,105 @@ the browser is an exfiltration risk with no server to protect it.
 
 **Decision:** Use the **OAuth 2.0 Authorization Code + PKCE** flow via Google Identity
 Services as a **public client**. Ship **no client secret**. Hold the **access token in
-memory only** (never IndexedDB, never `localStorage`). When the token expires, prompt
-the user to re-consent.
+memory only** (never IndexedDB, never `localStorage`).
+
+**Renewal is silent where the browser allows it.** Shortly before the token expires
+(`auth.renewLeadMs`), the app attempts a **silent** token request —
+`requestAccessToken({ prompt: "" })` — which returns a fresh token with no dialog when
+the scopes are already granted and the user's Google session is live. When that fails,
+the user gets a visible re-authentication prompt for the **full scope set** (Decision 2).
+Three bounds on it:
+
+- **Attended sessions only.** Renewal — *silent or visible* — is attempted only while
+  the document is visible and there has been user interaction within `auth.idleCapMs`.
+  An unattended session **lapses**: the token request raises a typed `SessionLapsedError`
+  rather than a dialog. A forgotten background tab must neither hold a live Gmail token
+  indefinitely nor throw a consent prompt at someone who is not there — and the second
+  is the worse failure, because there is no task in front of it to explain why it
+  appeared (architecture.md §6).
+- **No unattended path may prompt.** Anything that runs off a timer rather than a user
+  action — today, the automatic backup — must check that a grant is already held and
+  skip otherwise. A consent screen the user did nothing to summon is exactly the
+  interruption this design removes; reintroducing it from a background task would be
+  worse than the mid-session escalation Decision 2 replaced.
+- **Best-effort by design.** Silent renewal depends on third-party cookies to
+  `accounts.google.com`, which Safari and Firefox block by default. It is an
+  optimisation for the common case, never a correctness assumption — every caller must
+  still handle `GmailAuthExpired`.
+
+**Sign-out drops the token.** The grant is shared and outlives any one screen, so
+"Disconnect" clears it explicitly and cancels any queued background work; otherwise a
+renewable credential — and a pending backup upload — would survive a session the user
+believes has ended.
 
 **Rationale:** Eliminates credential custody (architecture.md §2). PKCE is the
-Google-recommended flow for browser apps.
+Google-recommended flow for browser apps. Silent renewal costs nothing in privacy
+terms — no refresh token, no new scope, no persisted credential, no additional party —
+so the only thing it removes is an interruption, which is the same argument as
+Decision 2.
 
 **Alternatives considered:**
 - Implicit flow — rejected; deprecated and leaks tokens in URLs.
-- Stored refresh token — rejected on web; reserved for a future native build where a
-  platform keychain exists (architecture.md §9).
+- Stored refresh token — rejected on web; it is the one renewal mechanism that *would*
+  create custody, and Google will not issue one to a browser public client without a
+  secret in any case. Reserved for a future native build where a platform keychain
+  exists (architecture.md §9).
+- Renewing regardless of visibility — rejected; see the attended-session bound above.
+- Falling back to a **visible** prompt when a session is unattended — rejected, and the
+  bug this design initially shipped with: it turns every background timer into a
+  potential consent dialog, which is precisely what Decision 2 exists to prevent.
 
-### Decision 2: Incremental scope tiers
+### Decision 2: One consent at sign-in, covering every scope
 
-**Context:** Users hesitate to grant broad access before trusting the app, and Tiers
-2–3 are Google **restricted scopes**.
+**Context:** The app previously escalated scopes on demand — read-only to scan, then
+`gmail.modify`/`gmail.settings.basic` the first time the user enforced a decision,
+then `drive.file` on enabling backup. In practice that produced **three consent
+screens spread across a session**, each interrupting a task the user had already
+committed to. Nothing was actually protected by the delay: a user who signs in to
+Inbox Clinic is signing in to a tool whose entire purpose is to modify their mailbox,
+so the later prompts asked a question whose answer was already settled.
 
-**Decision:** Request the minimum and escalate on demand using **incremental
-authorisation** (least-permission; architecture.md §6):
+**Decision:** Request **every scope the app uses in a single grant at sign-in**
+(architecture.md §6). There is no mid-session escalation. Consent is re-requested
+only when the in-memory token expires or the user revokes access in their Google
+Account.
 
-| Tier | Scope(s) | Enables |
-|------|----------|---------|
-| 1 (required) | `gmail.readonly` | Inbox scan, sender extraction, trust scoring |
-| 2 (enforcement) | `gmail.modify`, `gmail.settings.basic` | Archive/delete/relabel, native filter sync |
-| 3 (optional) | `contacts.readonly` (People API) | "In contacts" trust signal — **deferred, not requested in v1** (see [ROADMAP.md](ROADMAP.md#deferred-post-v1)) |
+| Scope | Enables | When requested |
+|-------|---------|----------------|
+| `gmail.modify` | Inbox scan, sender extraction, trust scoring **and** archive/delete/relabel — one scope covers both, so `gmail.readonly` is not requested (see below) | Sign-in |
+| `gmail.settings.basic` | Native filter sync (the enforcement layer) | Sign-in |
+| `drive.file` | Backup/restore of the user's own data to their Drive — see [design-backup-restore.md](design-backup-restore.md) | Sign-in |
+| `contacts.readonly` (People API) | "In contacts" trust signal — **deferred, not requested in v1** (see [ROADMAP.md](ROADMAP.md#deferred-post-v1)) | Sign-in, once implemented |
 
-**Rationale:** Read-only first builds trust; enforcement scopes are only requested
-when the user acts. The hosted instance runs in **testing mode with a ≤100-email
-allowlist**, so restricted scopes need **no verification or CASA assessment**
-(architecture.md §7).
+The scope set is a **single constant** in `packages/core`; adding a capability that
+needs a new scope widens that constant and the sign-in prompt, never introduces a
+second prompt.
+
+**`gmail.readonly` is deliberately not in the set.** `gmail.modify` is a superset of it
+— it covers `users.getProfile`, `messages.list`, `messages.get?format=metadata`, and
+`history.list` as well as the writes. Under the tiered design that redundancy was the
+point: read-only could be granted *alone*, so it bounded the scan. In a single grant it
+bounds nothing, and asking for a subset of a scope requested in the same breath just
+adds a restricted-scope line the user has to read for no capability. Minimality here
+means the *smallest set that covers the work*, not the longest list of narrow names.
+
+**Rationale:** One prompt at the moment the user is deliberately connecting an
+account is the *strongest* consent moment available — it is expected, it is read, and
+the user can decline without abandoning work in progress. Interrupting a task with a
+permission dialog trains people to click through prompts, which is worse for privacy
+than the broader up-front ask. Minimality is preserved where it actually matters:
+**which** scopes are requested (`gmail.modify` rather than `gmail.full`, `drive.file`
+rather than `drive`) and what the app does with them — see Decision 3 (metadata
+only). The hosted instance runs in **testing mode with a ≤100-email allowlist**, so
+restricted scopes need **no verification or CASA assessment** (architecture.md §7).
+
+**Alternatives considered:**
+- **Incremental authorisation** (the previous design) — rejected; see Context.
+- **Read-only sign-in, one escalation to "full" on first enforcement** — rejected;
+  halves the prompts but keeps the interruption at the worst possible moment (the
+  user's first real action) and still needs the scope-gap machinery.
+- **Separate grants for Gmail and Drive** — rejected; both are the same Google
+  account and the same consent screen, so splitting them buys nothing.
 
 ### Decision 3: Metadata-only access
 
@@ -305,7 +375,9 @@ pass** reads:
   scan). Trash results carry each message's **read-state** (the `UNREAD` label) so the trust
   layer can weight *unread-when-binned* as a signal and **ignore read-then-deleted**.
 
-Metadata-only (labels + headers), same scope tier as the Inbox scan; results feed the
+Metadata-only (labels + headers). Reading existing filters needs `gmail.settings.basic`,
+which the sign-in grant already carries (Decision 2), so the pass runs as part of the first
+scan rather than triggering a prompt of its own. Results feed the
 **per-sender decision** — the prior-block signal raises the trust score and surfaces flagged
 siblings in the detail panel (design-trust-decisions.md Decision 8) — never an automatic mutation.
 
@@ -408,22 +480,26 @@ methods, the types they exchange (`AccessToken`, `MessageMeta`, `FilterSpec`, `N
 not restate them in an illustrative code block, because a copy drifts silently: an earlier one
 outlived the real port by a whole milestone and sent readers implementing against method names
 that existed nowhere in the codebase (#193). What belongs here instead is what the code cannot
-say for itself — which scope tier each capability needs, and which decision above it serves.
+say for itself — which scope each capability relies on, and which decision above it serves.
 
 Implementations are adapters: a browser PKCE/GIS + `fetch` client in `apps/web`, and an
 in-memory fixture (`packages/core/src/demo/inMemoryGmail.ts`, exported to tests as
 `MockGmailClient`). Token acquisition sits behind the port, so the same core logic works for
 browser PKCE today and a native transport later.
 
-| Capability (port methods) | Tier | Notes |
-|---------------------------|------|-------|
-| Auth — `authenticate`, `getAccessToken` | 1+ | Requests only the named tiers; incremental escalation (Decision 2). The token is held in memory only (Decision 1) |
-| Identity — `getAccountEmail` | 1 | The signed-in address; the `profile` store's primary key |
-| Scan — `listMessageIds`, `getMessageMeta` | 1 | Bounded `messages.list` query, then `format=metadata` fetches — never bodies or snippets (Decision 3) |
-| Incremental sync — `listHistory`, `getLatestHistoryId` | 1 | `users.history.list` from the stored marker; a marker Gmail rejects as too old raises `StaleHistoryError`, and the caller falls back to a bounded rescan (Decision 4) |
-| Filters — `listFilters`, `createFilter`, `deleteFilter` | 2 | `gmail.settings.basic`. `createFilter` resolves to the created filter **with its id** — recording that id is what makes the filter ours to reconcile later (Decision 5 point 6) |
-| Existing mail — `batchModifyMessages`, `listMessageIdsForSender` | 2 | `gmail.modify`; archive / trash / Trust-rescue label edits over a bounded id set, with a domain sweep able to exclude its trusted exceptions |
-| Contacts lookup | 3 | **Deferred, not implemented in v1** — there is no port method. Planned: batched People API, cached with a 24h TTL |
+Every capability below is covered by the **single sign-in grant** (Decision 2); the scope
+column records which permission the call actually depends on, not a moment at which it is
+requested.
+
+| Capability (port methods) | Scope relied on | Notes |
+|---------------------------|-----------------|-------|
+| Auth — `authenticate`, `getAccessToken` | all of them | Requests the whole scope set in one grant (Decision 2); the token is held in memory only (Decision 1). `getAccessToken` re-authenticates on expiry with the **same** full set, so a session never silently comes back narrower than it started |
+| Identity — `getAccountEmail` | `gmail.modify` | The signed-in address; the `profile` store's primary key |
+| Scan — `listMessageIds`, `getMessageMeta` | `gmail.modify` | Bounded `messages.list` query, then `format=metadata` fetches — never bodies or snippets (Decision 3) |
+| Incremental sync — `listHistory`, `getLatestHistoryId` | `gmail.modify` | `users.history.list` from the stored marker; a marker Gmail rejects as too old raises `StaleHistoryError`, and the caller falls back to a bounded rescan (Decision 4) |
+| Filters — `listFilters`, `createFilter`, `deleteFilter` | `gmail.settings.basic` | `createFilter` resolves to the created filter **with its id** — recording that id is what makes the filter ours to reconcile later (Decision 5 point 6) |
+| Existing mail — `batchModifyMessages`, `listMessageIdsForSender` | `gmail.modify` | Archive / trash / Trust-rescue label edits over a bounded id set, with a domain sweep able to exclude its trusted exceptions |
+| Contacts lookup | `contacts.readonly` | **Deferred, not implemented in v1** — there is no port method, and the scope is not in the grant until there is. Planned: batched People API, cached with a 24h TTL |
 
 **What is *not* on the port.** Compiling decisions into a desired filter set and diffing it
 against the account are **pure functions**, not provider calls: `compileFilters` and
@@ -445,6 +521,8 @@ client settings.
 |---------|------|---------|-------------|
 | `oauth.clientId` | string | – | Google OAuth **public** client ID (no secret) |
 | `oauth.redirectUri` | string | app origin | PKCE redirect back to the SPA |
+| `auth.renewLeadMs` | number | `300000` | How long before expiry to attempt silent renewal (5 min; Decision 1) |
+| `auth.idleCapMs` | number | `3600000` | Idle time after which a session is allowed to lapse rather than renewed (1 h; Decision 1) |
 | `scan.windowDays` | number | `30` | Bounded initial-scan window |
 | `scan.labelIds` | string[] | `['INBOX']` | Labels scanned |
 | `sync.periodMinutes` | number | `60` | Periodic-sync interval (service worker where permitted) |
@@ -461,8 +539,9 @@ Gmail HTTP failures to typed errors and recovers locally.
 
 | Error | Trigger | Recovery |
 |-------|---------|----------|
-| `GmailAuthExpired` | `401` / token expired in memory | Prompt re-consent (PKCE); resume from local state |
-| `GmailScopeMissing` | Action needs an ungranted scope | Trigger incremental authorisation for the needed tier |
+| `GmailAuthExpired` | `401` / token expired in memory, and silent renewal did not recover it | Re-authenticate with the **full scope set** (PKCE), visibly; resume from local state |
+| `SessionLapsed` | A token was needed while the session was unattended (hidden tab, or idle past `auth.idleCapMs`) | **Do not prompt.** A background task drops the work and retries later; a user-facing action surfaces the signed-out state on their return (Decision 1) |
+| `GmailScopeMissing` | `403 insufficientPermissions` — the grant is missing a scope the app needs, e.g. the user unticked one on the consent screen | Not recoverable by a narrower ask: re-run the **same** sign-in grant, naming the capability that is unavailable until it is granted |
 | `GmailHistoryStale` | `404` on History API | Transparent **bounded rescan**, reset `lastHistoryId` |
 | `GmailRateLimited` | `429` / `403 rateLimitExceeded` | Client backoff; slow per `quota.slowAtFraction`; warn near cap |
 | `GmailServerError` | `5xx` | Exponential backoff; retry on next sync |
@@ -552,6 +631,9 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-15 | **`gmail.readonly` dropped from the grant.** `gmail.modify` already covers every read the app performs (`users.getProfile`, `messages.list`, `messages.get?format=metadata`, `history.list`), so once the tiers were gone `gmail.readonly` became a subset of a scope requested in the same prompt — a restricted-scope line on the consent screen buying no capability. It was meaningful only while it could be granted *alone*. Decision 2's table and the capability table now name `gmail.modify` for the read paths; CONTRIBUTING's scope smell gained the subset case. | Claude |
+| 2026-08-15 | **Decision 1 extended: silent token renewal.** With consent consolidated to sign-in, the remaining interruption was hourly token expiry. The app now attempts a silent GIS token request (`prompt: ""`) `auth.renewLeadMs` before expiry, falling back to a visible full-scope re-auth when it fails. It adds no privacy cost — no refresh token, no new scope, nothing persisted — but it is bounded to **attended sessions**: hidden tabs and sessions idle past `auth.idleCapMs` **lapse** with a typed `SessionLapsed` error rather than renewing *or* prompting, so a forgotten tab neither holds a live Gmail token nor throws a dialog at an absent user. No timer-driven path may prompt: the automatic backup checks for an existing grant first and skips otherwise. Sign-out drops the shared token and cancels any queued upload. Silent renewal depends on third-party cookies to `accounts.google.com` (blocked by default in Safari/Firefox), so it is an optimisation and every caller still handles `GmailAuthExpired`. | Claude |
+| 2026-08-15 | **Decision 2 replaced: one consent at sign-in, covering every scope.** Incremental scope tiers are gone. The app produced up to three consent screens in a session (read-only at sign-in, `gmail.modify`/`gmail.settings.basic` on first enforcement, `drive.file` on enabling backup), each interrupting a task the user had already committed to — and the delay protected nothing, since signing in to Inbox Clinic *is* the decision to let it modify the mailbox. All scopes, `drive.file` included, are now requested in a single grant; re-consent happens only on token expiry or revocation. Minimality moves from *when* to *what* (`gmail.modify` not `gmail.full`, `drive.file` not `drive`). Knock-ons: the capability table's Tier column becomes a scope column; `getAccessToken` re-authenticates with the full set so a session cannot silently narrow; `GmailScopeMissing` is now a declined-scope condition, not an escalation trigger; the prior-decisions pass (Decision 7) no longer forces a second prompt to read filters. Follows architecture.md v3.3 §6. | Claude |
 | 2026-08-14 | **Decision 5 point 9 — a domain block covers the subtree, with decided subdomains carved out (#210).** `*@domain` is not an exact match: measured on a real account, `from:*@google.com` returned `docs.`/`accounts.`/`plus.google.com` alongside the apex, and `from:*@monzo.com` reached two labels deep. Both the filter and the sweep act on the subtree, so a subdomain the user separately **trusted** is now carved out of the same `negatedQuery` as a `*@sub.domain` wildcard term (a form Gmail accepts, and which measurably removed that subdomain's mail). A **pending** subdomain is not carved out — the block covers it, and the breadth is stated at decision time instead. Carve-out terms are built once (`exclusionTerms`) and shared by the filter and the sweep so the two cannot spare different senders; wildcard terms count against the criteria budget like any other. The in-memory reference client was corrected to match, since it had encoded the pre-#210 belief that every automated tier then confirmed. | Claude |
 | 2026-08-09 | **Decision 5 point 6 — release ownership of a hand-edited managed filter (#232):** `reconcileFilters` narrows to filters it can reason about, dropping any carrying unmodelled criteria — but a filter the app created and the user then hand-edited in Gmail's UI stayed in `managedFilterIds` forever, since the "does it still exist?" prune can't remove an id whose filter is still there, just no longer comparable. `FilterReconcilePlan` gains `disowned: string[]` — managed ids whose filter is present but no longer comparable — which the caller drops from persisted `managedFilterIds`. The filter itself is never deleted; ownership is released, not enforced. | Claude |
 | 2026-08-09 | **Decision 5 point 6 — only reason about filters we fully model (#212):** a real account turned up filters matching on `to`/`subject`/`query`, which `FilterSpec` drops. Two such filters signed identically and the tidy-up offered to delete one as a duplicate; a `from:X AND subject:Y` rule also signs like a plain block on X, so adoption would claim it and reconcile could later delete it. Such filters are now foreign by construction — never adopted, deleted, deduplicated, counted as coverage, or read as a prior decision — and the adapter reports which criteria it dropped. Renumbers the former points 6–7 to 7–8. | Claude |
@@ -569,7 +651,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 | 2026-07-16 | Update **Decision 10** to describe `applyFilterAdoptions`'s apply-time re-validation: it re-derives the desired filter set from current blocked senders/domains and records only adoptions that still match, returning `{ adopted, skipped }` — closes a TOCTOU gap where unblocking a sender during the confirm window could otherwise cause the next `enforce()` to delete the adopted filter (#89). | Claude |
 | 2026-07-14 | Add **Decision 10: confirm-first filter adoption** (#80) — `reconcileFilters` no longer creates a duplicate filter when an untracked existing filter already matches a desired one; it surfaces the match in a new `adoptable` list instead, and `suggestFilterAdoptions`/`applyFilterAdoptions` let the user opt in before its id is tracked as managed. Closes the duplicate-create gap left by Decision 5 point 6's #29 fix without inferring ownership automatically in either direction. | Claude |
 | 2026-07-14 | Resolve the filter-ownership open question: Decision 5 adds a point 6 — `reconcileFilters` now gates deletion on `filterSyncState.managedFilterIds` (an id set populated when this app creates a filter), not on matching the block action shape, so a user's own hand-built "Trash + skip inbox" filter is never silently deleted (#29). | Claude |
-| 2026-07-12 | Clarify that Tier-3 `contacts.readonly`/`lookupContacts`/`contacts.cacheTtlHours` are **deferred, not implemented** in v1 — matches the code (`GmailClient.ts` `SCOPES_BY_TIER`) and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scope or code change. | Claude |
+| 2026-07-12 | Clarify that Tier-3 `contacts.readonly`/`lookupContacts`/`contacts.cacheTtlHours` are **deferred, not implemented** in v1 — matches the code (the port's scope set carried no contacts scope) and cross-links to ROADMAP.md's Deferred table. Documentation-only; no scope or code change. | Claude |
 | 2026-07-05 | Implement the **transport-level retry/backoff** the error table already specifies (`GmailRateLimited` 429 / 403 `rateLimitExceeded`, `GmailServerError` 5xx, 408): a shared `fetchWithRetry` wrapper honours `Retry-After` and otherwise uses exponential backoff + full jitter, so transient limits self-heal instead of surfacing as errors. Applied to the Gmail and Drive browser adapters. | Claude |
 | 2026-07-05 | Add **Decisions-milestone** capabilities: Decision 7 **learning scan** (read `listFilters` + a bounded read-weighted Spam/Trash scan to surface prior "no" decisions); Decision 8 **count-only enforcement simulation** (no-mutation impact preview + future extrapolation); Decision 9 **filter-optimisation suggestions** (consolidate/dedupe/tighten, confirm-first). | Claude |
 | 2026-06-28 | Full rewrite for client-only, local-first, no-backend PWA architecture: browser PKCE OAuth, metadata-only scan, polling + periodic sync (no push), native-filter compilation, and the `GmailClient` port in `packages/core`. Supersedes the prior server-based design. | Claude |

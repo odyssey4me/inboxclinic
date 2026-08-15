@@ -20,6 +20,7 @@ import {
 } from "@inboxclinic/core";
 import { useEffect, useState } from "react";
 
+import { scheduleBackup } from "../../backup/autoBackup";
 import { Button } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
 import { ImpactPreview } from "./ImpactPreview";
@@ -209,6 +210,7 @@ export function SenderDetail({
           now: Date.now(),
         });
       }
+      scheduleBackup();
       await enforce(gmail, store);
       onChanged();
       onClose();
@@ -248,6 +250,7 @@ export function SenderDetail({
     setError(null);
     try {
       await withdrawDecision(store, { subjectId: sender.id, scope: "address" });
+      scheduleBackup();
       // The effective status can move either way, so reconcile rather than assume.
       await enforce(gmail, store);
       onChanged();

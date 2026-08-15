@@ -3,14 +3,13 @@ import { expect, test } from "@playwright/test";
 
 import { gotoDemo } from "./helpers";
 
-test("Settings: enable Drive backup, back up, then restore", async ({ page }) => {
+test("Settings: back up to Drive, then restore", async ({ page }) => {
   await gotoDemo(page);
 
   await page.getByRole("button", { name: /^Settings$/ }).click();
 
-  // Opt in (in-memory Drive; no real consent screen).
-  await page.getByRole("checkbox", { name: /enable google drive backup/i }).check();
-  await expect(page.getByText(/backup enabled/i)).toBeVisible();
+  // Backup is on by default and needs no consent step (design-backup-restore.md D2).
+  await expect(page.getByRole("checkbox", { name: /enable google drive backup/i })).toBeChecked();
 
   // Back up now.
   await page.getByRole("button", { name: /back up now/i }).click();

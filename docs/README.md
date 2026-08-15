@@ -107,7 +107,7 @@ implements. Use [design-_template.md](design-_template.md) for new docs.
 | [design-gmail-integration.md](design-gmail-integration.md) | Draft | Browser PKCE OAuth, metadata scan + History sync, sender extraction, native-filter compilation; `GmailClient` port | 2, 3, 6 |
 | [design-trust-decisions.md](design-trust-decisions.md) | Draft | Trust-prompt workflow, scoring & prioritisation interfaces (pure `packages/core`), deferred network seam | 4, 6, 9 |
 | [design-local-store-schema.md](design-local-store-schema.md) | Draft | On-device IndexedDB (Dexie) stores, keys, indexes, repository interface, export/delete, versioning | 5, 6 |
-| [design-backup-restore.md](design-backup-restore.md) | Draft | Opt-in Google Drive backup/restore: `BackupClient` port, `drive.file` scope, single user-visible backup file, replace-local restore | 5, 6, 8 |
+| [design-backup-restore.md](design-backup-restore.md) | Draft | Default-on Google Drive backup/restore: `BackupClient` port, `drive.file` scope (granted at sign-in), automatic post-decision backup to a single user-visible file, replace-local restore | 5, 6, 8 |
 | [design-frontend.md](design-frontend.md) | Approved | Vite + React + Tailwind PWA, local-first state, home decisions-surface + guided 3-phase workflow, components | 3, 6, 7, 8 |
 | [design-analytics.md](design-analytics.md) | Draft | On-device analytics: inbox health score, time-saved, breakdowns, achievements, opt-in local shareable snapshot | 5, 8 |
 | [design-testing.md](design-testing.md) | Draft | Vitest three-tier tests (core unit, web component, Playwright E2E via demo mode), mocked Gmail boundary, fixtures, coverage gate | 4, 6 |

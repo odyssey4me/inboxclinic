@@ -18,10 +18,11 @@ const FIXED_FILE_ID = "backup-file";
 export class InMemoryBackupClient implements BackupClient {
   private file: { meta: BackupFile; data: Uint8Array } | undefined;
   private writeSeq = 0;
-  /** True once `authorize()` has succeeded — for consent/opt-in assertions. */
-  authorized = false;
-  /** When set, `authorize()` rejects with it (simulate declined `drive.file` consent). */
-  authorizeError: Error | undefined;
+  /**
+   * When set, every write rejects with it — the `DriveScopeMissing` / transport-failure
+   * path an automatic backup has to swallow (design-backup-restore.md Decision 4).
+   */
+  writeError: Error | undefined;
   /** Records the file ids passed to `downloadBackupFile`, for assertions. */
   readonly downloads: string[] = [];
 
@@ -42,23 +43,19 @@ export class InMemoryBackupClient implements BackupClient {
     };
   }
 
-  authorize(): Promise<void> {
-    if (this.authorizeError !== undefined) return Promise.reject(this.authorizeError);
-    this.authorized = true;
-    return Promise.resolve();
-  }
-
   findBackupFile(): Promise<BackupFile | undefined> {
     return Promise.resolve(this.file !== undefined ? { ...this.file.meta } : undefined);
   }
 
   createBackupFile(blob: Uint8Array): Promise<BackupFile> {
+    if (this.writeError !== undefined) return Promise.reject(this.writeError);
     const meta = this.nextMeta();
     this.file = { meta, data: new Uint8Array(blob) };
     return Promise.resolve({ ...meta });
   }
 
   updateBackupFile(id: string, blob: Uint8Array): Promise<void> {
+    if (this.writeError !== undefined) return Promise.reject(this.writeError);
     if (this.file === undefined || this.file.meta.id !== id) {
       return Promise.reject(new BackupNotFoundError(`InMemoryBackupClient: no file with id ${id}`));
     }

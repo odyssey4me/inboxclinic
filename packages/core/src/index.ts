@@ -15,12 +15,16 @@ export { domainBlockCoverage, type DomainBlockCoverage } from "./domains/domainB
 export { inDomainSubtree, isSubdomainOf } from "./domains/subtree";
 export { trustTier, type TrustTier, type TrustTierName, type TrustTierColour } from "./trust/tiers";
 
-// Provider-client port (Gmail).
+// The single sign-in OAuth grant (design-gmail-integration.md Decision 2).
 export {
-  GMAIL_READONLY_SCOPE,
+  DRIVE_FILE_SCOPE,
   GMAIL_MODIFY_SCOPE,
   GMAIL_SETTINGS_BASIC_SCOPE,
-  SCOPES_BY_TIER,
+  GOOGLE_SCOPES,
+} from "./ports/scopes";
+
+// Provider-client port (Gmail).
+export {
   StaleHistoryError,
   type AccessToken,
   type FilterSpec,
@@ -33,27 +37,28 @@ export {
   type MessageLabelEdit,
   type MessageMeta,
   type NativeFilter,
-  type ScopeTier,
 } from "./ports/GmailClient";
 
 // Backup-transport port (Google Drive today).
 export {
   BACKUP_FILE_NAME,
   BackupNotFoundError,
-  DRIVE_FILE_SCOPE,
   type BackupClient,
   type BackupFile,
 } from "./ports/BackupClient";
 
 // Backup / restore orchestration (over the BackupClient + Store ports).
 export {
+  backupIfEnabled,
   backupToDrive,
   getBackupState,
   restoreFromDrive,
   setBackupEnabled,
+  BACKUP_ENABLED_DEFAULT,
   BACKUP_ENABLED_KEY,
   BACKUP_FILE_ID_KEY,
   BACKUP_LAST_AT_KEY,
+  BACKUP_LAST_ERROR_KEY,
   type BackupOptions,
   type BackupResult,
   type BackupState,

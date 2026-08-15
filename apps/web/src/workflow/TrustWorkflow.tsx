@@ -17,6 +17,7 @@ import {
 } from "@inboxclinic/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { scheduleBackup } from "../backup/autoBackup";
 import { BatchOffer } from "../components/composed/BatchOffer";
 import { DecisionRow } from "../components/composed/DecisionRow";
 import { ImpactPreview } from "../components/composed/ImpactPreview";
@@ -564,6 +565,7 @@ function ExecutionPhase({ store, gmail, pending, onReload, onDone }: ExecutionPh
           },
         },
       );
+      scheduleBackup();
       // Record done first, then enforce against Gmail (filters + message actions).
       try {
         setEnforcement(await enforce(gmail, store, { now: Date.now() }));

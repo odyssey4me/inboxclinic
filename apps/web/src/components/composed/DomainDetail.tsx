@@ -19,6 +19,7 @@ import {
 } from "@inboxclinic/core";
 import { useEffect, useState } from "react";
 
+import { scheduleBackup } from "../../backup/autoBackup";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -138,6 +139,7 @@ export function DomainDetail({
         decidedVia: "dashboard",
         now: Date.now(),
       });
+      scheduleBackup();
       await enforce(gmail, store);
       onChanged();
       onClose();
@@ -152,6 +154,7 @@ export function DomainDetail({
     setError(null);
     try {
       await withdrawDecision(store, { subjectId, scope: "domain" });
+      scheduleBackup();
       // The effective status can move either way, so reconcile rather than assume.
       await enforce(gmail, store);
       onChanged();

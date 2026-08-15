@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 
 import { App } from "./App";
+import { GoogleAuth } from "./auth/GoogleAuth";
+import { initAutoBackup } from "./backup/autoBackup";
 import { BrowserDriveClient } from "./backup/BrowserDriveClient";
 import { BrowserGmailClient } from "./gmail/BrowserGmailClient";
 import "./index.css";
@@ -23,6 +25,7 @@ async function bootstrap(): Promise<void> {
     // Lazy-loaded so the demo engine + fixtures never ship in the normal path.
     const { createDemoEnvironment } = await import("@inboxclinic/core/demo");
     const { gmail, store, backup } = await createDemoEnvironment();
+    initAutoBackup(backup, store);
     const profile = await store.profile.get();
     root.render(
       <StrictMode>
@@ -40,13 +43,24 @@ async function bootstrap(): Promise<void> {
 
   // Public OAuth client id (no secret). Absent in CI/build; required only to sign in.
   const clientId = import.meta.env.VITE_OAUTH_CLIENT_ID ?? "";
-  const gmail = new BrowserGmailClient(clientId);
-  const backup = new BrowserDriveClient(clientId);
+  // One grant, one token, two adapters (design-gmail-integration.md Decision 2).
+  const auth = new GoogleAuth(clientId);
+  const gmail = new BrowserGmailClient(auth);
+  const backup = new BrowserDriveClient(auth);
   const store = createDexieStore();
+  // The grant check keeps a timer-driven backup from ever raising a consent prompt.
+  initAutoBackup(backup, store, () => auth.hasLiveGrant());
 
   root.render(
     <StrictMode>
-      <App gmail={gmail} store={store} backup={backup} />
+      <App
+        gmail={gmail}
+        store={store}
+        backup={backup}
+        onDisconnect={() => {
+          auth.forget();
+        }}
+      />
     </StrictMode>,
   );
 
