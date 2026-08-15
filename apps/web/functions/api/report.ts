@@ -19,8 +19,8 @@ import {
 } from "../../src/reporting/reportIntake";
 
 interface KVNamespace {
-  get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+  list(options: { prefix: string }): Promise<{ keys: { name: string }[] }>;
 }
 
 interface Env {
@@ -36,7 +36,8 @@ interface PagesContext {
 }
 
 const DEFAULT_REPO = "odyssey4me/inboxclinic";
-// Fixed-window limits (per hour) — Turnstile is the real gate; these bound bursts.
+// Per-hour limits, over a window trailing each request — Turnstile is the real gate; these
+// bound bursts (see `withinLimit` for what that does and does not guarantee).
 const IP_LIMIT = 8;
 const ID_LIMIT = 12;
 const WINDOW_SECONDS = 3600;
@@ -67,11 +68,29 @@ async function hashIp(ip: string): Promise<string> {
     .slice(0, 16);
 }
 
-/** Fixed-window increment; returns false when the limit for `key` is already reached. */
-async function withinLimit(kv: KVNamespace, key: string, limit: number): Promise<boolean> {
-  const current = Number.parseInt((await kv.get(key)) ?? "0", 10);
-  if (current >= limit) return false;
-  await kv.put(key, String(current + 1), { expirationTtl: WINDOW_SECONDS });
+/**
+ * Rate limit via one KV entry per accepted request, counted by prefix `list()` — not a single
+ * incrementing counter. A shared counter's read-then-write can race: two concurrent requests
+ * both read the same pre-increment value and both write back the same result, silently losing
+ * one of the increments, so bursts could slip past the configured cap (#194). Per-request
+ * entries never collide on write, so no accepted request is ever lost.
+ *
+ * Each entry carries its own TTL, so the window **trails each request** rather than being a
+ * fixed hour that the old counter kept extending on every write. That is the stricter of the
+ * two, and the one the constants are named for.
+ *
+ * **It bounds bursts; it is not exact, and cannot be.** KV reads and `list()` are eventually
+ * consistent, so requests arriving before a write has propagated all see the same pre-burst
+ * view and are all accepted — the overshoot is bounded by the traffic within that propagation
+ * window, not by anything this function controls. The previous `get()` had exactly the same
+ * property, so this is not a regression, and Turnstile remains the real gate (see the limit
+ * constants above). What changed is that accepted requests are no longer *lost*, so the limit
+ * holds from the next check onwards instead of drifting upward for the whole window.
+ */
+export async function withinLimit(kv: KVNamespace, key: string, limit: number): Promise<boolean> {
+  const { keys } = await kv.list({ prefix: `${key}:` });
+  if (keys.length >= limit) return false;
+  await kv.put(`${key}:${crypto.randomUUID()}`, "1", { expirationTtl: WINDOW_SECONDS });
   return true;
 }
 
@@ -98,7 +117,7 @@ export async function onRequestPost(context: PagesContext): Promise<Response> {
     const missing: string[] = [];
     if (!env.TURNSTILE_SECRET) missing.push("TURNSTILE_SECRET");
     if (!env.GITHUB_TOKEN) missing.push("GITHUB_TOKEN");
-    if (kv === undefined || typeof kv.get !== "function") missing.push("REPORT_KV");
+    if (kv === undefined || typeof kv.list !== "function") missing.push("REPORT_KV");
     if (missing.length > 0) {
       return fail(500, "config", `server not configured: missing ${missing.join(", ")}`);
     }
