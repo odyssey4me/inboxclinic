@@ -35,29 +35,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Zero-secrets check
-        run: ./scripts/check-no-secrets.sh
-
-      - name: No duplicate major versions
-        run: ./scripts/check-no-dup-majors.sh
-
-      - name: Playwright image pin matches @playwright/test
-        run: ./scripts/check-playwright-image-pin.sh
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Dead-code / orphaned-module check
-        run: npm run knip
-
-      - name: Test & coverage
-        run: npm run test:coverage
-
-      - name: Build
-        run: npm run build
+      # One step, one list. The checks live in scripts/ci-checks.sh so this job, the
+      # pre-push hook and scripts/gate.sh cannot disagree about what they are — a
+      # hand-typed subset skipping `knip` is what pushed a red gate to main. The script
+      # emits ::group:: markers, so each check is still a collapsible section here.
+      - name: Checks (guards, lint, typecheck, knip, test & coverage, build)
+        run: ./scripts/ci-checks.sh
 
   e2e:
     name: Playwright E2E (demo mode)

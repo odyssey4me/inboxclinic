@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# pre-push: run what CI would run, before CI has to
+# -----------------------------------------------------------------------------
+# The gating `build` and `docs` jobs, locally, in about 18 seconds. Nothing here
+# is a duplicate list — `scripts/ci-checks.sh` IS the build job, and the docs job
+# is one script — so this hook cannot drift from CI the way a hand-typed subset
+# of commands did (which is what pushed a red `ci-gate` to main and blocked three
+# PRs behind it).
+#
+# The `e2e` job is deliberately not run: the full Playwright matrix needs the
+# pinned container image, since WebKit cannot launch on a Fedora host. Run
+# `./scripts/gate.sh` for that before anything risky.
+#
+# Installed by `npm install` via the root `prepare` script, which points
+# `core.hooksPath` at this directory. To skip it for one push — a WIP branch, or
+# a push you have already gated — use `git push --no-verify`.
+#
+# See CONTRIBUTING.md § Checks.
+# -----------------------------------------------------------------------------
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "pre-push: running the CI build + docs checks (skip with --no-verify)"
+
+./scripts/ci-checks.sh
+./scripts/doc-sync-validate.sh
+
+echo "pre-push: all checks passed"

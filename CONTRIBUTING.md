@@ -62,12 +62,27 @@ client id is public by design (PKCE), and nothing secret is ever stored.
 ### Checks
 
 ```bash
+npm run check        # everything the CI gate runs except e2e — the one to trust
 npm test             # Vitest (unit + component)
 npm run lint         # ESLint
 npm run typecheck    # tsc --noEmit
 npm run knip         # dead code: unused files / exports / dependencies (knip)
 npm run format       # Prettier
 ```
+
+**`npm run check` is the list; the individual commands are a subset of it.** It runs
+`scripts/ci-checks.sh` (the CI `build` job — guards, lint, typecheck, knip,
+`test:coverage`, build) plus doc-sync (the `docs` job), in about 18 seconds. CI, this
+command, the pre-push hook and `gate.sh` all call that one script, so none of them can
+drift from the others — running a hand-picked subset of the commands above is how a
+skipped `knip` reached `main` and took the gate red.
+
+**A `pre-push` hook runs it for you.** `npm install` points `core.hooksPath` at the
+tracked `.githooks/` directory (via the root `prepare` script), so a fresh clone is
+covered with no extra step and no extra dependency. Commits stay instant — the cost lands
+once per push, where it replaces a red CI run. Use `git push --no-verify` to skip it on a
+WIP branch or a push you have already gated. The `e2e` job is **not** in it: the full
+Playwright matrix needs the pinned container (see `gate.sh` below).
 
 `knip` enforces CLAUDE.md's **No Dead Code** rule in the gate — it flags orphaned modules,
 unused exports, and unused dependencies. Real entry points (the Vite app, the service
@@ -86,9 +101,10 @@ npm run e2e:ui          # interactive runner while writing specs
 **Reproduce the whole CI gate locally — `./scripts/gate.sh`.** WebKit can't launch on a bare
 Linux host (missing apt-only deps like `libwoff1`), so `npm run e2e` skips it locally and a
 WebKit- or mobile-only failure can slip through to the gate. `gate.sh` runs the entire gate —
-lint, typecheck, `test:coverage`, build, the **full Playwright matrix incl. WebKit**, and
-doc-sync — inside the **same pinned Playwright image CI uses** (so "green locally" means "green
-on the gate"). It uses **Podman** (rootless) by default, Docker as a fallback:
+everything `npm run check` covers **plus the full Playwright matrix incl. WebKit** — inside the
+**same pinned Playwright image CI uses** (so "green locally" means "green on the gate"). It is
+the one thing the pre-push hook cannot do for you, since the browsers need that image. It uses
+**Podman** (rootless) by default, Docker as a fallback:
 
 ```bash
 ./scripts/gate.sh              # full gate (what CI runs)

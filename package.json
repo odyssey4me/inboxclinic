@@ -24,7 +24,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "knip": "knip",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check": "./scripts/ci-checks.sh && ./scripts/doc-sync-validate.sh",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

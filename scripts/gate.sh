@@ -70,7 +70,11 @@ IMAGE="mcr.microsoft.com/playwright:v${PW_VERSION}-noble"
 
 # Steps mirror the three gate jobs. `npm ci` matches CI; the official image already carries
 # the browsers, so no `playwright install` step is needed.
-CHECKS='./scripts/check-no-secrets.sh && ./scripts/check-no-dup-majors.sh && ./scripts/check-playwright-image-pin.sh && npm run lint && npm run typecheck && npm run knip && npm run test:coverage && npm run build && ./scripts/doc-sync-validate.sh'
+#
+# The build job's list is NOT repeated here: `ci-checks.sh` is that list, called by this
+# script, by the CI job itself and by the pre-push hook, so the three cannot drift. Only the
+# `docs` job is appended, since CI runs it as a separate job.
+CHECKS='./scripts/ci-checks.sh && ./scripts/doc-sync-validate.sh'
 E2E='npm run e2e'
 case "$MODE" in
   full) STEPS="npm ci && ${CHECKS} && ${E2E}" ;;
