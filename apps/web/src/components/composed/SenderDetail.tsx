@@ -141,8 +141,14 @@ export function SenderDetail({
   // A decision of its own that the governing rule overrides: made before the rule existed, since
   // deciding under one records the carve-out. Dormant, but it resurfaces if the rule is removed.
   const overriddenDecision = sender.trustStatus !== "pending" || sender.decisionScope !== null;
+  // "…which covers every domain beneath it" — true of a parent-domain rule by design, and of
+  // any rule governing this sender from ABOVE, since `*@domain` reaches the subtree (#210/#244).
+  // Without the second case a sender at `email.example.com` was told an `example.com` rule
+  // blocked it and never told why that rule reached its subdomain at all.
   const ruleIsSubtree =
-    governingRule !== undefined && governingRule.decisionScope === "parentDomain";
+    governingRule !== undefined &&
+    (governingRule.decisionScope === "parentDomain" ||
+      governingRule.domain.toLowerCase() !== sender.domain.toLowerCase());
 
   // The scope-toggle (single-sender domain) path always supplies concrete actions from
   // TrustActions; the fallback only fires for the address-scoped flagged batch.
