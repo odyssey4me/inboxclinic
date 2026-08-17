@@ -4,7 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
-  "packageManager": "npm@10.9.8",
+  "packageManager": "npm@10.9.9",
   "engines": {
     "node": ">=24.0.0 <25.0.0",
     "npm": ">=10.0.0"
@@ -38,7 +38,7 @@
     "eslint-plugin-react-refresh": "^0.5.3",
     "fast-check": "4.9.0",
     "globals": "^17.7.0",
-    "knip": "6.29.0",
+    "knip": "6.32.2",
     "prettier": "^3.9.5",
     "tldts": "7.4.10",
     "typescript": "6.0.3",
