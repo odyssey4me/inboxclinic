@@ -310,6 +310,32 @@ them continuously (architecture.md §6):
    `realSuffixes.analysis.test.ts` — but it measures what misconfiguring `allowPrivateDomains`
    would cost.
 
+11. **How often the two forms actually differ, measured (#257, 2026-08-23).** Point 10 makes
+   the bare form suspect; what it does not say is how much reach the display-name property
+   really adds. `./scripts/qa-gmail-probe.py form discover` costs that directly — every
+   message `from:<eTLD+1>` selects that `from:*@<eTLD+1>` does not — across a real account.
+
+   **17 registrable domains, a full year, zero diverging messages.** The 12 busiest domains
+   in the mailbox plus 5 chosen by hand, including the one domain #252 saw the property fire
+   on, over a mix of gTLD and multi-label ccTLD registrable domains. Nothing separated the
+   two forms anywhere. The subtraction was controlled against an unmatchable `.invalid`
+   domain — 102 messages before, 102 after — so a zero here is an absence of divergence and
+   not a query that parses to nothing, which is exactly how #252 manufactured a false
+   finding once (`dc39a88`).
+
+   This **bounds the cost** of the bare form; it does not clear it. Point 10 measured the
+   property on a *partial* token, and a display name carrying a full registrable domain
+   verbatim is simply rare — so this measures how often senders happen to do it, never
+   whether they can. A bare criterion's reach is a function of text the **sender** controls,
+   so a mailbox no one has targeted bounds the accident rather than the attack. The evidence
+   still points at `*@<eTLD+1>`, which has no such surface at all; **still #257's to settle.**
+
+   **Not measured: whether a live filter agrees with search.** Points 10 and 11 are both
+   *search* semantics, and Decision 5 has twice found the two engines worth verifying
+   separately (#181, #182). `form arm` exists for the filter half — a filter starring only
+   what the two forms disagree about — but has no subject to arm, because in this mailbox
+   nothing disagrees.
+
 **Rationale:** Filters are the linchpin that makes a client-only app viable — they
 provide durable, server-side enforcement with no backend of ours.
 
@@ -317,8 +343,11 @@ provide durable, server-side enforcement with no backend of ours.
 > **Its premise is now contested — see #257 before building #185.** The bare form was chosen
 > because `*@domain` was believed to be an *exact* match that could not reach subdomains, which
 > #210 disproved; and point 10 measured that a bare criterion additionally matches the sender's
-> **display name**, which `*@` does not. Both facts point at `*@<eTLD+1>`. Recorded here rather
-> than re-decided, since no parent rule can be created by a user yet.
+> **display name**, which `*@` does not. Both facts point at `*@<eTLD+1>`. Point 11 then
+> measured how often that display-name reach actually fires — never, across 17 registrable
+> domains in a real mailbox over a year — which bounds what getting this wrong costs today
+> without changing the direction, since the reach depends on text the sender controls.
+> Recorded here rather than re-decided, since no parent rule can be created by a user yet.
 >
 > A parent-domain rule (design-trust-decisions.md Decision 9) compiles to a **single bare-domain
 > criterion `from:<eTLD+1>`** (no `*@` anchor). #181 confirmed on a real account: `from:apple.com` matched
@@ -696,6 +725,7 @@ migrate (Alpha; see CLAUDE.md "No Backward Compatibility Required").
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-08-23 | **Decision 5 point 11 — how often the two criterion forms actually differ (#257).** Point 10 left the parent-domain form contested on the strength of a display-name match measured on a *partial* token; this costs the difference between `from:<eTLD+1>` and `from:*@<eTLD+1>` directly, as the set of messages the first selects and the second does not. Across 17 registrable domains — the 12 busiest in a real mailbox plus 5 chosen by hand, including the one #252 saw the property fire on, spanning gTLD and multi-label ccTLD suffixes — **zero** messages separated the forms over a full year, with the subtraction controlled against an unmatchable `.invalid` domain so the zero is an absence rather than a broken query. That bounds the cost of the bare form without clearing it: it measures how often senders happen to put a full domain in a display name, not whether they can, and a bare criterion's reach is a function of sender-controlled text. Left contested, still pointing at `*@<eTLD+1>`, still #257's to settle before #185. Also recorded: both this and point 10 are **search** semantics — the live-filter half has no subject to arm, precisely because nothing diverges. Subjects are described by shape rather than named; the mailbox they came from is the developer's own. | Claude |
 | 2026-08-15 | **Decision 5 point 10 — what `from:` actually matches, measured (#252).** Read-only probe against a real account: domain matching is **label-anchored, not substring** (`from:rospect.co.uk` returned nothing where `from:prospect.co.uk` returned 113 messages), so the dot-boundary model in `domains/subtree.ts` is the one Gmail applies; a rule keyed on a registrable domain **stays inside it** (`from:prospect.co.uk` returned one host though 31 tenants under `co.uk` had mail); a bare `from:<token>` **also matches the display name** (`from:prospect` returned `autoresponder@rightmove.com`, where the token is nowhere in the address); and `*@<domain>` is anchored to the domain and does not. For full-domain tokens the two forms agreed everywhere tested, so the difference is latent rather than observed — but the parent-domain form is bare by construction, so it inherits it, which is now #257. Also measured: a query for a bare public suffix sweeps every tenant beneath it (`from:*@com` reached 70 organisations), unreachable by any compiled rule but a measure of what misconfiguring `allowPrivateDomains` would cost. | Claude |
 | 2026-08-15 | **Decision 5 point 9 — which subdomains a block spares depends on its scope (#250).** The carve-out read raw `trustStatus` for every blocked target, so a **parentDomain** rule spared a subdomain carrying an older trust it had never carved out — while `effectiveSenderStatus` reported that subdomain's senders as blocked, per Decision 9's "the parent rule is the later, broader word". Status said blocked, the filter and the sweep spared the mail: the #244 divergence pointing the other way. A parentDomain rule now carves out only the subdomains in its own `exceptionDomains`, which `applyDomainDecision` already writes when a subdomain is decided under the rule; **domain**-scope behaviour from #210/#244 is unchanged. Chose this over making a trusted subdomain step aside from a parent rule too, which would have been simpler to state but reverses Decision 9 and re-opens part of the future-subdomain leak #136 exists to close. | Claude |
 | 2026-08-15 | **Decision 5 point 2 — the exact-domain enumerate form covers the subtree (#249).** The overflow spec said an exact-domain rule has "no sub-structure to keep" and enumerated one filter per still-blocked observed sender *at that domain* — a premise point 9 had already disproved: `*@domain` spans the subtree. So an overflowing domain compiled to a filter set that blocked none of its subdomains' mail going forward, while the sweep — which stays `*@domain` whatever form the filter takes — went on trashing that same mail. The block looked like it was working and had stopped. `blockedMemberAddresses` is now the whole subtree's still-blocked senders (`inDomainSubtree`), in `effectiveBlockedDomains` and in the `simulate` mirror. Still bounded by observed senders, and the "covers what has been seen so far" caveat is unchanged. | Claude |
