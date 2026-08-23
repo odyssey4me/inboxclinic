@@ -1704,18 +1704,46 @@ def _form_report(token: str, state: dict[str, object]) -> None:
             note("  control:    the filter is GONE — nothing below can be read as evidence")
             continue
         note("  control:    the filter still exists")
-        records = [
+
+        # Two enumerations, deliberately. Asking only "is the mail SEARCH calls diverging
+        # also starred?" can confirm search and refute it, but it cannot see a FILTER that
+        # over-reaches further than search does — those messages are, by construction,
+        # absent from the search difference set. Since #257 exists because search and
+        # filter are different engines, a check that can only see one of them answers the
+        # wrong question. So the starred side is enumerated independently: everything this
+        # probe's filter could have starred is mail from OUTSIDE the anchored set.
+        since = [
             record
             for record in from_records(
                 token, f"{difference_query(domain)} after:{armed_at}", MATCH_PAGE
             )
             if int(record["internalDate"]) >= armed_at * 1000  # type: ignore[arg-type]
         ]
+        starred_any = [
+            record
+            for record in from_records(
+                token, f"is:starred -from:*@{domain} after:{armed_at}", MATCH_PAGE
+            )
+            if int(record["internalDate"]) >= armed_at * 1000  # type: ignore[arg-type]
+        ]
+        seen = {str(record["raw"]) for record in since}
+        beyond = [record for record in starred_any if str(record["raw"]) not in seen]
+        records = since
         starred = [record for record in records if record["starred"]]
-        note(f"  diverging:  {len(starred)}/{len(records)} starred")
+        note(f"  diverging:  {len(starred)}/{len(records)} starred (search says they diverge)")
         for record in records[:5]:
             mark = "*" if record["starred"] else " "
             note(f"    {mark} {record['raw']}")
+        if beyond:
+            # Not asserted as this probe's doing: a star is not a signature, and the user
+            # stars their own mail. Reported for judgement, the way _report_stranded refuses
+            # to infer ownership from shape.
+            note(f"  BEYOND:     {len(beyond)} starred message(s) search did NOT call diverging")
+            for record in beyond[:5]:
+                note(f"      {record['raw']}")
+            note("              If this probe starred them, the FILTER reaches further than")
+            note("              SEARCH does — the asymmetry #257 was filed to rule out. Check")
+            note("              each against your own starring before concluding anything.")
         if not records:
             note("  verdict:    no evidence yet — the two forms have not disagreed since arming")
             note(_expected(subject, "diverged", elapsed_days, "            predicted"))
