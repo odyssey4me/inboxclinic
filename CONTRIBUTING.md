@@ -142,6 +142,7 @@ an access token (~1h, no refresh token), so nothing long-lived sits on disk.
 ./scripts/qa-gmail-probe.py search      # wildcard + subdomain + exclusion semantics
 ./scripts/qa-gmail-probe.py filters     # stored negatedQuery shape (read-only)
 ./scripts/qa-gmail-probe.py psl         # does the matcher respect public-suffix boundaries?
+./scripts/qa-gmail-probe.py form discover  # do the two criterion forms ever select different mail?
 ./scripts/qa-gmail-probe.py revoke      # drop the credential when done
 ```
 

@@ -41,6 +41,21 @@
 #             and the expected wait is stated when arming, so a slow subject is
 #             obvious up front rather than after days of silence.
 #                                                 [writes, to arm and disarm]
+#   psl       Does the matcher respect PUBLIC-SUFFIX boundaries? Asks whether a
+#             query for one tenant of a suffix reaches its siblings — the
+#             over-reach `allowPrivateDomains` exists to prevent in our model,
+#             which our model cannot enforce on Gmail's.        [read-only]
+#   form      Which criterion form should a parent-domain rule compile to —
+#             bare `from:<eTLD+1>` or anchored `from:*@<eTLD+1>`? #252 measured
+#             the two differing in SEARCH (a bare token also matches the
+#             sender's DISPLAY NAME); this asks whether a live FILTER agrees,
+#             which #181/#182 and #210 all found worth asking separately.
+#             `discover` costs the difference between the forms across the
+#             mailbox read-only and often answers outright; `arm` waits for
+#             mail to fall into that difference, starring only what the two
+#             forms disagree about — so nothing at the domain itself can match,
+#             and a star means the bare form reached mail from somewhere else.
+#                                             [discover read-only; arm writes]
 #
 # The semantics under test, and why enforcement depends on them, are in
 # docs/design-gmail-integration.md (Decision 5).
@@ -77,6 +92,8 @@
 #   ./scripts/qa-gmail-probe.py filters [--json] [--out FILE]
 #   ./scripts/qa-gmail-probe.py limit --i-know [--domain probe.invalid]
 #   ./scripts/qa-gmail-probe.py match arm|check|disarm [--top 3] [--domain x.com]
+#   ./scripts/qa-gmail-probe.py psl [--domain x.com] [--top 3]
+#   ./scripts/qa-gmail-probe.py form discover|arm|check|disarm [--domain x.com]
 #   ./scripts/qa-gmail-probe.py revoke
 # -----------------------------------------------------------------------------
 from __future__ import annotations
@@ -423,6 +440,43 @@ def sender_addresses(token: str, query: str, limit: int) -> list[str]:
 
 def host_of(address: str) -> str:
     return address.rsplit("@", 1)[-1]
+
+
+def address_of(raw_from: str) -> str:
+    """The address out of a raw `From` header, discarding the display name."""
+    match = re.search(r"<([^>]+)>", raw_from)
+    return (match.group(1) if match else raw_from).strip().lower()
+
+
+def from_records(token: str, query: str, limit: int) -> list[dict[str, object]]:
+    """Raw `From`, address, starred and arrival time for each message matching `query`.
+
+    The RAW header, unlike `sender_samples`, which keeps only the address. The
+    criterion-form probe's whole subject is whether the DISPLAY NAME is what matched, so
+    discarding it would throw away the evidence the probe exists to collect.
+    """
+    listing = api_get(token, "/messages", {"q": query, "maxResults": str(limit)})
+    records: list[dict[str, object]] = []
+    for message in listing.get("messages") or []:  # type: ignore[union-attr]
+        meta = api_get(
+            token,
+            f"/messages/{message['id']}",  # type: ignore[index]
+            {"format": "metadata", "metadataHeaders": "From"},
+        )
+        headers = (meta.get("payload") or {}).get("headers") or []  # type: ignore[union-attr]
+        raw = next(
+            (str(h.get("value", "")) for h in headers if str(h.get("name", "")).lower() == "from"),
+            "",
+        )
+        records.append(
+            {
+                "raw": raw,
+                "address": address_of(raw),
+                "starred": MATCH_LABEL in (meta.get("labelIds") or []),  # type: ignore[operator]
+                "internalDate": int(str(meta.get("internalDate", "0")) or 0),
+            }
+        )
+    return records
 
 
 # --- probes ------------------------------------------------------------------
@@ -1252,6 +1306,11 @@ def _eta(per_week: float) -> str:
 def _report_stranded(token: str) -> None:
     """Name probe-shaped filters the tool has no record of, without deleting them.
 
+    The shape is "stars mail, has a negatedQuery, removes nothing" — deliberately not
+    keyed on the `*@` prefix any more, since the criterion-form probe (#257) arms the BARE
+    form on purpose and a sweep that could not see it would strand exactly the filters
+    hardest to recognise by eye.
+
     Deleting on shape alone would mean removing a filter this tool cannot prove it created —
     the exact guess-from-shape that #29 forbids in the app itself, and no more acceptable in
     the QA tool. So it reports and leaves the choice with the user.
@@ -1262,7 +1321,7 @@ def _report_stranded(token: str) -> None:
         for f in listing.get("filter") or []  # type: ignore[union-attr]
         if (f.get("action") or {}).get("addLabelIds") == [MATCH_LABEL]
         and not (f.get("action") or {}).get("removeLabelIds")
-        and str((f.get("criteria") or {}).get("from", "")).startswith("*@")
+        and (f.get("criteria") or {}).get("from")
         and (f.get("criteria") or {}).get("negatedQuery")
     ]
     if not stranded:
@@ -1383,8 +1442,7 @@ def _subject_counts(token: str, subject: dict[str, object], armed_at: int) -> tu
             (str(h.get("value", "")) for h in headers if str(h.get("name", "")).lower() == "from"),
             "",
         )
-        match = re.search(r"<([^>]+)>", raw)
-        address = (match.group(1) if match else raw).strip().lower()
+        address = address_of(raw)
         if int(str(meta.get("internalDate", "0")) or 0) < armed_at * 1000:
             continue  # predates the filter; cannot be evidence of what it did
         starred = MATCH_LABEL in (meta.get("labelIds") or [])  # type: ignore[operator]
@@ -1493,6 +1551,354 @@ def _match_report(token: str, state: dict[str, object]) -> None:
         note("            sender the user explicitly trusted. A correctness bug, not a caveat.")
 
 
+# --- criterion-form probe (#257) ---------------------------------------------
+
+FORM_STATE = ".local/qa-form.json"
+
+# Window the divergence rate is measured over. Wider even than SUBDOMAIN_WINDOW_DAYS,
+# because the event is rarer still: it needs a sender whose DISPLAY NAME carries a full
+# registrable domain verbatim, which #252 measured as unusual (the two criterion forms
+# agreed on every full-domain token tested). A quarter returns 0 for nearly every domain
+# and so cannot order candidates at all.
+FORM_WINDOW_DAYS = 365
+
+# Candidates costed before ranking. Each costs one counted query, so this bounds the
+# discovery pass rather than the mailbox.
+FORM_CANDIDATES = 12
+
+
+def difference_query(domain: str) -> str:
+    """Mail the BARE criterion reaches that the domain-anchored one does not.
+
+    This is #257's over-reach set, as a single query. `from:<d>` matches the domain token
+    wherever it appears — in the address, or (measured in #252) in the sender's DISPLAY
+    NAME — while `from:*@<d>` is anchored to the address's domain. Subtracting the second
+    from the first leaves exactly the mail a bare parent-domain criterion would catch and
+    an anchored one would not: the difference between the two forms #185 might compile.
+
+    The same string serves as both halves of the experiment — as a search it measures the
+    difference historically, and as a filter (criteria.from + negatedQuery) it measures it
+    on arriving mail. That is deliberate: #257 asks whether search and filter agree, and
+    the only way to answer it is to ask both the identical question.
+    """
+    return f"from:{domain} -from:*@{domain}"
+
+
+def form_candidates(
+    token: str,
+    args: argparse.Namespace,
+    psl: tuple[set[str], set[str], set[str]],
+) -> list[dict[str, object]]:
+    """Registrable domains in the mailbox, ranked by how much divergence each can show.
+
+    Ranked on the divergence count itself, not on the domain's volume: a busy domain whose
+    token never appears in anyone's display name will never star a thing, and arming it
+    would repeat the mistake `_pick_exclusion` documents — a subject chosen for how much
+    mail it sends rather than for how much of the mail it sends is EVIDENCE.
+
+    Folded to the registrable domain via the PSL, because that is the only key a
+    parent-domain rule can carry: measuring `email.monzo.com` would measure a subject the
+    app can never compile.
+    """
+    print(f"== sampling up to {args.sample} recent messages (metadata only) ==")
+    volume: Counter = Counter()
+    for address in sender_addresses(token, f"newer_than:{FORM_WINDOW_DAYS}d", args.sample):
+        registrable = registrable_of(host_of(address), psl)
+        if registrable:
+            volume[registrable] += 1
+
+    candidates: list[dict[str, object]] = []
+    print(f"\n-- costing the {args.candidates} busiest registrable domains over {FORM_WINDOW_DAYS}d")
+    for domain, seen in volume.most_common(args.candidates):
+        query = f"{difference_query(domain)} newer_than:{FORM_WINDOW_DAYS}d"
+        diverged = count_messages(token, query)
+        candidates.append({"domain": domain, "sampled": seen, "diverged": diverged})
+        note(f"{domain}: {diverged} diverging msg(s) in {FORM_WINDOW_DAYS}d ({seen} sampled)")
+    candidates.sort(key=lambda c: (-int(c["diverged"]), str(c["domain"])))  # type: ignore[arg-type]
+    return candidates
+
+
+def form_control(token: str, domain: str) -> bool:
+    """Is a zero above a real absence of divergence, or a query that matches nothing?
+
+    A negation that silently swallowed the whole query would report zero for every domain
+    and read exactly like the finding — and this probe has manufactured a false finding
+    from an unchecked assumption once already (#252, `dc39a88`). So subtract a term nothing
+    can match: `*@probe.invalid` is unroutable (RFC 2606), so removing it must remove
+    nothing, and the count has to come back unchanged.
+    """
+    print(f"\n-- control: is the subtraction doing anything? ({domain})")
+    total = count_messages(token, f"from:{domain}")
+    inert = count_messages(token, f"from:{domain} -from:*@{PROBE_DOMAIN}")
+    note(f"from:{domain}                      -> {total}")
+    note(f"  minus an unmatchable domain      -> {inert}")
+    if total and total == inert:
+        note("Subtracting something nothing sends removes nothing, so the negation parses")
+        note("and the zeroes above are absences of divergence rather than broken queries.")
+        return True
+    if not total:
+        note("INCONCLUSIVE — the unsubtracted query returned nothing either, so this subject")
+        note("cannot control anything.")
+        return False
+    note("BROKEN — subtracting an unmatchable term changed the count. The negation is not")
+    note("doing what this probe assumes, and every zero above is uninterpretable.")
+    return False
+
+
+def _live_filter_ids(token: str) -> set[str]:
+    """Ids of the filters that currently exist, for the check's positive control.
+
+    A difference filter has no apex control available to it — the negatedQuery deliberately
+    excludes the mail that would prove it live. So "the filter still exists" is the only
+    control this experiment can have, and without it a run of zeroes cannot be told apart
+    from a filter that was deleted the day after arming.
+    """
+    listing = api_get(token, "/settings/filters")
+    return {str(f.get("id")) for f in listing.get("filter") or []}  # type: ignore[union-attr]
+
+
+def _create_form_filter(token: str, domain: str) -> str:
+    """The bare form, minus the anchored form. Stars only what the two forms disagree about."""
+    body = json.dumps(
+        {
+            "criteria": {"from": domain, "negatedQuery": f"from:(*@{domain})"},
+            "action": {"addLabelIds": [MATCH_LABEL]},
+        }
+    ).encode()
+    request = urllib.request.Request(
+        f"{GMAIL_API}/settings/filters",
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return str(json.load(response)["id"])
+    except urllib.error.HTTPError as error:
+        fail(f"could not create the form filter for {domain}: "
+             f"{error.read().decode('utf-8', 'replace')}")
+
+
+def _load_form_state() -> dict[str, object] | None:
+    try:
+        with open(FORM_STATE, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _form_report(token: str, state: dict[str, object]) -> None:
+    armed_at = int(state["armedAt"])  # type: ignore[arg-type]
+    subjects: list[dict[str, object]] = state["subjects"]  # type: ignore[assignment]
+    elapsed_days = (int(time.time()) - armed_at) / 86400.0
+    print(f"== criterion form: bare vs `*@` ({elapsed_days:.1f} days since arming) ==")
+    note(f"examining up to {MATCH_PAGE} messages per subject")
+    live = _live_filter_ids(token)
+
+    verdicts: list[bool] = []
+    for subject in subjects:
+        domain = str(subject["domain"])
+        print()
+        note(f"{domain}")
+        if str(subject["filterId"]) not in live:
+            note("  control:    the filter is GONE — nothing below can be read as evidence")
+            continue
+        note("  control:    the filter still exists")
+        records = [
+            record
+            for record in from_records(
+                token, f"{difference_query(domain)} after:{armed_at}", MATCH_PAGE
+            )
+            if int(record["internalDate"]) >= armed_at * 1000  # type: ignore[arg-type]
+        ]
+        starred = [record for record in records if record["starred"]]
+        note(f"  diverging:  {len(starred)}/{len(records)} starred")
+        for record in records[:5]:
+            mark = "*" if record["starred"] else " "
+            note(f"    {mark} {record['raw']}")
+        if not records:
+            note("  verdict:    no evidence yet — the two forms have not disagreed since arming")
+            note(_expected(subject, "diverged", elapsed_days, "            predicted"))
+        elif len(starred) == len(records):
+            verdicts.append(True)
+            note(f"  verdict:    the bare FILTER over-reaches too (from {len(records)} message(s))")
+        elif not starred:
+            verdicts.append(False)
+            note(f"  verdict:    search diverges, the FILTER does not (from {len(records)} message(s))")
+        else:
+            note("  verdict:    mixed — record which senders matched; not a clean answer")
+
+    print()
+    if not verdicts:
+        note("FORM: still inconclusive — the two forms have not disagreed on arriving mail.")
+        note("      A null here is weak evidence at best: it says this mailbox has not")
+        note("      exercised the property, never that a bare criterion is safe.")
+    elif all(verdicts):
+        note(f"FORM: the bare criterion over-reaches in a live FILTER, across {len(verdicts)}")
+        note("      subject(s) — not only in search. #257 should compile `*@<eTLD+1>`.")
+    elif not any(verdicts):
+        note(f"FORM: search reaches mail the FILTER does not, across {len(verdicts)} subject(s).")
+        note("      The display-name property is search-only, so the bare form carries no")
+        note("      over-reach where it is actually enforced — and #181's verification of it")
+        note("      stands. Search and filter are different engines, which is why #257 asked.")
+    else:
+        note("FORM: subjects DISAGREE — matching is not uniform, which is itself the finding.")
+
+
+def cmd_form(args: argparse.Namespace) -> None:
+    """Arm / check / disarm the criterion-form experiment (#257).
+
+    #185 must compile a parent-domain rule as either a bare `from:<eTLD+1>` or an anchored
+    `from:*@<eTLD+1>`. #252 measured the two differing in SEARCH — a bare token also matches
+    the sender's display name — but design-gmail-integration.md Decision 5 has found search
+    and filter semantics worth verifying separately before (#181, #182), and #210 already
+    caught one belief about `*@` that only a live filter could disprove.
+
+    So this arms the DIFFERENCE between the two forms and waits for arriving mail to fall
+    into it. A star is the bare form over-reaching where it is enforced; a diverging message
+    that arrives UNSTARRED is the opposite finding, and just as useful.
+    """
+    if args.action == "discover":
+        token = ensure_token(SCOPE_READ)
+        if args.domain:
+            # Named subjects skip the sample entirely. Divergence is not correlated with
+            # volume — it needs a sender whose display name happens to carry the domain — so
+            # the busiest-first ranking can miss the one domain in a mailbox that diverges,
+            # and a hunch about a specific brand is worth costing directly for three queries.
+            candidates = [
+                {
+                    "domain": domain,
+                    "sampled": 0,
+                    "diverged": count_messages(
+                        token, f"{difference_query(domain)} newer_than:{FORM_WINDOW_DAYS}d"
+                    ),
+                }
+                for domain in args.domain.split(",")
+            ]
+            for candidate in candidates:
+                note(f"{candidate['domain']}: {candidate['diverged']} diverging msg(s)")
+        else:
+            candidates = form_candidates(token, args, load_psl(args.corpus))
+        controlled = bool(candidates) and form_control(token, str(candidates[0]["domain"]))
+        print("\n-- who the diverging mail is actually from")
+        shown = 0
+        for candidate in candidates:
+            if not candidate["diverged"] or shown >= args.top:
+                continue
+            shown += 1
+            domain = str(candidate["domain"])
+            print(f"\n  {domain}  ({candidate['diverged']} in {FORM_WINDOW_DAYS}d)")
+            for record in from_records(
+                token, f"{difference_query(domain)} newer_than:{FORM_WINDOW_DAYS}d", 5
+            ):
+                note(f"    {record['raw']}")
+            note(f"  arm it:  ./scripts/qa-gmail-probe.py form arm --domain {domain}")
+        if not shown:
+            print()
+            if not controlled:
+                note("NO CONCLUSION — the control above did not pass, so the zeroes cannot be")
+                note("read as an absence of divergence. Fix the control before believing them.")
+                return
+            note("NO DOMAIN DIVERGES. In this mailbox the two criterion forms select exactly")
+            note("the same mail, over a full year, for every domain costed — so the")
+            note("display-name over-reach #257 describes is real in principle (#252 measured")
+            note("it on a PARTIAL token) but unexercised here by any full registrable domain.")
+            note("That is a finding, not a failure: it bounds how much the choice of form")
+            note("costs in practice. Arming anything now would wait on an event this mailbox")
+            note("has not produced in a year — pass --domain to force a subject anyway.")
+        return
+
+    if args.action == "check":
+        state = _load_form_state()
+        if state is None:
+            fail("nothing armed — run: ./scripts/qa-gmail-probe.py form arm")
+        _form_report(ensure_token(SCOPE_READ), state)
+        return
+
+    if args.action == "disarm":
+        state = _load_form_state()
+        if state is None:
+            note("no armed state recorded — checking the account for stranded probe filters")
+            _report_stranded(ensure_token(SCOPE_READ))
+            return
+        token = ensure_token(SCOPE_FILTERS)
+        armed_at = int(state["armedAt"])  # type: ignore[arg-type]
+        subjects: list[dict[str, object]] = state["subjects"]  # type: ignore[assignment]
+        for subject in subjects:
+            _delete_filter(token, str(subject["filterId"]))
+            note(f"removed the form filter for {subject['domain']}")
+        os.remove(FORM_STATE)
+
+        # Same reasoning as `match disarm`: this probe holds no scope to modify mail, so it
+        # hands over the searches instead. One per subject rather than a combined query —
+        # each difference set needs its own negation, and an OR of them would select mail
+        # neither filter starred.
+        stamp = time.strftime("%Y/%m/%d", time.gmtime(armed_at))
+        print()
+        note("The stars it added are still there. Paste each into Gmail search,")
+        note("then select all and unstar:")
+        for subject in subjects:
+            note(f"  is:starred after:{stamp} {difference_query(str(subject['domain']))}")
+        return
+
+    # arm
+    if _load_form_state() is not None:
+        fail(
+            "already armed — disarm first, or the old filters keep starring mail:\n"
+            "       ./scripts/qa-gmail-probe.py form disarm"
+        )
+    token = ensure_token(SCOPE_FILTERS)
+
+    subjects = []
+    if args.domain:
+        diverged = count_messages(
+            token, f"{difference_query(args.domain)} newer_than:{FORM_WINDOW_DAYS}d"
+        )
+        note(f"{args.domain}: {diverged} diverging msg(s) in the last {FORM_WINDOW_DAYS} days")
+        subjects.append({"domain": args.domain, "diverged": diverged})
+    else:
+        psl = load_psl(args.corpus)
+        candidates = [c for c in form_candidates(token, args, psl) if c["diverged"]]
+        if not candidates:
+            fail(
+                "no domain in this mailbox diverges between the two forms over "
+                f"{FORM_WINDOW_DAYS} days.\n"
+                "       Arming would wait on an event that has not happened in a year — run\n"
+                "       `form discover` for the finding, or pass --domain to force a subject."
+            )
+        for candidate in candidates[: args.top]:
+            note(f"{candidate['domain']}: {candidate['diverged']} diverging msg(s)")
+            subjects.append({"domain": candidate["domain"], "diverged": candidate["diverged"]})
+
+    armed_at = int(time.time())
+    for subject in subjects:
+        subject["filterId"] = _create_form_filter(token, str(subject["domain"]))
+    with open(FORM_STATE, "w", encoding="utf-8") as handle:
+        json.dump({"armedAt": armed_at, "subjects": subjects}, handle)
+
+    print()
+    for subject in subjects:
+        note(
+            f"armed: from:{subject['domain']} except *@{subject['domain']}"
+            f" → adds {MATCH_LABEL}"
+        )
+    note("They star matching mail and nothing else — no message is moved, hidden or deleted.")
+    note("Nothing at the domain itself can match: the negatedQuery excludes it by design,")
+    note("so a star means the bare form reached mail from SOMEWHERE ELSE.")
+
+    rate = sum(
+        weekly(int(s.get("diverged") or 0), days=FORM_WINDOW_DAYS)  # type: ignore[arg-type]
+        for s in subjects
+    )
+    print()
+    note("Expected wait, from the rates measured above:")
+    note(f"  divergence: {_eta(rate)}   (combined ~{rate:.2f} msg/week)")
+    note("Then:")
+    note("  ./scripts/qa-gmail-probe.py form check")
+    note("  ./scripts/qa-gmail-probe.py form disarm     # when done (then unstar)")
+
+
+
 # --- cli ---------------------------------------------------------------------
 
 
@@ -1544,6 +1950,20 @@ def main() -> None:
     match.add_argument("--sample", type=int, default=200)
     match.add_argument("--top", type=int, default=3, help="how many subjects to arm at once")
     match.set_defaults(func=cmd_match)
+
+    form = sub.add_parser("form", help="bare vs `*@` criterion form (#257; arm writes!)")
+    form.add_argument("action", choices=["discover", "arm", "check", "disarm"])
+    form.add_argument("--domain", help="force ONE subject, however rarely it diverges")
+    form.add_argument("--sample", type=int, default=400)
+    form.add_argument("--top", type=int, default=3, help="how many subjects to arm at once")
+    form.add_argument(
+        "--candidates",
+        type=int,
+        default=FORM_CANDIDATES,
+        help="how many of the busiest domains to cost (divergence does not follow volume)",
+    )
+    form.add_argument("--corpus", default=PSL_CORPUS, help="PSL corpus from fetch-psl-corpus.sh")
+    form.set_defaults(func=cmd_form)
 
     args = parser.parse_args()
     args.func(args)
