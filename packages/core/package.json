@@ -24,6 +24,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "tldts": "7.4.10"
+    "tldts": "7.4.13"
   }
 }
