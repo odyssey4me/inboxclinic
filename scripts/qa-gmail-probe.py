@@ -114,6 +114,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from typing import NoReturn
 
 SCOPE_READ = "https://www.googleapis.com/auth/gmail.readonly"
 SCOPE_FILTERS = "https://www.googleapis.com/auth/gmail.settings.basic"
@@ -145,7 +146,7 @@ MATCH_LABEL = "STARRED"
 MATCH_PAGE = 100
 
 
-def fail(message: str) -> "NoReturn":  # type: ignore[name-defined]
+def fail(message: str) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -772,7 +773,8 @@ def cmd_psl(args: argparse.Namespace) -> None:
             )
         print(f"== {args.domain} — suffix {suffix}, tenant {registrable} ==")
         subjects = [(suffix, [registrable])]
-        return probe_subjects(token, args, psl, subjects)
+        probe_subjects(token, args, psl, subjects)
+        return
 
     print(f"== sampling up to {args.sample} recent messages (metadata only) ==\n")
     hosts = Counter(host_of(a) for a in sender_addresses(token, "newer_than:365d", args.sample))
