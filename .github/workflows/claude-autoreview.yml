@@ -42,7 +42,7 @@ jobs:
     if: >-
       github.event.pull_request.user.login == 'claude[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30 # --max-turns 40 finishes well inside this; caps a thrash tail
     steps:
       - name: Checkout the PR branch
