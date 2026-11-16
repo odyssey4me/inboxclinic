@@ -20,7 +20,7 @@ permissions:
 jobs:
   build:
     name: Lint, typecheck, test & build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout
@@ -44,7 +44,7 @@ jobs:
 
   e2e:
     name: Playwright E2E (demo mode)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Run inside the official Playwright image pinned to our @playwright/test version, so the
     # browsers (incl. WebKit's apt-only deps) match exactly and are the SAME image that
     # scripts/gate.sh uses locally (#107) — "green locally" == "green here". Renovate keeps this
@@ -90,7 +90,7 @@ jobs:
 
   docs:
     name: Docs sync
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,7 +111,7 @@ jobs:
 
   ci-gate:
     name: CI gate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: [build, e2e, docs]
     # Runs even when a gating job fails, so it always reports a result.
     if: always()
@@ -136,7 +136,7 @@ jobs:
 
   deploy:
     name: Build & deploy to Cloudflare Pages
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Only publish from main, and only once both gates are green.
     needs: [build, e2e]
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
